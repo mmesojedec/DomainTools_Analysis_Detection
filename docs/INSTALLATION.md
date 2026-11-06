@@ -42,6 +42,9 @@ playwright install chromium
 
 ## Credentials
 
+The quickest way is to start the app and enter the keys under *Settings → API credentials → Enter API keys*; they are
+saved to `credentials.toml` outside the project folder (see [Entering keys in the app](#entering-keys-in-the-app)).
+
 Credentials can come from three sources. Each credential is taken from the **first** source that has it:
 
 | Credential | 1. Environment | 2. `credentials.toml` | 3. Files |
@@ -161,8 +164,10 @@ the files without restarting the app; changed environment variables still need a
 
 ### Entering keys in the app
 
-**Enter API keys**, below the panel, takes the DomainTools API username and key, the DNSDB API key and, optionally, a
-Certificate API key. It opens by itself when a service has no credentials. **Save to credentials.toml** writes them
+**Enter API keys**, below the panel, takes the DomainTools API username and key, the DNSDB API key, the VPNDB API key
+and, optionally, a Certificate API key. It opens by itself when a service has no credentials, and the sidebar links
+to it. The VPNDB address of an on-premise installation is not part of the form: set `[vpndb]` `url` in the file or
+`$VPNDB_URL`. **Save to credentials.toml** writes them
 to [`credentials.toml`](#credentialstoml), so the order above does not change: environment variables still win, and
 the `~/.dt*` files are used only when the file has no key.
 

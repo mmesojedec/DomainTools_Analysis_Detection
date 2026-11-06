@@ -11,7 +11,7 @@ threat engine over the combined telemetry.
 | --- | --- |
 | [Workflows](docs/WORKFLOWS.md) | **Start here if you are new:** what happens after *Analyze*, the order and logic of every data collection (with diagrams), and what each source is used for |
 | [Use Cases](docs/USE_CASES.md) | The investigations the tool supports: what to enter, where to look in the results, and what each one surfaces |
-| [Installation](docs/INSTALLATION.md) | Requirements, install, **credentials** (environment, `credentials.toml`, files, the API Credentials panel), starting the app, development |
+| [Installation](docs/INSTALLATION.md) | Requirements, install, **credentials** (entering keys in the app, environment, `credentials.toml`, files, the API Credentials panel), starting the app, development |
 | [Usage](docs/USAGE.md) | Running an analysis, every option, offline datasets, where local data is stored, troubleshooting |
 | [Reference](docs/REFERENCE.md) | Everything preconfigured: what each **use case** looks up, the **brand watchlist**, every **collection limit**, the **built-in lists** (hosting watchlist, impersonated brands, takeover-prone services, ...) and the files the app keeps |
 | [User Guide](docs/USER_GUIDE.md) | Reading the results: alerts and grouping, **severity / confidence / category**, the full **detection catalogue**, **MITRE ATT&CK mapping**, **Unified Risk** vectors, **DIF fingerprints**, clusters and domain hopping, thresholds, run history, suppressions and exports |
@@ -67,25 +67,26 @@ source ~/.venv/dt_analytics_detection/bin/activate
 pip install -r requirements.txt
 ```
 
-Add your API credentials: enter them in the app under *Settings → API credentials → Enter API keys*, or write them
-yourself, for example in `~/.config/dt-analytics/credentials.toml`:
-
-```toml
-[domaintools]
-username = "API_USERNAME"
-api_key  = "API_KEY"   # also used by the Certificate API
-
-[dnsdb]
-api_key = "DNSDB_API_KEY"
-```
-
-Environment variables (`DT_API_USERNAME` / `DT_API_KEY` or `DOMAINTOOLS_USERNAME` / `DOMAINTOOLS_API_KEY`,
-`DNSDB_API_KEY`) and the files `~/.dtapi` / `~/.dtdnsdb` work too; see
-[Credentials](docs/INSTALLATION.md#credentials). Then start the app:
+For the optional Iris pDNS provider, also run `playwright install chromium`. Then start the app:
 
 ```bash
 streamlit run app.py
 ```
+
+**Add your API credentials in the app.** Open *Settings → API credentials → Enter API keys* (the sidebar links there
+while a key is missing; the form opens by itself), enter the keys and click **Save to credentials.toml**:
+
+| Key | Needed for |
+| --- | --- |
+| DomainTools API username and key | Iris Investigate, Domain History, Risk Evidence, IrisQL, the Account page; also the Certificate API |
+| DNSDB API key | Passive DNS through DNSDB Scout, CNAME chasing and IP pivots (optional with Iris pDNS) |
+| Certificate API key | Optional: only if it differs from the DomainTools API key |
+| VPNDB API key | Optional: the VPN, residential proxy and Tor check of hosting IPs |
+
+The keys are saved to `~/.config/dt-analytics/credentials.toml`, outside the project folder (so they cannot be
+committed), readable only by your user; they are never shown again. The panel above the form shows which source each
+service uses. Environment variables and the `~/.dtapi` / `~/.dtdnsdb` files work too, and environment variables win
+over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
 `san:`, `spki:`, ... lines) in the sidebar and click **Analyze**: the **Summary** opens with what to check next. The
@@ -156,7 +157,7 @@ integrations/
   collector.py                 Runs all collection stages (parallel where safe), pDNS supplements, on-demand CNAME chases (per-domain query budget), and records per-source status
   http.py                      Shared requests session with retry/backoff, FetchResult, StatusLog
   cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime
-  credentials.py               Credential resolution (environment, credentials.toml, files) and source overview
+  credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
   certificates.py              Certificate Search (incl. CertsQL searches) / Events / CTL APIs and X.509 normalization
   dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming) and Scout-style CNAME chasing
   vpndb.py                     VPNDB API: VPN / residential proxy / Tor attribution of IPs, prefixes, ASNs; every operation, paging, bulk, quota

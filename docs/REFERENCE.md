@@ -341,5 +341,5 @@ All in the project folder, local and git-ignored.
 | `dt_triage.json` | Triage status of alerts and verdicts on domains (New, Investigating, Benign, Malicious) with notes |
 | `dt_token.json`, `dt_session_data/` | The Iris pDNS browser session |
 
-API credentials are read from environment variables or files outside the project; see
-[Credentials](INSTALLATION.md#credentials).
+API credentials are read from environment variables, `~/.config/dt-analytics/credentials.toml` (where keys entered
+in the app are saved) or the `~/.dt*` files, all outside the project; see [Credentials](INSTALLATION.md#credentials).

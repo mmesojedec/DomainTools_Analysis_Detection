@@ -1008,10 +1008,12 @@ Everything below lives in the project folder and is git-ignored.
 | `dt_offline/` | Offline datasets (default: last 20) |
 | `dt_suppressions.json` | Alert suppressions |
 | `dt_triage.json` | Triage status of alerts and domain verdicts, with notes |
-| `dt_settings.json` | Saved settings, such as retention limits and watched target lists |
+| `dt_cache/` | Lookup cache (see *Settings → Lookup cache*) |
+| `dt_settings.json` | Saved settings: custom profiles, use case changes, the brand watchlist, cache lifetime, watched target lists and retention limits |
 | `dt_token.json`, `dt_session_data/` | Iris pDNS browser session |
 
-Credentials are not stored in the project folder.
+Credentials are not stored in the project folder: keys entered in the app go to
+`~/.config/dt-analytics/credentials.toml` ([Credentials](INSTALLATION.md#credentials)).
 
 ## Troubleshooting
 
@@ -1023,6 +1025,8 @@ Credentials are not stored in the project folder.
 | A domain has no alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**. Lower the threshold to evaluate it. |
 | "N older detection(s) fall outside this window" | Choose a longer analysis window or *All time*, or expand **Detections outside the window**. |
 | Iris pDNS asks for login every run | Log in through the browser window that opens and close it once Iris has loaded; the session is reused afterwards. |
+| Iris pDNS TXT values miss their first character | Iris source *A* returns TXT data without quotes and without its first character (`oogle-site-verification=…`). TXT fingerprinting restores the character when the restored value matches a known signature, and the TXT table's **Note** column says so; values it cannot recognise are shown as received. |
+| A key saved in the app is not used | An environment variable for that service wins over `credentials.toml`; the save message and the API credentials panel say which source is in use. Unset the variable and restart the app. |
 | The page dims for a moment after a change | Streamlit reruns the page after each change. Page switches reuse the data already prepared, and filters inside Hostname Inventory, Subdomain Triage, Pivot Ranking, CNAME Chains, Lookup Queries and Data Export rerun only that section. Changing the domains, record types, analysis window, timezone or hostname focus rebuilds the data, which takes longer for runs with many domains or records. Data Export builds its files only when you click **Download**. |
 | Results marked *Partial* | The source hit its result limit (Iris pDNS: 500 records; DNSDB: your limit). Raise the DNSDB limit or rely on the supplemental TXT / CAA / CNAME lookups. |
 | CNAME Chains shows *Not chased* everywhere | Chains are filled in on demand. Select hostnames (or none for all shown) and click **Chase CNAMEs**; click again when the toast says names wait for the next click. A DNSDB key is needed for chains that leave the collected data. |
