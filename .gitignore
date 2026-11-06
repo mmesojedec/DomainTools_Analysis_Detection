@@ -1,0 +1,22 @@
+# Iris session secrets (CSRF token and browser profile)
+dt_token.json
+dt_session_data/
+
+# Local analyst state (run snapshots, offline datasets, suppressions, saved settings)
+dt_runs/
+dt_offline/
+dt_cache/
+dt_suppressions.json
+dt_triage.json
+dt_settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store

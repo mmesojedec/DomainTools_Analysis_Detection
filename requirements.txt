@@ -1,0 +1,27 @@
+# DomainTools Analytics & Threat Detection Dashboard
+# Tested with Python 3.14, streamlit 1.66, pandas 3.0, plotly 7.1, domaintools_api 2.10
+
+# Core Dashboard & Framework (st.fragment, rerun(scope="fragment"), width="stretch", st.components.v2 for the
+# IrisQL / CertsQL query editor). The editor's CodeMirror 5 is bundled in views/assets/codemirror (MIT), not a package.
+streamlit>=1.66.0
+
+# Data Manipulation & Analysis (Styler.map requires pandas >= 2.1)
+pandas>=2.1.0
+numpy>=1.26.0
+pytz>=2024.1
+jinja2>=3.1.0
+
+# Registrable-domain parsing (bundled Public Suffix List snapshot, no network needed)
+tldextract>=5.1.0
+
+# Interactive Visualizations & Charts
+plotly>=5.18.0
+
+# HTTP Networking & APIs (domain_history and risk_evidence SDK methods; idna for punycode domain names)
+requests>=2.31.0
+idna>=3.4
+urllib3>=2.0.0
+domaintools_api>=2.10.0
+
+# Browser Automation (only needed for the Iris pDNS provider)
+playwright>=1.40.0

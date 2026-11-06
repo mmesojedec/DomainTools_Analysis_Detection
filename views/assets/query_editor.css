@@ -1,0 +1,54 @@
+/* IrisQL / CertsQL query editor: follows the Streamlit theme through its --st-* variables. */
+.dtq-editor {
+  --dtq-text: var(--st-text-color, #31333f);
+  --dtq-bg: var(--st-secondary-background-color, #f0f2f6);
+  --dtq-border: var(--st-border-color, rgba(49, 51, 63, 0.2));
+  --dtq-accent: var(--st-primary-color, #ff4b4b);
+  border: 1px solid var(--dtq-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.dtq-editor:focus-within { border-color: var(--dtq-accent); }
+.dtq-editor .CodeMirror {
+  height: var(--dtq-height, 170px);
+  font-family: var(--st-code-font, "Source Code Pro", monospace);
+  font-size: 0.875rem;
+  color: var(--dtq-text);
+  background: var(--dtq-bg);
+}
+.dtq-editor .CodeMirror-gutters { background: var(--dtq-bg); border-right: 1px solid var(--dtq-border); }
+.dtq-editor .CodeMirror-linenumber { color: var(--dtq-text); opacity: 0.45; }
+.dtq-editor .CodeMirror-cursor { border-left-color: var(--dtq-text); }
+.dtq-editor .CodeMirror-selected,
+.dtq-editor .CodeMirror-focused .CodeMirror-selected { background: color-mix(in srgb, var(--dtq-accent) 25%, transparent); }
+.dtq-editor .dtq-marks { width: 1rem; }
+.dtq-editor .dtq-mark { color: #e8a400; font-size: 0.7rem; text-align: center; cursor: help; }
+.dtq-editor .dtq-problem { background: color-mix(in srgb, #e8a400 12%, transparent); }
+.dtq-editor .cm-variable { color: #1c7ed6; }
+.dtq-editor .cm-operator { color: #ae3ec9; font-weight: 600; }
+.dtq-editor .cm-keyword { color: var(--dtq-accent); font-weight: 700; }
+.dtq-editor .cm-string { color: #2b8a3e; }
+.dtq-editor .cm-number, .dtq-editor .cm-atom { color: #e67700; }
+.dtq-editor .cm-comment { color: var(--dtq-text); opacity: 0.55; font-style: italic; }
+.dtq-editor .cm-error { color: #e03131; text-decoration: wavy underline; background: none; }
+.dtq-editor.dtq-dark .cm-variable { color: #74c0fc; }
+.dtq-editor.dtq-dark .cm-operator { color: #e599f7; }
+.dtq-editor.dtq-dark .cm-string { color: #8ce99a; }
+.dtq-editor.dtq-dark .cm-number, .dtq-editor.dtq-dark .cm-atom { color: #ffc078; }
+
+/* the suggestion list is appended to <body>, outside the editor box: the editor copies the theme colours it sees to
+   --dtq-hint-* on <html> (query_editor.js) */
+.CodeMirror-hints {
+  font-family: var(--dtq-hint-font, "Source Code Pro", monospace);
+  font-size: 0.8rem;
+  max-height: 16rem;
+  z-index: 100000;
+  border-radius: 0.4rem;
+  color: var(--dtq-hint-text, #31333f);
+  background: var(--dtq-hint-bg, #fff);
+  border: 1px solid var(--dtq-hint-border, rgba(49, 51, 63, 0.2));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.CodeMirror-hint { color: inherit; display: flex; gap: 1.5rem; justify-content: space-between; padding: 2px 8px; }
+li.CodeMirror-hint-active { background: var(--dtq-hint-accent, #ff4b4b); color: #fff; }
+.CodeMirror-hint .dtq-kind { opacity: 0.6; font-style: italic; }
