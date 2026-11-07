@@ -75,7 +75,7 @@ def build_search_queries(target_inputs):
 # CERTIFICATE SEARCH WITH CURSOR PAGINATION
 # ==============================================================================
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def search_certificates(target, query_string, max_records=CERT_SEARCH_MAX_RECORDS):
     """Runs one paginated /v1/certificates/search query (cursor pagination)."""
     api_key = load_cert_api_key()
@@ -105,7 +105,7 @@ def search_certificates(target, query_string, max_records=CERT_SEARCH_MAX_RECORD
     return FetchResult("Certificate Search", target, data=hits, truncated=truncated, record_count=len(hits), note=note)
 
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def fetch_certsql(query, max_results=CERTSQL_DEFAULT_RESULTS, sort=(), page_size=CERTSQL_PAGE_SIZE):
     """
     A CertsQL page (Certificate Search) followed by cursor until `max_results` certificates or the last page; `sort`
@@ -200,7 +200,7 @@ def _fetch_paginated_events(source, target, endpoint_path, base_payload, contain
     return FetchResult(source, target, data=events, truncated=truncated, record_count=len(events), note=note)
 
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def fetch_cert_events_hostname(hostname, include_subdomains=True, max_records=CERT_EVENTS_MAX_RECORDS):
     """Observed certificate events for a domain/hostname."""
     return _fetch_paginated_events(
@@ -210,7 +210,7 @@ def fetch_cert_events_hostname(hostname, include_subdomains=True, max_records=CE
     )
 
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def fetch_cert_events_ip(ip_address, max_records=CERT_EVENTS_MAX_RECORDS):
     """Observed certificate events for an IPv4 or IPv6 address."""
     ip_clean = str(ip_address).strip()
@@ -218,7 +218,7 @@ def fetch_cert_events_ip(ip_address, max_records=CERT_EVENTS_MAX_RECORDS):
                                    empty_note="No certificates observed on this IP")
 
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def fetch_cert_events_sha256(sha256_hash, max_records=CERT_EVENTS_MAX_RECORDS):
     """Observed domain/IP connections where a specific certificate SHA256 was seen."""
     sha = str(sha256_hash).strip()
@@ -226,7 +226,7 @@ def fetch_cert_events_sha256(sha256_hash, max_records=CERT_EVENTS_MAX_RECORDS):
                                    empty_note="Certificate not observed on any host in the API's recent time window")
 
 
-@cached_fetch()
+@cached_fetch(group="certs")
 def fetch_cert_events_ctl(sha256_hash, limit=CERT_CTL_LIMIT):
     """Raw Certificate Transparency log submissions for a certificate fingerprint."""
     sha = str(sha256_hash).strip()

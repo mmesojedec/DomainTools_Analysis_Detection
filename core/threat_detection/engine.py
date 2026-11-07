@@ -16,7 +16,7 @@ from core.threat_detection.anonymizer_rules import ANONYMIZER_RULES, shared_exit
 from core.threat_detection.cname_rules import CNAME_RULES, shared_cname_alerts
 from core.threat_detection.context import ALERT_COLUMNS, MAX_IOC_LINES, DomainContext, evidence_record, fmt_ts
 from core.threat_detection.dns_rules import DNS_RULES, rule_dga_entropy
-from core.threat_detection.enrichment_rules import ENRICHMENT_RULES, build_tracker_occurrences
+from core.threat_detection.enrichment_rules import ENRICHMENT_RULES, apply_popularity, build_tracker_occurrences
 from core.threat_detection.intel_rules import INTEL_RULES
 from core.threat_detection.ssl_rules import run_ssl_rules
 from integrations.enrichment import extract_iris_profile
@@ -202,6 +202,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         for rule in ENRICHMENT_RULES + INTEL_RULES + ANONYMIZER_RULES:
             rule(ctx)
         run_ssl_rules(ctx)
+        apply_popularity(ctx)
 
         result.evaluated_domains.append(domain)
         contexts[domain] = ctx

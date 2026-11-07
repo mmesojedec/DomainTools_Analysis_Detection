@@ -200,10 +200,11 @@ def _profile_records(profiles):
 
 
 def save_snapshot(key, targets, artifacts, alerts, window_label=None, profiles=None, name="", note="", seeds=None,
-                  host_focus=None, parent=None):
+                  host_focus=None, parent=None, queries=None):
     """
     Saves a v2 run snapshot (alerts with severity / confidence, per-domain risk and DIF) and applies retention.
     `parent` ({"id": run id, "via": what led here}) links a run started from another run's lead (hunt tree).
+    `queries` ({product or service: API queries}) is what the run cost.
     """
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     alert_rows = _alert_records(alerts)
@@ -216,6 +217,8 @@ def save_snapshot(key, targets, artifacts, alerts, window_label=None, profiles=N
         "host_focus": dict(host_focus or {}), "window": window_label, "artifacts": artifacts,
         "alerts": alert_rows, "profiles": profile_rows, "summary": summary,
     }
+    if queries is not None:
+        snapshot["queries"] = {str(k): int(v) for k, v in queries.items()}
     if parent:
         snapshot["parent"] = {"id": parent.get("id"), "via": str(parent.get("via") or "")[:200]}
     save_json(_run_path(key, run_id), snapshot)
@@ -324,6 +327,7 @@ def list_runs(key):
             "note": snapshot.get("note") or "", "window": snapshot.get("window") or "", "targets": snapshot.get("targets", []),
             "schema": snapshot.get("schema", 1), "alerts": summary.get("alerts", 0), "by_severity": summary.get("by_severity", {}),
             "max_unified_risk": summary.get("max_unified_risk"),
+            "queries": sum((snapshot.get("queries") or {}).values()) if "queries" in snapshot else None,
         })
     return rows
 

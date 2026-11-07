@@ -67,7 +67,10 @@ def test_supplement_disabled(monkeypatch):
 
 
 def test_iris_supplement_uses_same_session_extras(monkeypatch):
-    def fake_iris(target, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=()):
+    def fake_iris(targets, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=(), on_result=None):
+        return {t: one(t, extra_rrtypes) for t in targets}
+
+    def one(target, extra_rrtypes):
         main = FetchResult("Iris pDNS", target, data=[{"rrname": "a.com", "rrtype": "A", "rdata": "1.1.1.1", "first_seen": "2024-01-01T00:00:00Z"}],
                            record_count=1)
         if "TXT" in extra_rrtypes:
@@ -76,7 +79,7 @@ def test_iris_supplement_uses_same_session_extras(monkeypatch):
                  "first_seen": f"2024-0{i + 1}-01T00:00:00Z", "last_seen": f"2024-0{i + 1}-02T00:00:00Z"} for i in range(3)])
         return main
 
-    monkeypatch.setattr(collector, "fetch_iris_pdns", fake_iris)
+    monkeypatch.setattr(collector, "fetch_iris_pdns_many", fake_iris)
     log = StatusLog()
     pdns, _ = collector.collect_pdns(["a.com"], "Iris pDNS", 0, log, txt_records=2)
     txt = pdns[pdns["Field"] == "TXT"]

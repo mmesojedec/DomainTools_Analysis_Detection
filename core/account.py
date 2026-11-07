@@ -6,23 +6,30 @@ import pandas as pd
 
 # Products this app's lookups count against (Iris Investigate may be billed to either Iris product)
 APP_PRODUCTS = {
-    "iris-investigate": "IrisQL searches and enrichment of analyzed domains",
-    "iris-investigate-(api-only)": "IrisQL searches and enrichment of analyzed domains (API-only plan)",
+    "iris-investigate": "IrisQL searches, enrichment and risk scores of analyzed domains",
+    "iris-investigate-(api-only)": "IrisQL searches, enrichment and risk scores of analyzed domains (API-only plan)",
     "domain-history": "Domain History of analyzed domains",
-    "risk-evidence": "Risk evidence of analyzed domains",
     "certificate-search": "CertsQL searches and certificate lookups by name",
     "certificate-events": "Certificate events of hostnames, IPs and SHA-256s",
     "account-information": "This page",
 }
 # What the app needs, each met by any one of its product IDs: (feature, what fails without it, product IDs)
 APP_NEEDS = (
-    ("Iris Investigate", "IrisQL searches and the Iris enrichment of analyzed domains",
+    ("Iris Investigate", "IrisQL searches, and the Iris enrichment and risk scores of analyzed domains",
      ("iris-investigate", "iris-investigate-(api-only)")),
     ("Domain History", "Domain History of analyzed domains", ("domain-history",)),
-    ("Risk evidence", "risk scores and risk evidence of analyzed domains", ("risk-evidence",)),
     ("Certificate search", "CertsQL searches and certificate lookups by name", ("certificate-search",)),
     ("Certificate events", "certificate events of hostnames, IPs and SHA-256s", ("certificate-events",)),
 )
+# What each collection stage needs from the account (product IDs; any one will do): stages are skipped without it
+STAGE_PRODUCTS = {
+    "iris": ("iris-investigate", "iris-investigate-(api-only)"),
+    "history": ("domain-history",),
+    "certs": ("certificate-search",),
+    "events": ("certificate-events",),
+}
+STAGE_NAMES = {"iris": "Iris Investigate", "history": "Domain History", "certs": "Certificate Search",
+               "events": "Certificate events"}
 PRODUCT_COLUMNS = ["Product", "Used by this app", "Today", "This month", "Monthly limit", "Left this month",
                    "Used %", "Per hour", "Per minute", "Expires", "ID"]
 _WORDS = {"api": "API", "s3": "S3", "ip": "IP", "rdap": "RDAP", "rpz": "RPZ", "mcp": "MCP", "whois": "Whois"}
@@ -91,6 +98,14 @@ def missing_app_products(products):
     """(feature, what fails without it) for each APP_NEEDS entry none of whose products the account has."""
     have = {p.get("id") for p in products}
     return [(feature, effect) for feature, effect, ids in APP_NEEDS if not have.intersection(ids)]
+
+
+def unavailable_stages(products):
+    """Collection stages (STAGE_PRODUCTS keys) none of whose products are in `products`; empty when unknown (None)."""
+    if products is None:
+        return set()
+    have = {p.get("id") for p in products}
+    return {stage for stage, ids in STAGE_PRODUCTS.items() if not have.intersection(ids)}
 
 
 def nearest_expiry(products):

@@ -11,6 +11,7 @@ weight, confidence and evidence. Every operation of the API has one function her
   `quota_exceeded` both say when to try again. The quota headers of every metered answer are in extras["quota"].
 """
 import threading
+import time
 import urllib.parse
 
 import requests
@@ -19,7 +20,7 @@ from urllib3.util.retry import Retry
 
 from integrations.cache import cached_fetch
 from integrations.credentials import VPNDB_MISSING, load_vpndb_key, vpndb_base_url
-from integrations.http import USER_AGENT, FetchResult, describe_exception, describe_http_status
+from integrations.http import USER_AGENT, FetchResult, count_query, count_response, describe_exception, describe_http_status
 
 SOURCE = "VPNDB"
 REQUEST_TIMEOUT = 60
@@ -33,6 +34,14 @@ MISS_REASONS = {
     "out_of_scope": "out of VPNDB's scope",
 }
 _thread_local = threading.local()
+_last_quota = {}   # the quota headers of the last metered answer, with "at" (epoch seconds): the Account page
+_quota_lock = threading.Lock()
+
+
+def last_quota():
+    """The quota VPNDB reported on its last metered answer this session ({"remaining", ..., "at"}), or {}."""
+    with _quota_lock:
+        return dict(_last_quota)
 
 
 def _session():
@@ -45,6 +54,7 @@ def _session():
         session.mount("https://", HTTPAdapter(max_retries=retry))
         session.mount("http://", HTTPAdapter(max_retries=retry))
         session.headers["User-Agent"] = USER_AGENT
+        session.hooks["response"].append(count_response)
         _thread_local.session = session
     return session
 
@@ -102,6 +112,10 @@ def _request(target, path, params=None, body=None, auth=True, text=False):
     except Exception as exc:
         return FetchResult(SOURCE, target, error=describe_exception(exc)), None
     extras = {"quota": quota} if (quota := _quota(response)) else {}
+    if quota:
+        with _quota_lock:
+            _last_quota.clear()
+            _last_quota.update(quota, at=time.time())
     if response.status_code == 200:
         data = response.text if text else _json(response)
         result = FetchResult(SOURCE, target, data=data, record_count=1, extras=extras)
@@ -151,25 +165,25 @@ def _paged(target, path, items_key, max_pages=DEFAULT_MAX_PAGES, **params):
 
 # ---- lookup -----------------------------------------------------------------------------------------------------
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_ip(ip):
     """GET /ip/{ip}: the verdict for one IPv4 address (attribution, evidence, sharing, tunnel, ASN, location, Tor)."""
     return _get(ip, f"/ip/{_segment(ip)}")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def ip_history(ip):
     """GET /ip/{ip}/history: every week since probing began, with the strongest evidence of each week."""
     return _get(ip, f"/ip/{_segment(ip)}/history")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_prefix(cidr):
     """GET /prefix/{cidr}: the providers inside any CIDR range and their shares."""
     return _get(cidr, f"/prefix/{_segment(cidr)}")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def prefix_addresses(cidr, date_from=None, date_to=None, provider=None, method=None, pool=None, size=50,
                      max_pages=DEFAULT_MAX_PAGES):
     """
@@ -181,19 +195,19 @@ def prefix_addresses(cidr, date_from=None, date_to=None, provider=None, method=N
                   method=method, pool=pool, **{"from": date_from, "to": date_to})
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def prefix_timeline(cidr):
     """GET /prefix/{cidr}/timeline: probe events and distinct addresses per day over the prefix's history."""
     return _get(cidr, f"/prefix/{_segment(cidr)}/timeline")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_asn(asn):
     """GET /asn/{asn}: the providers on an ASN and their shares (one tenant, or many: the collateral of a block)."""
     return _get(f"AS{asn}", f"/asn/{int(str(asn).upper().removeprefix('AS'))}")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def asn_networks(asn, provider=None, q=None, shared=None, sort="tenancy", size=50, max_pages=DEFAULT_MAX_PAGES):
     """GET /asn/{asn}/networks: every prefix of the ASN holding a known exit address."""
     number = int(str(asn).upper().removeprefix("AS"))
@@ -201,25 +215,25 @@ def asn_networks(asn, provider=None, q=None, shared=None, sort="tenancy", size=5
                   shared=shared, sort=sort, size=size)
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_service(tag):
     """GET /service/{tag}: a provider's profile (category, status, addresses, networks, countries, protocols)."""
     return _get(tag, f"/service/{_segment(tag)}")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def list_services():
     """GET /services: every provider at a glance (addresses, last 30 days, prefixes, ASNs, countries)."""
     return _get("services", "/services")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def tor_overview():
     """GET /tor: where Tor traffic leaves the internet and who runs it."""
     return _get("tor", "/tor")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def tor_relays(role=None, size=200, max_pages=DEFAULT_MAX_PAGES, fmt="json"):
     """
     GET /tor/relays: every running relay's address and OR port, exits first; `role` exit, guard or middle. With
@@ -238,7 +252,7 @@ def tor_relays(role=None, size=200, max_pages=DEFAULT_MAX_PAGES, fmt="json"):
 
 # ---- hunting ----------------------------------------------------------------------------------------------------
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def service_networks(tag, min_confidence=1, current=None, size=200, max_pages=DEFAULT_MAX_PAGES):
     """
     GET /service/{tag}/networks: every network of a provider (reverse lookup for retro-hunting). `current` True for
@@ -248,7 +262,7 @@ def service_networks(tag, min_confidence=1, current=None, size=200, max_pages=DE
                   current=current, size=size)
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def bulk_lookup(ips, as_of=None):
     """
     POST /bulk: up to 10,000 addresses per request (more are sent in several), each summarised, plus counts by
@@ -260,6 +274,7 @@ def bulk_lookup(ips, as_of=None):
     for start in range(0, len(ips), BULK_LIMIT):
         chunk = ips[start:start + BULK_LIMIT]
         result, _ = _request(target, "/bulk", body=_params(ips=chunk, as_of=as_of))
+        count_query(len(chunk) - 1)   # VPNDB counts each address of a bulk request as one query
         if not result.ok:
             if merged is None:
                 return result
@@ -291,38 +306,38 @@ def bulk_lookup(ips, as_of=None):
 
 # ---- search -----------------------------------------------------------------------------------------------------
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def search(q):
     """GET /search: resolves free text (an IP, prefix, `AS9009`, a service tag, a country) to what it names."""
     return _get(q, "/search", q=q)
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def suggest(q, limit=10):
     """GET /suggest: completions for a partial provider or organisation name (and any literal IP, prefix or ASN)."""
     return _get(q, "/suggest", q=q, limit=limit)
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_org(org_id):
     """GET /org/{id}: one ASN organisation (CAIDA id from suggest, or an exact name) and every network it holds."""
     return _get(org_id, f"/org/{_segment(org_id)}")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def org_networks(org_id, provider=None, q=None, shared=None, sort="tenancy", size=50, max_pages=DEFAULT_MAX_PAGES):
     """GET /org/{id}/networks: every prefix of the organisation's networks holding a known exit address."""
     return _paged(org_id, f"/org/{_segment(org_id)}/networks", "networks", max_pages, provider=provider, q=q,
                   shared=shared, sort=sort, size=size)
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def list_countries():
     """GET /countries: every country with a known exit address, with its VPN and residential proxy figures."""
     return _get("countries", "/countries")
 
 
-@cached_fetch()
+@cached_fetch(group="vpndb")
 def lookup_country(cc):
     """GET /country/{cc}: one country's VPN and residential proxy exits, by network and provider."""
     return _get(cc.upper(), f"/country/{_segment(cc.upper())}")

@@ -6,10 +6,11 @@ import streamlit as st
 
 from config import CACHE_LIFETIMES
 from core.anonymizers import answer_tables as response_tables
+from core.api_usage import cache_group, failed_lookups
 from core.dataset import expand_multiline_rows
 from core.offline import format_size
 from core.timezone import format_in_tz
-from integrations.cache import cache_ttl, cache_usage
+from integrations.cache import cache_ttl, cache_usage, group_ttl
 from views.common import capped_table, clean_strings, format_datetime_columns, selected_rows, selection_key, table
 
 CERT_COLUMNS = [
@@ -146,7 +147,8 @@ def cache_summary(statuses, lifetime, run_time=None):
     """
     Per source (CACHE_SOURCE_COLUMNS): lookups of the run, how many came from the cache, the oldest and newest cached
     result, and when the first of them expires (`lifetime` seconds after it was fetched; for live lookups,
-    `lifetime` after `run_time`). Summary rows ("3 domain(s)") are not lookups and are left out.
+    `lifetime` after `run_time`). `lifetime` may be a function of the Source (each source's own cache lifetime).
+    Summary rows ("3 domain(s)") are not lookups and are left out.
     """
     if not statuses:
         return pd.DataFrame(columns=CACHE_SOURCE_COLUMNS)
@@ -162,9 +164,10 @@ def cache_summary(statuses, lifetime, run_time=None):
     for source, group in df.assign(_cached=cached_at, _fetched=fetched).groupby("Source", sort=False):
         hits = group["_cached"].notna()
         first = group["_fetched"].min()
+        seconds = lifetime(source) if callable(lifetime) else lifetime
         rows.append({"Source": source, "Lookups": len(group), "From Cache": int(hits.sum()), "Live": int((~hits).sum()),
                      "Oldest Cached At": group["_cached"].min(), "Newest Cached At": group["_cached"].max(),
-                     "Expires At": first + pd.Timedelta(seconds=lifetime) if lifetime and pd.notna(first) else pd.NaT})
+                     "Expires At": first + pd.Timedelta(seconds=seconds) if seconds and pd.notna(first) else pd.NaT})
     return pd.DataFrame(rows, columns=CACHE_SOURCE_COLUMNS).sort_values("From Cache", ascending=False, kind="stable") \
         .reset_index(drop=True)
 
@@ -188,7 +191,8 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
     None.
     """
     lifetime = cache_ttl()
-    summary = cache_summary(statuses, lifetime, run_time)
+    summary = cache_summary(statuses, lambda source: group_ttl(cache_group(source)), run_time)
+    failed = failed_lookups(statuses)
     hits, total = int(summary["From Cache"].sum()), int(summary["Lookups"].sum())
     label = "Cached details" + (f" — {hits:,} of {total:,} lookup(s) from the cache" if total else "")
     choice = None
@@ -198,7 +202,8 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
         oldest = summary["Oldest Cached At"].min() if not summary.empty else pd.NaT
         expires = summary["Expires At"].min() if not summary.empty else pd.NaT
         metrics = [
-            ("Cache lifetime", lifetime_label, "Sidebar: Cache lifetime. How long a successful lookup is reused"),
+            ("Cache lifetime", lifetime_label, "Settings → Lookup cache. How long a successful lookup is reused; "
+                                               "sources with their own lifetime are listed there"),
             ("From cache", f"{hits:,} of {total:,}", "Lookups of this run served from the cache (no API query)"),
             ("API queries", f"{total - hits:,}", "Lookups of this run that queried the APIs (now cached too)"),
             ("Oldest cached data", _ago(oldest), "Age of the oldest cached result this run used"),
@@ -234,12 +239,17 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
                        "every source again and refreshes these targets' cache entries (other targets' cache is kept); "
                        "*Re-run* reuses whatever is still cached, like **Analyze**. Certificate inputs are not "
                        "searched again: their derived domains and IPs are re-run.")
-            c_fresh, c_cached, _ = st.columns([1, 1, 2])
+            c_fresh, c_cached, c_retry, _ = st.columns([1, 1, 1, 1])
             if c_fresh.button("Re-run with fresh lookups", key="rerun_fresh", icon=":material/refresh:", type="primary",
                               help="Uses API quota for every lookup"):
                 choice = "fresh"
             if c_cached.button("Re-run (use cache)", key="rerun_cached", icon=":material/replay:"):
                 choice = "cached"
+            if c_retry.button(f"Retry {failed:,} failed lookup(s)", key="rerun_failed", icon=":material/restart_alt:",
+                              disabled=not failed or lifetime <= 0,
+                              help="Analyzes the same targets again: the lookups that worked come from the lookup "
+                                   "cache (no query), so only the failed ones query the APIs. Needs the cache on."):
+                choice = "retry"
         else:
             st.caption("This dataset has no recorded collection settings, so it cannot be re-run from here; use "
                        "**Analyze** in the sidebar.")

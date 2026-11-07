@@ -37,7 +37,7 @@ analysis window, timezone, view filters).
 | **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* |
 | **Evidence** | *Raw Records* · *Lookup Queries* |
 | **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Run History → Offline Datasets* to name it (see [Offline datasets](#offline-datasets)) · *Data Export* · *Run History* (saved runs, comparisons, trends, offline datasets) |
-| **Data sources** | *Data sources*: how every lookup of the run went, the lookup cache, re-runs |
+| **Data sources** | *Data sources*: how every lookup of the run went, the API queries it made per product, the lookup cache, re-runs (also of the failed lookups only) |
 | **Settings** | *Settings*: collection options, use cases & profiles, detection thresholds, brand watchlist, lookup cache, API credentials |
 | **Account** | *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) |
 | **Help** | *Documentation*: these guides |
@@ -148,6 +148,7 @@ The sidebar, top to bottom; collection options are on the **Settings** page.
 | **Show international domains in Unicode** | Shows punycode names (`xn--bcher-kva.de`) as Unicode (`bücher.de`) in every table, text and chart, on every page; also in *Offline dataset* mode. Display only: see [International domains](#international-domains). |
 | **Analyze** | Collects data and runs the detection engine, then opens the Summary. With certificate inputs, it first shows [two review steps](#certificate-inputs): the searches, then the domains / IPs to analyze. |
 | **Use case** / **Options** | The use case or profile picked on the Start page (*options changed since* when you changed them afterwards), and one line naming the collection options of the next run, with *Change collection options* (the Settings page). |
+| **API cost of the next Analyze** | Appears once targets are entered: per DomainTools product (Iris, History, Cert search, Cert events) and per service (DNSDB, VPNDB, Iris pDNS), the API queries the next Analyze would make, as a range where it depends on the answers (pages of a busy domain, supplements, VPNDB verdicts). Lookups the lookup cache would answer are left out. **Left** is what the account has left this month (after **Compare with account limits**, one Account Information query kept for an hour, or a visit to the Account page), DNSDB's quota after *Check DNSDB quota* on the Account page, and VPNDB's from its last answer. A dot says whether the run fits (🟢), may exceed what is left (🟡) or will (🔴, the panel then opens by itself). Products the account does not have are named as skipped. No query is made to build the estimate. |
 | **API credentials** | One line saying how many services have credentials; the full matrix, and a form to enter keys, is under *Settings → API credentials* (see [API Credentials panel](INSTALLATION.md#api-credentials-panel)). |
 
 **Collection progress.** While Analyze runs, its status box shows a progress bar with the share done and the time
@@ -156,7 +157,8 @@ order they finished, then the running ones; the rest are listed under *Up next* 
 with how much of it is done (**100%**, a running share such as **40%**, or **skipped**) and counts the lookups
 done out of the total, how many are running right now, how many came from the lookup cache (with how old they are and when the first one expires), how many failed (after the
 one retry), the records returned and how long it ran
-(the certificate events, which run after passive DNS, do not count the wait in between). The TXT, CAA and CNAME supplements show how many domains needed them; when the
+(the certificate events, which run after the certificate search, do not count the wait in between). Domain History,
+Iris Investigate and the certificates run at the same time as passive DNS, so several lines run at once. The TXT, CAA and CNAME supplements show how many domains needed them; when the
 main passive DNS lookup already returned everything, they are skipped with *Not needed*. CT telemetry is skipped
 when the certificate search found no certificates, IP pivots when there is no public, non-CDN hosting IP. Once
 done, the Summary keeps the list in **Lookups of the last Analyze** (collapsed), with a table of every result that
@@ -166,7 +168,10 @@ data* shows the steps that turn the lookups into the pages: the tables, the dete
 earlier runs and the risk profiles. Domain History is usually the slowest lookup: it pages through up to 1,000
 change events, 100 per request, and the API allows a limited number of Domain History requests per minute (20 on
 a standard service level, about one every 3 s), so a domain with 1,000 changes takes about 30 s. Asking for pages
-in parallel does not help: requests over the limit fail with HTTP 503. A cached run costs nothing.
+in parallel does not help: requests over the limit fail with HTTP 503. A *Domain History period* stops the paging
+at the first older change, and a cached run costs nothing. The DomainTools SDK spaces its requests to each
+product's per-minute limit, and a request that still gets HTTP 429 or a server error is tried again after 2 s and
+4 s.
 
 **Collection options** (*Settings → Collection options*), grouped by data source. Picking a use case or profile on the
 Start page sets them; changes here are kept for the browser session and apply to the next Analyze. Below the options,
@@ -183,6 +188,8 @@ global defaults:
 | Passive DNS | Supplemental CNAME lookup | On | Queries CNAME records of the domain and its subdomains (DNSDB `*.name/CNAME`, up to 5,000 records, plus `name/CNAME` if that hits its limit; Iris `rrtype=CNAME` in the same session) for domains whose main lookup hit its limit. Busy domains fill the limit with A / NS / SOA records and daily repeats, so the main lookup holds only a few of their CNAMEs (nytimes.com: 10 hostnames). DNSDB CNAME lookups, chases and reverse CNAME lookups are aggregated (`aggr=t`): one record per hostname and target with its first and last seen, as in the DNSDB Scout table, instead of one per time slice. Data Source Status lists the domains where it was not needed. |
 | Passive DNS | Pivot on hosting IPs (domain hopping) | Off | DNSDB reverse lookups on each domain's current non-CDN IPs, to find other domains that used them. One extra query per IP. DNSDB Scout only. |
 | Passive DNS | Max IPs to pivot on | 10 | Caps the pivots above. |
+| Passive DNS | Incremental passive DNS (only records seen since the last offline copy) | Off (on in *Monitor changes*) | For target lists you analyze again and again. When an offline copy of the same targets exists (same provider and DNSDB limit), DNSDB returns only the records seen since a day before that copy, and the copy's older records are added; a record seen again replaces its earlier version. Each target is still one DNSDB query, but the result limit holds new records instead of old ones, and the lookup is faster. Without a copy the lookup is complete, as usual; the status row of each incremental lookup names the copy. Save an offline copy of each run so the next one builds on it. DNSDB Scout only. |
+| Domain History | Domain History period | All (custom, 90 days, in *Monitor changes*) | Which changes Domain History fetches. **All**: every change, up to 1,000 per domain; dormancy and parking detections then see the whole past. **Same as the analysis window**: only the changes of the window chosen in the sidebar (a custom range counts from its first day; *All time* fetches all); the sidebar then says so under the window. **Custom number of days**: the last N days (*Days of Domain History*, 365 by default), to fetch more, or less, than the window. Domain History returns the newest changes first, 100 per query, so a short period stops after the first page or two and costs fewer queries; detections that compare with older history then see only that period. The Settings tab shows what the next Analyze fetches, and the sidebar's options line shows *history N d* when it is limited. |
 | VPNDB | Check hosting IPs for VPN, residential proxy and Tor | On in every use case | Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, passive DNS addresses most recently seen first; no CDN or private addresses) to VPNDB in one bulk request, then fetches the full verdict (sharing, Tor role, evidence) of the ones VPNDB attributes to a VPN, proxy or Tor, within the budget of the three options below. Each use case sets its own budget: *Map related infrastructure*, *Hunt C2* and *Report & export* 500 IPs / 50 verdicts with the neighbourhood; *Triage* 100 / 20 with it; *Subdomain takeover* 100 / 10, *Phishing* and *Monitor changes* 200 / 20 without it (see [Reference](REFERENCE.md)). Each IP is one VPNDB query (a demo account has 30,000 a day). Needs a VPNDB key ([Credentials](INSTALLATION.md#credentials)); without one the check is skipped. See [VPN, residential proxy and Tor](#vpn-residential-proxy-and-tor-vpndb). |
 | VPNDB | Hosting IPs per run | 500 (the use case sets it) | Public IPv4 hosting addresses sent in the bulk request; each IP is one VPNDB query. |
 | VPNDB | Full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
@@ -191,10 +198,11 @@ global defaults:
 | Certificate API | Fetch CT log & certificate co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
 | Certificate API | Max certificates for CT/co-occurrence lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
 | Certificate API | Certificate inputs: pre-select derived targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
-| Iris Investigate | — | — | No options: current hosting, registration, website and trackers are fetched for every domain. |
-| All sources | Cache lifetime | 1 day | How long a successful lookup is reused: Off, 30 minutes, 6 hours, 1 day, 7 days or 30 days. The same domain, name, record type and limit looked up again, in this or a later run and also after an app restart, costs no API query: passive DNS and its TXT / CAA / CNAME supplements, CNAME chases and reverse lookups, IP pivots, certificate searches and events, Domain History, Risk, and Iris Investigate (per batch of domains). Results are kept in `dt_cache/` (local, git-ignored); *Settings → Lookup cache* shows how many and their size. Data Source Status notes *From cache (age old)* with its **Cached At** time, and Lookup Queries counts them as 0 requests and shows **Cached at**. Failed lookups are never cached. Saved in `dt_settings.json`. |
+| Iris Investigate | — | — | No options: current hosting, registration, the DomainTools risk score, website and trackers are fetched for every domain. |
+| All sources | Cache lifetime | 1 day | How long a successful lookup is reused: Off, 30 minutes, 6 hours, 1 day, 7 days or 30 days. The same domain, name, record type and limit looked up again, in this or a later run and also after an app restart, costs no API query: passive DNS (DNSDB and Iris pDNS) and its TXT / CAA / CNAME supplements, CNAME chases and reverse lookups, IP pivots, certificate searches and events, Domain History, Iris Investigate (per batch of domains, with the risk scores) and VPNDB. Results are kept in `dt_cache/` (local, git-ignored); *Settings → Lookup cache* shows how many and their size. Data Source Status notes *From cache (age old)* with its **Cached At** time, and Lookup Queries counts them as 0 requests and shows **Cached at**. Failed lookups are never cached. Saved in `dt_settings.json`. |
+| All sources | Per source | Domain History 7 days, VPNDB 6 hours, the others *Same as cache lifetime* | *Settings → Lookup cache*: each source group (passive DNS, Iris Investigate, Domain History, certificates, VPNDB) can keep its results for its own lifetime: longer for data that changes rarely, shorter for data that changes often. With the cache lifetime *Off*, every source is off. The run's checklist and *Cached details* count each result's expiry with its source's lifetime. Saved in `dt_settings.json`. |
 | All sources | Clear cache | – | *Settings → Lookup cache*: deletes every cached lookup now, without running anything. It also applies with an offline dataset (CNAME chases and reverse lookups use the cache). |
-| All sources | Cached details (*Data sources* page) | – | How much of the run came from the lookup cache: cache lifetime, lookups from the cache vs API queries, age of the oldest cached result, when the first result expires, and the cache size on disk, plus one row per source (lookups, from cache, API queries, oldest / newest *Cached at*, first expiry, time left). **Re-run with fresh lookups** analyzes the same targets again with that run's collection settings, querying every source and refreshing their cache entries (other targets' cache is kept); **Re-run (use cache)** does the same but reuses what is still cached, like **Analyze**. Offline datasets re-run with their recorded settings. Certificate inputs are not searched again; their derived domains and IPs are re-run. |
+| All sources | Cached details (*Data sources* page) | – | How much of the run came from the lookup cache: cache lifetime, lookups from the cache vs API queries, age of the oldest cached result, when the first result expires, and the cache size on disk, plus one row per source (lookups, from cache, API queries, oldest / newest *Cached at*, first expiry, time left). **Re-run with fresh lookups** analyzes the same targets again with that run's collection settings, querying every source and refreshing their cache entries (other targets' cache is kept); **Re-run (use cache)** does the same but reuses what is still cached, like **Analyze**. **Retry N failed lookup(s)** re-runs the same way: the lookups that worked come from the cache, so only the failed ones query the APIs (it needs the cache on). Offline datasets re-run with their recorded settings. Certificate inputs are not searched again; their derived domains and IPs are re-run. |
 | All sources | Force refresh on the next Analyze | Off | Deletes every cached lookup, then re-queries every source and reloads credentials. To refresh only the current targets, use *Re-run with fresh lookups* on the Data sources page. |
 
 ### 2. Analysis Window
@@ -460,7 +468,7 @@ check a finding or to widen a search past the app's limits. It works for live ru
 | IrisQL | The IrisQL query the run's targets were picked from (only for a run started from the IrisQL page); Requests counts one per page of results | `domaintools iris_investigate --irisql …` and the `curl` request with the query as the body |
 | CertsQL | The CertsQL query the run's targets were picked from (only for a run started from the CertsQL page); Requests counts one per page | The Certificate Search `curl` request (`$DT_CERT_API_KEY`, else `$DT_API_KEY`) |
 | Iris Investigate | Domain list to paste into the search box | `domaintools iris_investigate --domains …` |
-| DomainTools API | Domain (Domain History, Risk Evidence) | `domaintools domain_history --query …` / `domaintools risk_evidence --domain …` |
+| DomainTools API | Domain (Domain History; Risk Evidence in offline datasets saved before the risk scores came from Iris Investigate) | `domaintools domain_history --query …` / `domaintools risk_evidence --domain …` |
 | DomainTools Certificates | CertsQL for certificate search; JSON body for Certificate Events (hostname, IP, SHA-256, CT log) with the run's `start_time` | `curl` using `$DT_CERT_API_KEY` |
 | DNSDB Scout | Names and record type, e.g. `*.example.com`, type ANY (plus `example.com` when that lookup hit its limit); TXT / CAA / CNAME supplements with their type; CNAME chase steps as the exact name with type CNAME, A or AAAA; IPs as Rdata IP | `curl` to the DNSDB v2 API (one request per name) using `$DNSDB_API_KEY` |
 | Iris pDNS | Query and search type, e.g. `*.example.com`, RRName (supplements with their record type) | Request body as sent |
@@ -946,24 +954,31 @@ shows the query and its curl request.
 ## Account
 
 The **Account** page asks the DomainTools Account Information API about the account of the configured API
-credentials. It runs one query the first time you open the page in a session; **Refresh** runs it again. The query
-counts against the *account-information* product, not against any lookup product.
+credentials. The answer is kept for an hour and shared with the sidebar's cost estimate and with **Analyze** (which
+uses it to skip products the account does not have), so together they cost at most one query an hour; **Refresh**
+asks again. The query counts against the *account-information* product, not against any lookup product.
 
 - The first line: API username, whether the account is active, how many products it has and the earliest expiry date.
-- **Products this app uses**: those of Iris Investigate, Domain History, Risk evidence, Certificate search,
-  Certificate events and Account information that your account has (the products the app's lookups count against), with what in the app uses each, what is
-  left this month, the share used, this month's and today's queries and the rate limit per minute.
-- A note lists what the app needs but the account lacks (Iris Investigate, either plan; Domain History; Risk
-  evidence; Certificate search; Certificate events) and which lookups fail or are skipped without it.
+- **Products this app uses**: those of Iris Investigate (which also gives the risk scores), Domain History,
+  Certificate search, Certificate events and Account information that your account has (the products the app's
+  lookups count against), with what in the app uses each, what is left this month, the share used, this month's and
+  today's queries and the rate limit per minute.
+- A note lists what the app needs but the account lacks (Iris Investigate, either plan; Domain History; Certificate
+  search; Certificate events) and which lookups fail or are skipped without it. **Analyze** skips those sources
+  with a status row saying why, instead of failing lookup by lookup.
 - A warning names any product with 80% or more of its monthly limit used.
 - **Products**: every product with today's and this month's queries, the monthly limit, what is left, the share used,
   the hour and minute rate limits and the expiry date. *Show* → *Used this month* narrows it to the products with
   queries this month. An empty monthly limit means the product only has hour or minute limits (e.g. Iris Detect).
 - Both tables list only the products in the API response, so they follow each account's subscription.
+- **Other services**: **Check DNSDB quota** asks DNSDB for the key's limit, what is left, when it resets and when the
+  key expires (the check does not count against the quota). VPNDB reports its quota with every answer; the last one
+  of the session is shown (what is left, today and in total).
 - **Endpoints of file downloads** lists the feed files your account can download; **Raw response** has the full JSON.
 
 Usage is counted by DomainTools across every client of the account (other scripts, the Iris UI, the MCP server), not
-only this app. Lookups served from the cache cost no query and so do not show here.
+only this app. Lookups served from the cache cost no query and so do not show here. What each run cost is on the
+Data sources page (**API queries**) and in Run History (**API queries** column).
 
 ## Offline datasets
 
@@ -1019,7 +1034,8 @@ Credentials are not stored in the project folder: keys entered in the app go to
 
 | Symptom | Check |
 | --- | --- |
-| A data source returns nothing | Open **Data Source Status** (collapsed under the analysis window banner). Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. |
+| A data source returns nothing | Open **Data Source Status** (collapsed under the analysis window banner). Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. *Skipped: the DomainTools account has no … product* means the account lacks it (see the Account page). Once the cause is fixed, **Retry N failed lookup(s)** under *Cached details* on the Data sources page queries only those again. |
+| A run would use more queries than are left | Open **API cost of the next Analyze** in the sidebar: a 🔴 or 🟡 product shows where. Fewer targets, a shorter *Domain History period*, fewer CT certificates or VPNDB verdicts, or turning a source off lower it; lookups still in the lookup cache cost nothing. |
 | "Credentials not found" errors | Open *Settings → API credentials* and **All options**: every option shows whether it is set and used, and why not. Missing keys can be entered there under **Enter API keys**. |
 | Environment variable changes are ignored | Restart the app; variables are read at start. |
 | A domain has no alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**. Lower the threshold to evaluate it. |

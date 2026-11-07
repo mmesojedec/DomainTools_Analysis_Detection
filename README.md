@@ -1,7 +1,7 @@
 # DomainTools Analytics and Detection
 
-An unofficial Streamlit tool that combines several DomainTools data sources (Domain History, Risk Evidence,
-Iris Investigate, passive DNS from DNSDB Scout or Iris pDNS, and the Certificate API with search, hostname / IP /
+An unofficial Streamlit tool that combines several DomainTools data sources (Iris Investigate with its risk scores,
+Domain History, passive DNS from DNSDB Scout or Iris pDNS, and the Certificate API with search, hostname / IP /
 SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
 threat engine over the combined telemetry.
 
@@ -53,7 +53,11 @@ threat engine over the combined telemetry.
 - **Inventories hostnames** from certificates, passive DNS and certificate events, with lifecycle flags and each
   hostname's certificate hashes; a hostname focus narrows every view to chosen hostnames.
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
-  offline re-analysis without API calls.
+  offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records.
+- **Watches API usage**: the sidebar estimates each run's queries per product against what the account has left,
+  every lookup records the queries it made (Data sources, Run History), sources missing from the account are
+  skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
+  same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
 - **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
   tools, and keeps every VPNDB answer as received.
 - **Exports** detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, and hands IOCs,
@@ -78,7 +82,7 @@ while a key is missing; the form opens by itself), enter the keys and click **Sa
 
 | Key | Needed for |
 | --- | --- |
-| DomainTools API username and key | Iris Investigate, Domain History, Risk Evidence, IrisQL, the Account page; also the Certificate API |
+| DomainTools API username and key | Iris Investigate (with the risk scores), Domain History, IrisQL, the Account page; also the Certificate API |
 | DNSDB API key | Passive DNS through DNSDB Scout, CNAME chasing and IP pivots (optional with Iris pDNS) |
 | Certificate API key | Optional: only if it differs from the DomainTools API key |
 | VPNDB API key | Optional: the VPN, residential proxy and Tor check of hosting IPs |
@@ -107,7 +111,8 @@ core/
   intel_data.py                Reference data: CDN ranges, parking/large DNS providers, hosting watchlist, impersonated brands, shared platforms, takeover-prone and dynamic DNS CNAME services, ATT&CK tactics, rule metadata
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
-  account.py                   Account Information rows: product names, usage, limits and what is left, expiry
+  account.py                   Account Information rows: product names, usage, limits and what is left, expiry; the products each collection stage needs
+  api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, cost estimate vs what is left
   query_assist.py              IrisQL / CertsQL editor suggestions: fields, each field's operators, value templates, flagged lines
   hostnames.py                 Hostname focus filter, Hostname Inventory (lifecycle, flags) and hostname-certificate links
   pivots.py                    Pivot Ranking: shared Iris Investigate values ranked by Iris pivot count
@@ -148,24 +153,25 @@ core/
                                history decides whether an exit counted while the domain used it)
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
-    enrichment_rules.py        Iris rules (piracy panels, shared trackers)
+    enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular domains
     intel_rules.py             Registration age, hosting watchlist, redirects, parking, ASN-aware flux, volume anomalies,
                                CDN origin exposure, lookalikes
     txt_fingerprints.py        TXT SaaS fingerprinting and encoded-payload detection
 
 integrations/
   collector.py                 Runs all collection stages (parallel where safe), pDNS supplements, on-demand CNAME chases (per-domain query budget), and records per-source status
-  http.py                      Shared requests session with retry/backoff, FetchResult, StatusLog
-  cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime
+  http.py                      Shared requests session with retry/backoff, DomainTools SDK retries, per-lookup query count, FetchResult, StatusLog
+  cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime and each source's own
   credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
   certificates.py              Certificate Search (incl. CertsQL searches) / Events / CTL APIs and X.509 normalization
-  dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming) and Scout-style CNAME chasing
+  dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming, incremental lookups), Scout-style CNAME chasing, the key's quota
   vpndb.py                     VPNDB API: VPN / residential proxy / Tor attribution of IPs, prefixes, ASNs; every operation, paging, bulk, quota
   domain_history.py            Domain History (SDK) parsing and lifespans
-  risk.py                      Risk Evidence (SDK)
-  account.py                   Account Information (SDK): products, limits and usage
+  risk.py                      DomainTools risk scores from the Iris Investigate records
+  account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
+  estimate.py                  Cost estimate of the next Analyze (no query; cached lookups left out)
   enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches and web tracker extraction
-  iris.py                      Iris pDNS via an authenticated Playwright browser session
+  iris.py                      Iris pDNS via an authenticated Playwright session: one session check, then parallel workers, cached
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
@@ -185,7 +191,8 @@ views/                         One module per page + sidebar, alert tools, certi
                                Iris, its /24 and network, Tor share; fetches a full verdict on demand
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards
   settings_view.py             Settings: collection options, use cases & profiles, thresholds, brand watchlist, cache, credentials
-  account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry
+  account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry; DNSDB and VPNDB quotas
+  api_usage_view.py            Sidebar cost estimate, the run's API queries (Data sources), skipped products
   docs_view.py                 In-app documentation (Help → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)

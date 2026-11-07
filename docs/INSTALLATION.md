@@ -20,8 +20,8 @@ ATT&CK mapping), see the [User Guide](USER_GUIDE.md).
   Download, and the IrisQL / CertsQL query editor is a Streamlit custom component (`st.components.v2`). The
   editor's CodeMirror 5 library ships with the app in `views/assets/codemirror` (MIT license there): nothing extra
   to install, and no internet access needed for it.
-- **DomainTools API access**, for Domain History, Risk Evidence and Iris Investigate; the same API key is used
-  for the Certificate API.
+- **DomainTools API access**, for Iris Investigate (which also gives the risk scores) and Domain History; the same
+  API key is used for the Certificate API.
 - **DNSDB Scout API key**, for passive DNS through DNSDB, CNAME chasing and IP pivots. With Iris pDNS as the
   passive DNS provider it is optional; without it, CNAME chains stop where the collected data ends.
 - **Chromium through Playwright**, only for the Iris pDNS provider.
@@ -49,7 +49,7 @@ Credentials can come from three sources. Each credential is taken from the **fir
 
 | Credential | 1. Environment | 2. `credentials.toml` | 3. Files |
 | --- | --- | --- | --- |
-| DomainTools API (Domain History, Risk Evidence, Iris Investigate) | `$DT_API_USERNAME` + `$DT_API_KEY`, or `$DOMAINTOOLS_USERNAME` + `$DOMAINTOOLS_API_KEY` | `[domaintools]` `username`, `api_key` | `~/.dtapi` (line 1 username, line 2 key) |
+| DomainTools API (Iris Investigate with risk scores, Domain History, Account) | `$DT_API_USERNAME` + `$DT_API_KEY`, or `$DOMAINTOOLS_USERNAME` + `$DOMAINTOOLS_API_KEY` | `[domaintools]` `username`, `api_key` | `~/.dtapi` (line 1 username, line 2 key) |
 | DNSDB Scout | `$DNSDB_API_KEY` | `[dnsdb]` `api_key` | `~/.dtdnsdb` |
 | Certificate API | `$DT_CERT_API_KEY` | `[cert_api]` `api_key` | `~/.dtcertapi` |
 | VPNDB | `$VPNDB_API_KEY` | `[vpndb]` `api_key` | `~/.dtvpndb` |
@@ -97,7 +97,7 @@ Credentials can come from three sources. Each credential is taken from the **fir
 One file for every service, at `~/.config/dt-analytics/credentials.toml` (or the path in `$DT_CREDENTIALS_FILE`):
 
 ```toml
-[domaintools]          # DomainTools API: Domain History, Risk Evidence, Iris Investigate
+[domaintools]          # DomainTools API: Iris Investigate (with risk scores), Domain History, Account
 username = "API_USERNAME"
 api_key  = "API_KEY"   # also used by the Certificate API
 

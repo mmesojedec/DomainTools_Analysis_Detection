@@ -15,7 +15,9 @@ Every use case checks the hosting IPs in VPNDB (with a VPNDB key), each with a b
 C2 and reporting use cases send up to 500 IPs, give 50 exits the full verdict and history, and look at the
 neighbourhood (neighbouring /24s, hosting networks, other domains on dedicated exits); triage sends 100 and gives 20
 with the neighbourhood; takeover, phishing and monitoring send 100–200 and give 10–20 without it. *Check IP addresses*
-is the only one that turns on *Only the VPNDB IP check*: there VPNDB is the only source.
+is the only one that turns on *Only the VPNDB IP check*: there VPNDB is the only source. *Monitor changes* also keeps
+re-runs cheap: it fetches 90 days of Domain History, and turns on *Incremental passive DNS*, so with an offline copy of
+the last run DNSDB returns only the records seen since then.
 
 For what a run collects and in which order see [Workflows](WORKFLOWS.md), for every option see
 [Usage](USAGE.md), and for reading alerts and scores see the [User Guide](USER_GUIDE.md).
@@ -84,7 +86,7 @@ How the certificate inputs are expanded is in [Certificate inputs](USAGE.md#cert
 
 | Use case | Start with | Where to look | What it surfaces |
 | --- | --- | --- | --- |
-| Monitor domains over time | The same target list, re-run later | **Run History**, *Only first detected in this run* | New, resolved and recurring alerts, trends, per-domain history |
+| Monitor domains over time | The same target list, re-run later with the *Monitor changes* use case and *Save offline copy* | **Run History**, *Only first detected in this run* | New, resolved and recurring alerts, trends, per-domain history; each run's API queries (Run History), and only new passive DNS records per re-run |
 | Re-analyze without API calls | An offline dataset | Data source *Offline dataset* | The same views with different thresholds or windows, no quota used |
 | Re-run a lookup in another tool | Any run | **Lookup Queries** | CertsQL, DNSDB names and record types (supplements and CNAME chase steps included), Iris domain lists, VPNDB requests, `domaintools` CLI and curl commands |
 | Share findings | Any run | *Export Detections, IOCs & Report* under the alerts | Detections and IOC lists (CSV / JSON), STIX 2.1 bundle, HTML / Markdown evidence report |

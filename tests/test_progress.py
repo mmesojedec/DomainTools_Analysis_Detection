@@ -25,7 +25,7 @@ def test_every_plan_row_has_a_key_and_starts_waiting():
     progress = CollectionProgress(PLAN)
     assert all(row["Key"] for row in PLAN)
     assert {row.state for row in progress.snapshot()} == {WAITING}
-    assert set(rows(progress)) == {"iris", "history", "risk", "certs", "pdns", "TXT", "CAA", "vpndb", "ct"}
+    assert set(rows(progress)) == {"iris", "history", "certs", "pdns", "TXT", "CAA", "vpndb", "ct"}
 
 
 def test_supplements_count_only_the_capped_domains_and_skip_when_none_were_capped(monkeypatch):
@@ -134,14 +134,18 @@ def test_iris_pdns_redraws_while_a_lookup_runs_and_relays_the_login_prompt_to_th
 
     drawing_thread, calls = threading.current_thread(), []
 
-    def slow_fetch(target, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=()):
-        assert threading.current_thread() is not drawing_thread   # the lookup runs in a worker thread
-        on_auth_required(target)
+    def slow_fetch(targets, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=(),
+                   on_result=None):
+        assert threading.current_thread() is not drawing_thread   # the lookups run in a worker thread
+        on_auth_required(targets[0])
         time.sleep(1.3)   # longer than CLOCK_SECONDS, so the clock must be redrawn while it runs
         on_auth_done()
-        return FetchResult("Iris pDNS", target, data=[], record_count=0)
+        results = {t: FetchResult("Iris pDNS", t, data=[], record_count=0) for t in targets}
+        for target, result in results.items():
+            on_result(target, result)
+        return results
 
-    monkeypatch.setattr(collector, "fetch_iris_pdns", slow_fetch)
+    monkeypatch.setattr(collector, "fetch_iris_pdns_many", slow_fetch)
     drawn = []
     progress = CollectionProgress(PLAN, render=lambda p: drawn.append(
         next(row.state for row in p.snapshot() if row.key == "pdns")))

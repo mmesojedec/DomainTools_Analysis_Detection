@@ -8,10 +8,12 @@ from contextlib import nullcontext
 import pandas as pd
 import streamlit as st
 
+from core.account import unavailable_stages
+from core.api_usage import queries_by_product
 from core.cert_inputs import idn_conversions, parse_inputs, run_key_labels
 from core.dataset import build_dataset
 from core.helpers import md_escape, normalize_to_apex
-from core.offline import format_size, load_offline_dataset, save_offline_dataset, update_offline_manifest
+from core.offline import format_size, incremental_base, load_offline_dataset, save_offline_dataset, update_offline_manifest
 from core.persistence import (
     apply_suppressions,
     collect_run_artifacts,
@@ -27,6 +29,7 @@ from core.run_history import alert_lifecycle, diff_artifacts, first_detected_mas
 from core.threat_detection import detect_threat_flags
 from core.triage import attach_status, load_triage
 from core.window import resolve_window
+from integrations.account import account_products
 from integrations.cache import clear_all_caches, prune_cache, refreshing
 from integrations.collector import collect_all, resolve_seeds, restore_cached_chases
 from integrations.credentials import clear_credential_cache
@@ -36,6 +39,7 @@ from views import idn_display, navigation
 from views.account_view import render_account_page
 from views.alert_tools import AlertView
 from views.anonymizer_view import render_anonymizer_summary
+from views.api_usage_view import render_run_usage, skipped_products_note
 from views.campaign_view import render_campaign_lens
 from views.certsql_view import ORIGIN_KEY as CERTSQL_ORIGIN_KEY
 from views.certsql_view import render_certsql_page
@@ -209,7 +213,11 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
     `host_focus` ({apex: [hostnames]}) is the initial hostname focus; those hostnames are looked up on their own only
     where an apex lookup stopped at its limit.
     """
+    products = account_products() if not settings.vpndb_only else None   # at most one query an hour
     with st.status("Collecting telemetry...", expanded=True) as status:
+        skipped = skipped_products_note(products)
+        if skipped:
+            st.warning(skipped + ". See the Account page.", icon=":material/block:")
         auth_box = st.empty()
         tracker = live_progress(settings)
         with refreshing() if settings.fresh else nullcontext(), tracking(tracker):   # fresh: refresh cached results
@@ -237,6 +245,10 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
                 vpndb_context=settings.vpndb_context,
                 seed_hits=resolution.hits if resolution is not None else None,
                 host_focus=host_focus,
+                history_days=settings.history_days,
+                pdns_base=incremental_base(target_set_key(run_key_labels(targets, seed_inputs)), "DNSDB Scout",
+                                           settings.dnsdb_limit) if settings.pdns_incremental else None,
+                unavailable=unavailable_stages(products),
             )
         tracker.close()
         st.session_state[PROGRESS_KEY] = tracker.snapshot()
@@ -345,7 +357,8 @@ def save_pending_snapshot(view, profiles, host_focus=None):
     snapshot = save_snapshot(pending, collected.targets, st.session_state.get("run_artifacts", {}), view.active,
                              window_label=st.session_state.get("window_label"), profiles=profiles,
                              seeds=getattr(collected, "seed_inputs", None), host_focus=host_focus,
-                             parent=st.session_state.pop(HUNT_PARENT_KEY, None))
+                             parent=st.session_state.pop(HUNT_PARENT_KEY, None),
+                             queries=queries_by_product(collected.statuses))
     st.session_state.current_run_id = snapshot["id"]
     offline_id = st.session_state.pop("offline_pending_id", None)
     if offline_id:
@@ -549,6 +562,7 @@ def page_sources():
     render_apex_notice(st.session_state.get("apex_conversions"))
     render_idn_notice(st.session_state.get("idn_conversions"))
     render_status_panel(CTX.collected.statuses, expanded=True)
+    render_run_usage(CTX.collected.statuses)
     _render_cache_details(CTX.collected, CTX.timezone)
     render_seed_provenance(CTX.collected)
 

@@ -25,7 +25,9 @@ def plan_settings(settings):
             "opt_pivot_max": settings.pivot_max_ips, "opt_ct": settings.include_ct, "opt_ct_max": settings.ct_max_hashes,
             "opt_vpndb": settings.vpndb_check, "opt_vpndb_only": settings.vpndb_only,
             "opt_vpndb_max_ips": settings.vpndb_max_ips, "opt_vpndb_details": settings.vpndb_details,
-            "opt_vpndb_context": settings.vpndb_context}
+            "opt_vpndb_context": settings.vpndb_context, "opt_history_mode": "days" if settings.history_days else "all",
+            "opt_history_days": settings.history_days or 1,
+            "opt_pdns_incremental": settings.pdns_incremental}
 
 
 def _counts(row):
@@ -49,7 +51,7 @@ def _expiry(seconds):
 
 def cache_text(row, lifetime=None, now=None):
     """How many of the row's lookups came from the lookup cache, how old they are and when the first one expires."""
-    lifetime = cache_ttl() if lifetime is None else lifetime
+    lifetime = _lifetime(row, lifetime)
     now = time.time() if now is None else now
     fetched = [at for _, at in row.cache_hits]
     if not fetched:
@@ -63,13 +65,19 @@ def cache_text(row, lifetime=None, now=None):
 
 def cache_table(rows, lifetime=None, now=None):
     """One row per cached result of the run: which lookup, which target, when it was fetched and when it expires."""
-    lifetime = cache_ttl() if lifetime is None else lifetime
     now = time.time() if now is None else now
     table = [{"Lookup": f"{row.source}: {row.lookup.split(' (')[0]}", "Target": target,
               "Fetched": pd.to_datetime(at, unit="s"), "Age": age_text(now - at),
-              "Expires": _expiry(at + lifetime - now).removeprefix("expires ")}
+              "Expires": _expiry(at + _lifetime(row, lifetime) - now).removeprefix("expires ")}
              for row in rows for target, at in row.cache_hits]
     return pd.DataFrame(table, columns=["Target", "Age", "Expires", "Lookup", "Fetched"])
+
+
+def _lifetime(row, lifetime=None):
+    """`lifetime`, else how long the row's source keeps cached results, else the cache lifetime."""
+    if lifetime is not None:
+        return lifetime
+    return getattr(row, "cache_lifetime", None) or cache_ttl()
 
 
 def clock(seconds):
@@ -148,8 +156,8 @@ def live_progress(settings):
             st.markdown("  \n".join(checklist_lines(rows, now)) or "Starting...")
             cached = sum(row.cached for row in rows)
             if cached:
-                st.caption(f"{cached:,} lookup(s) answered from the lookup cache, with no API query. Cached results "
-                           f"are kept for {age_text(cache_ttl())} after they were fetched (Settings → Lookup cache).")
+                st.caption(f"{cached:,} lookup(s) answered from the lookup cache, with no API query. Each source keeps "
+                           "cached results for its lifetime on Settings → Lookup cache.")
             if up_next(rows):
                 st.caption(up_next(rows))
     tracker = CollectionProgress(query_plan(plan_settings(settings)), render)
@@ -167,8 +175,8 @@ def render_last_collection():
         st.markdown("  \n".join(checklist_lines(rows)))
         cached = cache_table(rows)
         if not cached.empty:
-            st.markdown(f"**From the lookup cache** (kept {age_text(cache_ttl())} after fetching; Settings → Lookup "
-                        "cache, or *Re-run with fresh lookups* on the Data sources page to refresh them)")
+            st.markdown("**From the lookup cache** (each source's lifetime is on Settings → Lookup cache; *Re-run with "
+                        "fresh lookups* on the Data sources page refreshes them)")
             st.dataframe(cached, hide_index=True, width="stretch", column_config={
                 "Fetched": st.column_config.DatetimeColumn("Fetched (UTC)", format="YYYY-MM-DD HH:mm"),
                 "Expires": st.column_config.Column("Expires", help="When the cached result leaves the cache; the "

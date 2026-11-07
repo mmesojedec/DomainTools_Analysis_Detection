@@ -35,7 +35,7 @@ COLUMN_GUIDE = [
                    "certificate is Low)."),
     ("Category", "The kind of evidence the rule looks at (DNS Behavior, Certificates, Email, Correlation, ...)."),
     ("MITRE ATT&CK", "The adversary technique the behavior maps to; the tactic is derived from the technique ID."),
-    ("Risk / Risk Evidence", "DomainTools risk score for the domain and its evidence tags. Domains with a known score below "
+    ("Risk / Risk Evidence", "DomainTools risk score for the domain and its evidence tags (from Iris Investigate). Domains with a known score below "
                              "Min Risk Score are not evaluated."),
     ("Occurrences", "How many matching certificates or records were merged into one detection for the domain."),
     ("First Detected / Runs Seen", "When this detection first appeared in a saved run (any target list), and in how many runs."),
@@ -64,7 +64,8 @@ RULE_CATALOG = {
                                           "Name server at a dynamic, free, or bulletproof DNS provider.",
                                           "These providers ignore abuse reports and are favored for malicious domains."),
     "High-Risk Mail Provider": ("Medium", "T1585.002 (Acquire Email Accounts)",
-                                "MX records point to an anonymous, offshore, or temporary mail provider.",
+                                "MX records (passive DNS, or the current MX in Iris Investigate) point to an anonymous, "
+                                "offshore, or temporary mail provider.",
                                 "Disposable mail backends are common in phishing and fraud operations."),
     "Phishing/Spam Prep": ("Medium-High", "T1583.001 (Acquire Infrastructure)",
                            "MX / TXT / SPF records added after longer than Phishing Prep Dormancy (Days).",
@@ -73,7 +74,8 @@ RULE_CATALOG = {
                               "SPF record without the required 'v=' prefix.",
                               "Hygiene issue; mostly useful as a sign of hastily configured infrastructure."),
     "Highly Permissive SPF (+all)": ("High", "T1583.001 (Acquire Infrastructure)",
-                                     "SPF record ends in +all, authorizing any server to send mail.",
+                                     "SPF record (passive DNS, or the current SPF in Iris Investigate) ends in +all, "
+                                     "authorizing any server to send mail.",
                                      "Lets anyone spoof the domain; rarely legitimate."),
     "Anomalous TXT Payload": ("High", "T1071.004 (DNS C2)",
                               "TXT record longer than Anomalous TXT Length with almost no spaces.",

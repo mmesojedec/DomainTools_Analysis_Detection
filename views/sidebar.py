@@ -10,6 +10,8 @@ import pytz
 import streamlit as st
 
 from config import (
+    CACHE_GROUP_DEFAULTS,
+    CACHE_GROUPS,
     CACHE_LIFETIMES,
     DEFAULT_THRESHOLDS,
     DNSDB_DEFAULT_LIMIT,
@@ -30,9 +32,17 @@ from core.helpers import md_escape
 from core.hostnames import apex_of, candidate_hostnames, focus_from_hostnames
 from core.offline import format_size, list_offline_datasets
 from core.persistence import load_settings, save_setting
-from core.use_cases import COLLECTION_DEFAULTS, OVERRIDES_SETTING, PROFILES_SETTING, effective_settings, find_case
+from core.use_cases import (
+    COLLECTION_DEFAULTS,
+    HISTORY_MODES,
+    OVERRIDES_SETTING,
+    PROFILES_SETTING,
+    effective_settings,
+    find_case,
+    history_period_days,
+)
 from core.window import CUSTOM_RANGE, DEFAULT_WINDOW, WINDOW_PRESETS
-from integrations.cache import cache_usage, clear_all_caches, set_cache_ttl
+from integrations.cache import cache_usage, clear_all_caches, set_cache_ttl, set_group_ttl
 from integrations.credentials import (
     CERT_API,
     DNSDB,
@@ -51,6 +61,7 @@ from integrations.credentials import (
     saved_sections,
 )
 from views import navigation
+from views.api_usage_view import render_cost_estimate
 from views.idn_display import UNICODE_KEY, display_name
 
 
@@ -78,6 +89,8 @@ class LookupSettings:
     vpndb_max_ips: int = VPNDB_MAX_IPS      # hosting IPs in the bulk request
     vpndb_details: int = VPNDB_DETAIL_MAX   # full verdicts and weekly histories
     vpndb_context: bool = True              # neighbouring /24s, hosting networks, leads on dedicated exits
+    history_days: int = 0                   # Domain History: only changes of the last N days (0: all)
+    pdns_incremental: bool = False          # DNSDB: only records seen since the last offline copy of the targets
 
     def collection_summary(self):
         """Collection settings recorded in an offline dataset's manifest."""
@@ -86,7 +99,8 @@ class LookupSettings:
                 "txt_records": self.txt_records, "caa_lookup": self.caa_lookup, "seed_preselect": self.seed_preselect,
                 "cname_lookup": self.cname_lookup, "vpndb_check": self.vpndb_check, "vpndb_only": self.vpndb_only,
                 "vpndb_max_ips": self.vpndb_max_ips, "vpndb_details": self.vpndb_details,
-                "vpndb_context": self.vpndb_context}
+                "vpndb_context": self.vpndb_context, "history_days": self.history_days,
+                "pdns_incremental": self.pdns_incremental}
 
 
 ANALYST_KEY = "analyst_mode"
@@ -107,7 +121,25 @@ def init_state():
     for key in STICKY_KEYS:   # Streamlit drops a widget's state when the widget is not drawn; re-assigning keeps it
         if key in st.session_state:
             st.session_state[key] = st.session_state[key]
-    set_cache_ttl(load_settings().get("cache_seconds", FETCH_CACHE_TTL_SECONDS))
+    apply_cache_settings(load_settings())
+
+
+CACHE_GROUP_SETTING = "cache_group_seconds"   # dt_settings.json: {group: seconds, or null to follow the cache lifetime}
+FOLLOW = "Same as cache lifetime"
+
+
+def group_lifetimes(settings):
+    """{group: seconds or None} of the saved settings, the built-in defaults where nothing is saved."""
+    saved = settings.get(CACHE_GROUP_SETTING)
+    if not isinstance(saved, dict):
+        return {group: CACHE_GROUP_DEFAULTS.get(group) for group in CACHE_GROUPS}
+    return {group: saved.get(group) for group in CACHE_GROUPS}
+
+
+def apply_cache_settings(settings):
+    set_cache_ttl(settings.get("cache_seconds", FETCH_CACHE_TTL_SECONDS))
+    for group, seconds in group_lifetimes(settings).items():
+        set_group_ttl(group, seconds)
 
 
 def lookup_settings(raw_input, run, save_offline=False):
@@ -121,7 +153,18 @@ def lookup_settings(raw_input, run, save_offline=False):
                           mode="live", save_offline=bool(save_offline), seed_preselect=int(opt["opt_seed_preselect"]),
                           cname_lookup=bool(opt["opt_cname"]), vpndb_check=bool(opt["opt_vpndb"]),
                           vpndb_only=bool(opt["opt_vpndb_only"]), vpndb_max_ips=int(opt["opt_vpndb_max_ips"]),
-                          vpndb_details=int(opt["opt_vpndb_details"]), vpndb_context=bool(opt["opt_vpndb_context"]))
+                          vpndb_details=int(opt["opt_vpndb_details"]), vpndb_context=bool(opt["opt_vpndb_context"]),
+                          history_days=next_history_days(),
+                          pdns_incremental=bool(opt["opt_pdns_incremental"] and dnsdb))
+
+
+def next_history_days():
+    """Days of Domain History the next Analyze fetches (0: all), from the period option and the analysis window."""
+    opt = st.session_state
+    custom = opt.get("analysis_window_range")
+    start = custom[0] if isinstance(custom, (list, tuple)) and custom else None
+    return history_period_days(opt.get("opt_history_mode", "all"), opt.get("opt_history_days"),
+                               opt.get("analysis_window"), start)
 
 
 def options_summary():
@@ -139,6 +182,10 @@ def options_summary():
                      + ("" if opt["opt_vpndb_context"] else " (no neighbourhood)"))
     if opt["opt_pivot"] and opt["opt_pdns_provider"] == "DNSDB Scout":
         parts.append(f"IP pivots {opt['opt_pivot_max']}")
+    if opt["opt_pdns_incremental"] and opt["opt_pdns_provider"] == "DNSDB Scout":
+        parts.append("incremental pDNS")
+    if next_history_days():
+        parts.append(f"history {next_history_days()} d")
     if opt["opt_force_refresh"]:
         parts.append("force refresh")
     return " · ".join(parts)
@@ -296,6 +343,7 @@ def render_lookup_controls(settings_page=None):
     if case is not None:
         st.sidebar.caption(f"**Use case:** {case.title}" + (" (options changed since)" if changed else ""))
     st.sidebar.caption(f"**Options:** {options_summary()}")
+    render_cost_estimate(raw_input, lookup_settings(raw_input, False))
     if settings_page is not None:
         st.sidebar.page_link(settings_page, label="Change collection options", icon=":material/tune:")
     render_credential_chip(settings_page)
@@ -338,6 +386,33 @@ def render_collection_options(prefix="", force_refresh=True):
                      "find other domains that used them over time. One extra DNSDB query per IP. DNSDB Scout only.")
     c2.number_input("Max IPs to pivot on", min_value=1, max_value=200, step=1, key=prefix + "opt_pivot_max",
                     disabled=not st.session_state[prefix + "opt_pivot"])
+    st.checkbox("Incremental passive DNS (only records seen since the last offline copy)",
+                key=prefix + "opt_pdns_incremental",
+                disabled=st.session_state[prefix + "opt_pdns_provider"] != "DNSDB Scout",
+                help="For target lists you analyze again and again (Monitor changes). When an offline copy of the same "
+                     "targets exists (same provider and DNSDB limit), DNSDB returns only the records seen since a day "
+                     "before that copy, and the copy's older records are added. Each target is still one DNSDB query, "
+                     "but the result limit holds new records instead of old ones, and the lookup is faster. Without an "
+                     "offline copy the lookup is complete, as usual. Save an offline copy of each run (sidebar) so the "
+                     "next one builds on it. DNSDB Scout only.")
+    st.markdown("**Domain History**")
+    c1, c2 = st.columns(2)
+    c1.selectbox("Domain History period", list(HISTORY_MODES), key=prefix + "opt_history_mode",
+                 format_func=HISTORY_MODES.get,
+                 help="Which changes Domain History fetches. **All**: every change, up to 1,000 per domain (the "
+                      "default; dormancy and parking detections then see the whole past). **Same as the analysis "
+                      "window**: only the changes of the window chosen in the sidebar (All time fetches all). **Custom "
+                      "number of days**: the last N days, to fetch more or less than the window. Domain History "
+                      "returns the newest changes first, 100 per query, so a short period stops after the first page "
+                      "or two and costs fewer queries; detections that compare with older history (dormancy, parking) "
+                      "then see only this period.")
+    c2.number_input("Days of Domain History", min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
+                    disabled=st.session_state[prefix + "opt_history_mode"] != "days",
+                    help="With *Custom number of days*: the changes of the last N days are fetched.")
+    if not prefix:
+        days = next_history_days()
+        st.caption("Next Analyze: " + (f"the last {days:,} days of changes." if days else
+                                       "every change, up to 1,000 per domain."))
     st.markdown("**VPNDB**")
     st.checkbox("Check hosting IPs for VPN, residential proxy and Tor", key=prefix + "opt_vpndb",
                 help="On in every use case. Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, "
@@ -377,8 +452,8 @@ def render_collection_options(prefix="", force_refresh=True):
                     key=prefix + "opt_seed_preselect",
                     help="Domains / IPs found through certificate inputs are pre-selected up to this many (most "
                          "certificates first). You can change the selection before the run.")
-    st.caption("Iris Investigate has no options: current hosting, registration, website and trackers are fetched for "
-               "every domain (batched requests).")
+    st.caption("Iris Investigate has no options: current hosting, registration, risk score, website and trackers are "
+               "fetched for every domain (batched requests).")
     if not force_refresh:
         return
     st.markdown("**All sources**")
@@ -610,6 +685,9 @@ def render_analysis_window():
             custom_range = (picked[0], picked[1])
         else:
             st.sidebar.caption("Select both a start and an end date.")
+    if st.session_state.get("opt_history_mode") == "window":
+        st.sidebar.caption("Domain History is also fetched for this window on the next Analyze (Settings → Collection "
+                           "options → Domain History period).")
     return WindowChoice(preset, custom_range)
 
 
@@ -756,11 +834,13 @@ def render_cache_settings():
         "Cache lifetime", labels, index=labels.index(current), key="cache_lifetime",
         help="How long a successful lookup is reused: the same domain, name, record type and limit looked up again "
              "(in this or a later run, also after an app restart) costs no API query. Covers passive DNS and its TXT / "
-             "CAA / CNAME supplements, CNAME chases and reverse lookups, IP pivots, certificates, Domain History, Risk "
-             "and Iris Investigate (per batch of domains). Kept in dt_cache/ (local, git-ignored). Data Source Status "
+             "CAA / CNAME supplements, CNAME chases and reverse lookups, IP pivots, certificates, Domain History, "
+             "Iris Investigate (per batch of domains, with risk scores) and VPNDB. Each source can keep its results "
+             "for its own lifetime (below). Kept in dt_cache/ (local, git-ignored). Data Source Status "
              "marks each reused lookup *From cache*. Off: always query.")
     save_setting("cache_seconds", CACHE_LIFETIMES[label])
     set_cache_ttl(CACHE_LIFETIMES[label])
+    _render_group_lifetimes(CACHE_LIFETIMES[label] <= 0)
     count, size = cache_usage()
     if st.button("Clear cache", key="clear_cache", icon=":material/delete_sweep:", disabled=not count,
                  help="Deletes every cached lookup now (dt_cache/ and memory), without running anything. The next "
@@ -768,6 +848,25 @@ def render_cache_settings():
         st.toast(f"Deleted {clear_all_caches():,} cached lookup(s).")
         count, size = cache_usage()
     st.caption(f"{count:,} cached lookup(s), {format_size(size)}." if count else "The cache is empty.")
+
+
+def _render_group_lifetimes(off):
+    """Each source group's own lifetime: results that change rarely can be kept longer, ones that change often less."""
+    lifetimes = group_lifetimes(load_settings())
+    names = {seconds: label for label, seconds in CACHE_LIFETIMES.items() if seconds}
+    options = [None, *names]
+    st.markdown("**Per source**", help="How long each source's results are reused. Domain History changes rarely "
+                "(7 days by default); VPNDB verdicts change often (6 hours). The others follow the cache lifetime "
+                "above. With the cache off, every source is off.")
+    changed, columns = {}, st.columns(2)
+    for index, (group, label) in enumerate(CACHE_GROUPS.items()):
+        current = lifetimes[group] if lifetimes[group] in options else None
+        choice = columns[index % 2].selectbox(label, options, index=options.index(current), key=f"cache_group::{group}",
+                                              disabled=off, format_func=lambda s: FOLLOW if s is None else names[s])
+        changed[group] = choice
+        set_group_ttl(group, choice)
+    if changed != lifetimes:
+        save_setting(CACHE_GROUP_SETTING, changed)
 
 
 def rerun_app_if_requested():
@@ -795,7 +894,7 @@ def render_hostname_focus(collected, selected_domains):
         placeholder="All hostnames",
         help="Leave empty to analyze every hostname. Choosing hostnames keeps only their passive DNS records (and names "
              "under them), the certificates covering them and their certificate events, for their domains only. Domain "
-             "History, Risk and Iris Investigate stay domain-wide. No new lookups are made; see Hostname Inventory "
+             "History and Iris Investigate (with risk scores) stay domain-wide. No new lookups are made; see Hostname Inventory "
              "for every hostname.",
     )
     return focus_from_hostnames(chosen)

@@ -36,8 +36,8 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
 
 1. **Collect.** Certificate inputs (fingerprints, `cn:`, `san:`, ...) are first resolved to the domains and IPs
    their certificates cover, and you choose which to analyze (see [Certificate inputs](USAGE.md#certificate-inputs)).
-   For each target the app then queries Domain History, Risk Evidence and Iris Investigate (DomainTools SDK),
-   passive DNS (DNSDB Scout or Iris pDNS), and the Certificate API: Certificate Search for certificates naming the
+   For each target the app then queries Domain History and Iris Investigate (DomainTools SDK; Iris also returns
+   the DomainTools risk score and its components, so no separate Risk Evidence query is made), passive DNS (DNSDB Scout or Iris pDNS), and the Certificate API: Certificate Search for certificates naming the
    domain or any subdomain, Certificate Events for the hostname / IP over the last 365 days (the API default is 30),
    and SHA-256 / CT log events per certificate. With a VPNDB key, the hosting IPs are checked in
    [VPNDB](USAGE.md#vpn-residential-proxy-and-tor-vpndb) for VPN, residential proxy and Tor exits (with the weekly
@@ -45,15 +45,19 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
    and CIDR targets are looked up there as ranges. Where a passive DNS lookup stopped at its limit, record-type
    supplements fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside
    the collected data are [chased](#cname-chains) to their final addresses. Every lookup's outcome is recorded in
-   [Data Source Status](#data-source-status).
+   [Data Source Status](#data-source-status), with the API queries it made. Independent sources run at the same
+   time (see [Workflows](WORKFLOWS.md#collection-order)), and sources missing from the DomainTools account are
+   skipped.
 2. **Window.** Records are limited to the [analysis window](#analysis-window).
 3. **Score gate.** Domains whose known DomainTools risk score is below **Min Risk Score** are skipped by the
-   behavioral engine (an info box lists them). Domains whose score could not be fetched are still evaluated, with
+   behavioral engine (an info box lists them). Domains Iris Investigate has no score for are still evaluated, with
    a warning. IP targets are always evaluated.
 4. **Detect.** Every [detection rule](#detection-catalogue) runs per domain or IP on raw UTC timestamps. Then the
    cross-domain checks run: [infrastructure clusters and domain hopping](#infrastructure-clusters-and-domain-hopping),
    CNAME targets shared by several analyzed domains, and anonymizer exits several analyzed domains use (see
-   [VPNDB anonymizer rules](#vpndb-anonymizer-rules)).
+   [VPNDB anonymizer rules](#vpndb-anonymizer-rules)). A domain among the 10,000 most popular in Iris
+   Investigate (its *popularity rank*) is far more likely legitimate: its Medium and Medium-High confidence alerts
+   drop one step, and each alert's logic says so. High-confidence alerts are kept as they are.
 5. **Merge.** Rules that run once per certificate or record can fire several times for one domain. These repeats
    are merged into **one alert per (domain, rule)**, keeping the worst severity's description, the best confidence
    and all the evidence. The *Occurrences* column shows how many were merged.
@@ -92,6 +96,9 @@ A collapsed panel under the window banner. Its title shows the number of errors 
 | Error | Authentication failure, rate limit, timeout or other error; the reason is shown |
 
 Missing data lowers what the detections can see, so check this panel when a domain has fewer alerts than expected.
+Each lookup also shows **Queries**: the API queries it made (pages and retries included; 0 when the lookup cache
+answered). The Data sources page adds them up per service and DomainTools product under **API queries**, and Run
+History keeps each run's total. A source whose DomainTools product the account does not have is listed as skipped.
 
 ## KPI banner
 
@@ -231,7 +238,7 @@ Inside a group:
 | Column | Meaning |
 | --- | --- |
 | Domain | Domain or IP the detection is about |
-| Risk / Risk Evidence | DomainTools risk score and its evidence tags (e.g. Phishing, Malware) |
+| Risk / Risk Evidence | DomainTools risk score and its evidence tags (e.g. Phishing, Malware), from Iris Investigate |
 | Threat Type | The rule that fired; see the [catalogue](#detection-catalogue) |
 | MITRE ATT&CK | Technique the behavior maps to; see the [mapping](#mitre-attck-mapping) |
 | Severity | Impact if the finding is true |
@@ -368,10 +375,10 @@ current run.
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| High-Risk Mail Provider | Medium | Low | T1585.002 (Acquire Email Accounts) | MX records point to an anonymous, offshore, or temporary mail provider. | Disposable mail backends are common in phishing and fraud operations. |
+| High-Risk Mail Provider | Medium | Low | T1585.002 (Acquire Email Accounts) | MX records (passive DNS, or the current MX in Iris Investigate) point to an anonymous, offshore, or temporary mail provider. | Disposable mail backends are common in phishing and fraud operations. |
 | Phishing/Spam Prep | Medium-High | Low | T1583.001 (Acquire Infrastructure) | MX / TXT / SPF records added after longer than Phishing Prep Dormancy (Days). | Mail setup on a quiet domain often precedes a phishing or spam campaign. |
 | Invalid/Malformed SPF | Low | Medium | T1583.001 (Acquire Infrastructure) | SPF record without the required 'v=' prefix. | Hygiene issue; mostly useful as a sign of hastily configured infrastructure. |
-| Highly Permissive SPF (+all) | High | High | T1583.001 (Acquire Infrastructure) | SPF record ends in +all, authorizing any server to send mail. | Lets anyone spoof the domain; rarely legitimate. |
+| Highly Permissive SPF (+all) | High | High | T1583.001 (Acquire Infrastructure) | SPF record (passive DNS, or the current SPF in Iris Investigate) ends in +all, authorizing any server to send mail. | Lets anyone spoof the domain; rarely legitimate. |
 
 #### Hosting & DNS Providers
 

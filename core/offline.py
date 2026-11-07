@@ -170,6 +170,27 @@ def load_offline_dataset(dataset_id):
     return CollectedData(**values), manifest
 
 
+def incremental_base(run_key, provider="DNSDB Scout", limit=None):
+    """
+    The newest offline dataset of this target list (`run_key`) collected with `provider` (and the same DNSDB `limit`,
+    when given), as {"frame": its passive DNS, "created", "name", "id"}; None when there is none. An incremental
+    passive DNS lookup builds on it (integrations.collector.collect_pdns).
+    """
+    for manifest in list_offline_datasets():   # newest first
+        settings = manifest.get("settings") or {}
+        if manifest.get("run_key") != run_key or manifest.get("provider") != provider:
+            continue
+        if limit is not None and settings.get("dnsdb_limit") not in (None, limit):
+            continue
+        frame_path = _dataset_dir(manifest["id"]) / "frames" / "pdns.json.gz"
+        try:
+            frame = _frame_from_json(_read_gz(frame_path))
+        except (OSError, ValueError):
+            continue
+        return {"frame": frame, "created": manifest.get("created"), "name": manifest.get("name"), "id": manifest["id"]}
+    return None
+
+
 def update_offline_manifest(dataset_id, **fields):
     path = _dataset_dir(dataset_id) / "manifest.json"
     with open(path) as f:
@@ -217,12 +238,13 @@ def _on(flag, text):
 # collection settings from the manifest; older datasets fall back to the defaults)
 PARTS = {
     "targets": ("Targets", "Input", "The analyzed domains, IPs and CIDR ranges", lambda s: "–"),
-    "enrichment": ("Iris Investigate records", "Iris Investigate", "Registration, current hosting, website and "
-                   "trackers per domain", lambda s: f"Batches of {IRIS_INVESTIGATE_BATCH_SIZE} domains; current data"),
+    "enrichment": ("Iris Investigate records", "Iris Investigate", "Registration, current hosting, risk score, "
+                   "website and trackers per domain", lambda s: f"Batches of {IRIS_INVESTIGATE_BATCH_SIZE} domains; current data"),
     "dh": ("Domain History", "DomainTools API", "Registration, DNS and certificate changes",
-           lambda s: f"Up to {DOMAIN_HISTORY_MAX_CHANGES:,} changes per domain"),
-    "risk": ("Risk evidence", "DomainTools API", "Risk score and its components per domain",
-             lambda s: "One score per domain"),
+           lambda s: (f"Changes of the last {int(s['history_days']):,} days, up to " if s.get("history_days")
+                      else "Up to ") + f"{DOMAIN_HISTORY_MAX_CHANGES:,} changes per domain"),
+    "risk": ("Risk scores", "Iris Investigate", "Risk score and its components per domain (from the Iris records)",
+             lambda s: "One score per domain; no extra query"),
     "pdns": ("Passive DNS", "DNSDB Scout / Iris pDNS", "Every DNS record seen for the domains and subdomains",
              lambda s: (f"Up to {int(s.get('dnsdb_limit') or DNSDB_DEFAULT_LIMIT):,} records per domain"
                         if s.get("pdns_provider", "DNSDB Scout") == "DNSDB Scout" else

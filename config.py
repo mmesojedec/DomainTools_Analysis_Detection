@@ -45,6 +45,8 @@ CNAME_CHASE_QUERIES_PER_DOMAIN = 10  # DNSDB queries a CNAME chase click may spe
 CNAME_RDATA_MAX_PER_CLICK = 10       # names looked up per click of a reverse CNAME lookup
 CNAME_RDATA_RECORD_LIMIT = 5000      # names per reverse CNAME (RDATA) lookup
 DOMAIN_HISTORY_MAX_CHANGES = 1000    # Domain History changes fetched per domain
+POPULAR_RANK_MAX = 10_000           # Iris popularity rank up to which a domain counts as popular (lower confidence)
+MONITOR_HISTORY_DAYS = 90            # Monitor changes use case: Domain History period (days of changes fetched)
 CERT_SEARCH_MAX_RECORDS = 2500       # certificates fetched per target by the certificate search
 CERT_EVENTS_MAX_RECORDS = 2500       # certificate events (hostnames / IPs seen with a certificate) per domain or IP
 CERT_SHA256_EVENTS_MAX_RECORDS = 1000  # events per certificate hash (certificate inputs and CT co-occurrence)
@@ -83,9 +85,14 @@ CIDR_IP_CHECK_MAX = 1024             # addresses of one CIDR range bulk-checked 
 CIDR_IP_CHECK_TOTAL = 4096           # addresses of all CIDR ranges bulk-checked per run
 CIDR_ADDRESSES_PER_RANGE = 200       # addresses VPNDB probing exited through in each range (last 30 days); a query a row
 MAX_WORKERS = 8                      # lookups run in parallel
+IRIS_PDNS_WORKERS = 3                # Iris pDNS targets looked up at the same time (after the session check)
 CERT_API_MAX_WORKERS = 4         # SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s
 CERT_RETRY_PAUSE_SECONDS = 5     # pause before failed certificate lookups are retried once, one at a time
 FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups (Settings → Lookup cache)
+# Source groups that can keep cached results for their own lifetime (Settings → Lookup cache)
+CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB, Iris pDNS)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
+                "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB"}
+CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600}   # changes rarely: 7 days; changes often: 6 hours
 # cache lifetime choices on Settings → Lookup cache: label -> seconds (0: no cache)
 CACHE_LIFETIMES = {"Off": 0, "30 minutes": 1800, "6 hours": 21600, "1 day": 86400, "7 days": 604800,
                    "30 days": 2592000}

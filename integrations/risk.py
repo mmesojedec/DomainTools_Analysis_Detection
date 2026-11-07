@@ -1,36 +1,22 @@
-"""DomainTools Risk Evidence (SDK) lookup and risk component aggregation."""
+"""
+DomainTools risk scores of analyzed domains, read from the Iris Investigate records the run already fetched
+(`domain_risk`: the overall score and its components with their threats and evidence), so they cost no extra query.
+"""
 import pandas as pd
 
-from core.helpers import refang_domain
-from integrations.cache import cached_fetch
-from integrations.credentials import DTAPI_MISSING, get_dt_api
-from integrations.http import FetchResult, describe_exception
-
-SOURCE = "Risk Evidence"
 RISK_COLUMNS = ["Domain", "Component", "Score", "Threats", "Evidence"]
 
 
-@cached_fetch()
-def fetch_risk_evidence(domain):
-    """Fetches risk evidence via the DomainTools SDK. data = the API `response` object."""
-    clean_dom = refang_domain(domain)
-    api = get_dt_api()
-    if api is None:
-        return FetchResult(SOURCE, clean_dom, error=DTAPI_MISSING)
-    try:
-        payload = api.risk_evidence(clean_dom).data()
-    except Exception as exc:
-        if getattr(exc, "code", None) == 404:
-            return FetchResult(SOURCE, clean_dom, data={}, note="No risk score available")
-        return FetchResult(SOURCE, clean_dom, error=describe_exception(exc))
-    response = (payload or {}).get("response", {}) or {}
-    has_score = response.get("risk_score") is not None
-    return FetchResult(SOURCE, clean_dom, data=response, record_count=1 if has_score else 0,
-                       note=None if has_score else "No risk score available")
+def risk_from_iris(enrichment):
+    """Risk component rows (RISK_COLUMNS) of every domain in `enrichment` ({domain: Iris record}) that has a score."""
+    rows = []
+    for domain, record in (enrichment or {}).items():
+        rows.extend(risk_response_to_rows(domain, (record or {}).get("domain_risk")))
+    return risk_rows_to_dataframe(rows)
 
 
 def risk_response_to_rows(domain, response):
-    """Converts one risk evidence response into component rows. No rows when no score was returned."""
+    """Converts one `domain_risk` object (Iris Investigate) into component rows. No rows when no score was returned."""
     if not response or response.get("risk_score") is None:
         return []
     rows = [{"Domain": domain, "Component": "Overall Risk", "Score": response.get("risk_score"), "Threats": "", "Evidence": ""}]

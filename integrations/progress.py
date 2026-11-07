@@ -2,7 +2,8 @@
 Live progress of a collection run, one row per lookup of the run's query plan (core.use_cases.query_plan).
 
 Worker threads count finished lookups (thread-safe); the thread that runs the collection calls `tick()` while it
-waits for them, and only that thread draws (Streamlit elements must not be updated from worker threads).
+waits for them, and only that thread draws (Streamlit elements must not be updated from worker threads): a tick from
+any other thread, such as a collection stage running in the background, does nothing.
 """
 import threading
 import time
@@ -32,6 +33,7 @@ class LookupRow:
     failed: int = 0
     records: int = 0
     cache_hits: list = field(default_factory=list)   # (target, epoch seconds it was fetched) of each cached result
+    cache_lifetime: float = None   # how long this row's source keeps cached results (seconds), when it had a hit
     note: str = ""
     began: float = None  # time.monotonic() when the row first started running (orders the running rows)
     ended: float = None  # ... and when it was done or skipped (orders the finished rows)
@@ -50,6 +52,7 @@ class CollectionProgress:
     def __init__(self, plan, render=None):
         self.rows = {row["Key"]: LookupRow(row["Key"], row["Source"], row["Lookup"]) for row in plan}
         self._render = render
+        self._owner = threading.get_ident()   # the drawing thread
         self._lock = threading.Lock()
         self._changed = True
         self._last = 0.0
@@ -88,6 +91,7 @@ class CollectionProgress:
             row.cached += FROM_CACHE in str(getattr(result, "note", "") or "")
             if getattr(result, "cached_at", None) is not None:
                 row.cache_hits.append((result.target, result.cached_at))
+                row.cache_lifetime = getattr(result, "cache_lifetime", None) or row.cache_lifetime
             row.failed += getattr(result, "error", None) is not None
             row.records += getattr(result, "record_count", 0) or 0
             self._changed = True
@@ -150,6 +154,8 @@ class CollectionProgress:
     def tick(self, force=False):
         """Redraws when something changed (at most every TICK_SECONDS unless forced), and every CLOCK_SECONDS while a
         row runs so its elapsed time moves; call from the drawing thread."""
+        if threading.get_ident() != self._owner:
+            return
         since = time.monotonic() - self._last
         clock = since >= CLOCK_SECONDS and any(row.state == RUNNING for row in self.rows.values())
         if self._render is None or not (self._changed or clock) or (not force and since < TICK_SECONDS):

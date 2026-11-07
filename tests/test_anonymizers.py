@@ -109,7 +109,7 @@ def test_ip_check_runs_only_vpndb_and_alerts_on_the_ip_targets(monkeypatch):
     plan = query_plan(BY_KEY["ipcheck"].settings)
     assert [row["Source"] for row in plan] == ["VPNDB"]
     calls = []
-    for name in ("collect_domain_history", "collect_certificates", "collect_risk", "collect_enrichment", "collect_pdns",
+    for name in ("collect_domain_history", "collect_certificates", "collect_enrichment", "collect_pdns",
                  "collect_cert_events", "collect_ct_telemetry"):
         monkeypatch.setattr(collector, name, lambda *args, name=name, **kwargs: calls.append(name))
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "vpndb_test")
@@ -152,7 +152,6 @@ def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
         return returned
 
     monkeypatch.setattr(collector, "collect_domain_history", lambda *a: (pd.DataFrame(), pd.DataFrame()))
-    monkeypatch.setattr(collector, "collect_risk", lambda *a: pd.DataFrame())
     monkeypatch.setattr(collector, "collect_enrichment", lambda *a: {})
     monkeypatch.setattr(collector, "collect_cert_events", lambda *a: pd.DataFrame())
     monkeypatch.setattr(collector, "collect_certificates", lambda targets, *a: record("certs", targets, pd.DataFrame()))

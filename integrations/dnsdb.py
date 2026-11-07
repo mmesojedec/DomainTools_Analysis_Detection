@@ -5,6 +5,7 @@ import urllib.parse
 from dataclasses import replace
 
 import pandas as pd
+import requests
 
 from core.cname import QUERY_LIMIT, classify_target
 from core.helpers import is_ip_address, refang_domain
@@ -71,8 +72,9 @@ def _lookup_urls(clean_target, rrtype="ANY", include_wildcard=True):
     return [f"{DNSDB_BASE_URL}/rrset/name/{urllib.parse.quote(name, safe='*')}/{rrtype}" for name in names]
 
 
-def _fetch(source, clean_target, urls, limit, api_key, rrtype="ANY"):
-    """Pages through `urls` in order (the next one only when the previous stopped at its limit); one FetchResult."""
+def _fetch(source, clean_target, urls, limit, api_key, rrtype="ANY", since=None):
+    """Pages through `urls` in order (the next one only when the previous stopped at its limit); one FetchResult.
+    `since` (epoch seconds) keeps only records last seen after it (DNSDB time fencing)."""
     headers = {"Accept": "application/x-ndjson", "X-API-Key": api_key}
     records, seen, notes, truncated = [], set(), [], False
 
@@ -83,6 +85,8 @@ def _fetch(source, clean_target, urls, limit, api_key, rrtype="ANY"):
         while fetched < limit:
             batch_limit = min(MAX_BATCH_SIZE, limit - fetched)
             params = {"limit": batch_limit, **client_params(rrtype)}
+            if since:
+                params["time_last_after"] = int(since)
             if fetched:
                 params["offset"] = fetched
             try:
@@ -120,14 +124,15 @@ def _fetch(source, clean_target, urls, limit, api_key, rrtype="ANY"):
                        note="; ".join(dict.fromkeys(notes)) or None)
 
 
-@cached_fetch()
-def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True):
+@cached_fetch(group="pdns")
+def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True, since=None):
     """
     Fetches passive DNS records from DNSDB v2. IP targets query rdata/ip/{ip}; domain targets query
     rrset/name/*.{domain}/{rrtype}, which includes the domain's own records, and rrset/name/{domain}/{rrtype} only when
     the wildcard lookup stops at its limit (so the apex's records are complete even on busy domains).
     A specific `rrtype` (e.g. "TXT", "CAA") is used for supplemental lookups and does not apply to IP targets;
-    `include_wildcard=False` queries only the name itself (CAA policy applies to the apex name).
+    `include_wildcard=False` queries only the name itself (CAA policy applies to the apex name). `since` (epoch
+    seconds) returns only records last seen after it, for an incremental lookup (collect_pdns `base`).
     """
     api_key = load_dnsdb_key()
     clean_target = str(target).strip() if is_ip_address(target) else refang_domain(target)
@@ -139,7 +144,33 @@ def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True)
     if not clean_target:
         return FetchResult(source, str(target), data=[], error="Empty target")
 
-    return _fetch(source, clean_target, _lookup_urls(clean_target, rrtype, include_wildcard), limit, api_key, rrtype)
+    return _fetch(source, clean_target, _lookup_urls(clean_target, rrtype, include_wildcard), limit, api_key, rrtype,
+                  since)
+
+
+RATE_LIMIT_URL = "https://api.dnsdb.info/dnsdb/v2/rate_limit"
+
+
+def fetch_dnsdb_rate_limit():
+    """
+    DNSDB's quota of the key (GET /dnsdb/v2/rate_limit, which does not count against it): data = the `rate` object
+    (limit, remaining, reset and expires as epoch seconds, or "n/a" / "unlimited"; burst size and window when set).
+    """
+    api_key = load_dnsdb_key()
+    if not api_key:
+        return FetchResult("DNSDB rate limit", "key", error=DNSDB_MISSING)
+    try:
+        resp = requests.get(RATE_LIMIT_URL, headers={"Accept": "application/x-ndjson", "X-API-Key": api_key},
+                            timeout=REQUEST_TIMEOUT)
+    except Exception as exc:
+        return FetchResult("DNSDB rate limit", "key", error=describe_exception(exc))
+    if not resp.ok:
+        return FetchResult("DNSDB rate limit", "key", error=describe_http_status(resp.status_code))
+    try:   # one JSON object on its own line (the API answers JSON only as x-ndjson)
+        rate = json.loads(next((line for line in resp.text.splitlines() if line.strip()), "{}")).get("rate") or {}
+    except ValueError:
+        return FetchResult("DNSDB rate limit", "key", error="Invalid JSON response")
+    return FetchResult("DNSDB rate limit", "key", data=rate, record_count=1)
 
 
 def parse_dnsdb_to_dataframe(records, target_name):
@@ -292,7 +323,7 @@ def rdata_url(name, rrtype="CNAME"):
     return f"{DNSDB_BASE_URL}/rdata/name/{urllib.parse.quote(name, safe='')}/{rrtype}"
 
 
-@cached_fetch()
+@cached_fetch(group="pdns")
 def fetch_cname_rdata(name, limit=5000):
     """Reverse CNAME lookup (rdata/name/{name}/CNAME): every name DNSDB saw pointing to `name` by CNAME."""
     api_key = load_dnsdb_key()

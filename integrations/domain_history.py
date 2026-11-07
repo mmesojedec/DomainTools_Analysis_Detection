@@ -6,27 +6,41 @@ from core.helpers import refang_domain
 from core.pdns_features import add_event_gaps, add_tempo_features
 from integrations.cache import cached_fetch
 from integrations.credentials import DTAPI_MISSING, get_dt_api
-from integrations.http import FetchResult, describe_exception
+from integrations.http import FetchResult, describe_exception, sdk_call
 
 SOURCE = "Domain History"
 PAGE_SIZE = 100  # API maximum
 
 
-@cached_fetch()
-def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES):
-    """Fetches change events via the DomainTools SDK with offset pagination. data = {"response": {"changes": [...]}}."""
+def _older(change, since):
+    """True when the change happened before `since` (ISO date); changes without a readable date are kept."""
+    when = pd.to_datetime(change.get("timestamp"), errors="coerce", utc=True)
+    return pd.notna(when) and when.strftime("%Y-%m-%d") < since
+
+
+@cached_fetch(group="history")
+def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=None):
+    """
+    Fetches change events via the DomainTools SDK with offset pagination. data = {"response": {"changes": [...]}}.
+    The API returns the newest changes first, so with `since` (an ISO date) paging stops at the first change before
+    it, and older changes are left out.
+    """
     clean_dom = refang_domain(domain)
     api = get_dt_api()
     if api is None:
         return FetchResult(SOURCE, clean_dom, data=None, error=DTAPI_MISSING)
 
-    changes = []
+    changes, reached = [], False
     try:
         while len(changes) < max_changes:
-            page = api.domain_history(clean_dom, page_size=PAGE_SIZE, offset=len(changes)).data()
+            page = sdk_call(lambda: api.domain_history(clean_dom, page_size=PAGE_SIZE, offset=len(changes)).data())
             page_changes = (page or {}).get("response", {}).get("changes", []) or []
+            if since:
+                kept = [change for change in page_changes if not _older(change, since)]
+                reached = len(kept) < len(page_changes)
+                page_changes = kept
             changes.extend(page_changes)
-            if len(page_changes) < PAGE_SIZE:
+            if reached or len(page_changes) < PAGE_SIZE:
                 break
     except Exception as exc:
         if getattr(exc, "code", None) == 404:
@@ -35,8 +49,11 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES):
                            record_count=len(changes))
 
     truncated = len(changes) >= max_changes
+    note = f"Stopped at {max_changes} change events" if truncated else None
+    if since:
+        note = "; ".join(filter(None, [note, f"Changes since {since} (Domain History period)"]))
     return FetchResult(SOURCE, clean_dom, data={"response": {"changes": changes}}, truncated=truncated,
-                       record_count=len(changes), note=f"Stopped at {max_changes} change events" if truncated else None)
+                       record_count=len(changes), note=note)
 
 
 def clean_unwrap(val):

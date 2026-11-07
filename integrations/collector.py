@@ -1,4 +1,5 @@
 """Orchestrates all data collection for an analysis run (parallel where safe) and records per-source status."""
+import contextvars
 import ipaddress
 import json
 import queue
@@ -24,6 +25,7 @@ from config import (
     CNAME_RDATA_RECORD_LIMIT,
     CNAME_SUPPLEMENT_FETCH_LIMIT,
     CT_LOOKUP_DEFAULT_MAX_HASHES,
+    DOMAIN_HISTORY_MAX_CHANGES,
     IP_CHECK_MAX_IPS,
     MAX_WORKERS,
     PIVOT_IP_RECORD_LIMIT,
@@ -41,6 +43,7 @@ from config import (
     VPNDB_REVERSE_MAX,
 )
 from core import anonymizers
+from core.account import STAGE_NAMES, STAGE_PRODUCTS
 from core.cert_inputs import InputItem, derive_hostnames, derive_targets, hostname_search_query, matched_kind, seed_query
 from core.cname import CHASE_COLUMNS, QUERY_LIMIT, build_cname_map, chase_plan, merge_chases, rdata_rows
 from core.helpers import classify_targets, is_cidr, is_ip_address
@@ -70,8 +73,8 @@ from integrations.dnsdb import (
 from integrations.domain_history import extract_ssl_data, fetch_domain_history, parse_history_to_dataframe
 from integrations.enrichment import extract_iris_profile, extract_ssl_data_from_enrichment, fetch_iris_batch, iris_batches
 from integrations.http import FetchResult, StatusLog
-from integrations.iris import fetch_iris_pdns, parse_iris_json_to_dataframe
-from integrations.risk import fetch_risk_evidence, risk_response_to_rows, risk_rows_to_dataframe
+from integrations.iris import fetch_iris_pdns_many, parse_iris_json_to_dataframe
+from integrations.risk import risk_from_iris
 from integrations.vpndb import SOURCE as VPNDB_SOURCE
 from integrations.vpndb import (
     bulk_lookup,
@@ -186,10 +189,25 @@ def _record_all(log, results):
     return results
 
 
-def collect_domain_history(domains, log):
-    progress.start("history", len(domains))
-    results = _record_all(log, _parallel(domains, lambda d: _safe_call(fetch_domain_history, "Domain History", d, d),
-                                         key="history"))
+def history_since(days, today=None):
+    """The ISO date `days` days before today (UTC), or None for all of a domain's history."""
+    if not days or days <= 0:
+        return None
+    today = pd.Timestamp.now(tz="UTC").normalize() if today is None else pd.Timestamp(today)
+    return (today - pd.Timedelta(days=int(days))).strftime("%Y-%m-%d")
+
+
+def history_args(domain, since=None):
+    """The arguments a domain's Domain History is fetched (and cached) with."""
+    return (domain, DOMAIN_HISTORY_MAX_CHANGES, since) if since else (domain,)
+
+
+def collect_domain_history(domains, log, days=0):
+    """Domain History of each domain; `days` > 0 keeps only the changes of that many days (fewer pages, queries)."""
+    since = history_since(days)
+    progress.start("history", len(domains), f"changes since {since}" if since else "")
+    results = _record_all(log, _parallel(domains, lambda d: _safe_call(fetch_domain_history, "Domain History", d,
+                                                                       *history_args(d, since)), key="history"))
     progress.finish("history")
     dh = _concat([parse_history_to_dataframe(r.data, d) for d, r in zip(domains, results)])
     ssl = _concat([extract_ssl_data(r.data, d) for d, r in zip(domains, results)])
@@ -216,20 +234,9 @@ def collect_certificates(targets, log, seed_hits=None, host_focus=None):
     gap_results = _record_all(log, [replace(progress.counted("certs", lambda job: _safe_call(
         search_certificates, "Certificate Search", job[0], job[0], job[1]))((dom, query)),
         source="Certificate Search (Hostname Gap-Fill)") for dom, query in gaps])
-    progress.finish("certs", "certificate search done; certificate events run later")
+    progress.finish("certs", "certificate search done; certificate events next")
     return parse_domaintools_certs(dedupe_hits([seed_hits or [], *(r.data for r in results), *(r.data for r in gap_results)]),
                                    targets)
-
-
-def collect_risk(domains, log):
-    progress.start("risk", len(domains))
-    results = _record_all(log, _parallel(domains, lambda d: _safe_call(fetch_risk_evidence, "Risk Evidence", d, d),
-                                         key="risk"))
-    progress.finish("risk")
-    rows = []
-    for dom, result in zip(domains, results):
-        rows.extend(risk_response_to_rows(dom, result.data))
-    return risk_rows_to_dataframe(rows)
 
 
 def collect_enrichment(domains, log):
@@ -317,13 +324,41 @@ def _coverage(domains, main_results, caa_results):
             for domain in domains}
 
 
+INCREMENTAL_OVERLAP_SECONDS = 86400   # an incremental lookup starts a day before the earlier dataset was collected
+
+
+def incremental_since(created):
+    """Epoch seconds (start of the UTC day, so the lookup stays cacheable that day) an incremental passive DNS lookup
+    starts from: a day before `created` (the earlier dataset's ISO creation time); None when it cannot be read."""
+    when = pd.to_datetime(created, errors="coerce", utc=True)
+    if pd.isna(when):
+        return None
+    return int((when.normalize() - pd.Timedelta(seconds=INCREMENTAL_OVERLAP_SECONDS)).timestamp())
+
+
+def merge_incremental(new, base, targets):
+    """
+    `new` passive DNS rows (an incremental lookup of `targets`) plus the `base` dataset's rows of those targets that
+    the new lookup did not return again. DNSDB returns a record still being seen with a later last-seen time, so a
+    new row with the same name, type, value and first-seen time replaces the earlier one.
+    """
+    old = base[base["Domain"].isin(targets)] if base is not None and not base.empty else pd.DataFrame()
+    if old.empty:
+        return new
+    combined = _concat([new, old]).drop_duplicates(subset=DEDUP_COLUMNS, keep="first")
+    return add_event_gaps(combined).sort_values("Date", ascending=False).reset_index(drop=True)
+
+
 def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_auth_done=None, txt_records=0, caa_lookup=False,
-                 cname_lookup=False):
+                 cname_lookup=False, base=None):
     """
     Main passive DNS query per target plus optional record-type supplements (TXT: latest N per domain; CAA: apex name,
     all records; CNAME: name and subdomains, all records). Large result limits are often filled by A/NS rows before
     TXT, CAA or CNAME records appear; with DNSDB the supplements only run for domains whose main query was cut off
     (Iris runs them in the same session). Returns (pdns_frame, coverage) where coverage maps domain -> {"truncated", "caa_checked"}.
+    `base` ({"frame": passive DNS of an earlier dataset of these targets, "created": its ISO time, "name": its name})
+    makes DNSDB look up only records seen since a day before that dataset and add its older records (incremental);
+    targets missing from it are looked up in full.
     """
     domains = [t for t in targets if not is_ip_address(t)]
     specs = supplement_specs(txt_records, caa_lookup, cname_lookup)
@@ -331,23 +366,34 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
     main_results, caa_results = {}, {}
 
     if provider == "Iris pDNS":
-        # Sequential: Playwright login may open an interactive browser window
         frames = []
         extra = tuple(spec.rrtype for spec in specs if not spec.only_if_capped)
         if_capped = tuple(spec.rrtype for spec in specs if spec.only_if_capped)
-        progress.start("pdns", len(targets), "one Iris session per target")
-        # One target at a time (one browser session each), in a worker thread so the progress clock keeps running;
-        # the login prompt callbacks are relayed back to this thread
+        progress.start("pdns", len(targets), "session check, then several targets at a time")
+        # In a worker thread so the progress clock keeps running; the login prompt callbacks are relayed back to this
+        # thread (Streamlit elements are drawn here only)
         events, handlers = queue.Queue(), {"required": on_auth_required, "done": on_auth_done}
         required = (lambda t: events.put(("required", (t,)))) if on_auth_required else None
         done = (lambda: events.put(("done", ()))) if on_auth_done else None
-        fetch = progress.counted("pdns", lambda t: _safe_call(
-            fetch_iris_pdns, "Iris pDNS", t, t, required, done, extra, if_capped))
+        tracker = progress.current()
+
+        def finished(target, result):
+            if tracker is not None:
+                tracker.begin("pdns")
+                tracker.advance("pdns", result)
+
+        def fetch_all(items):
+            try:
+                return fetch_iris_pdns_many(items, required, done, extra, if_capped, on_result=finished)
+            except Exception as exc:  # defensive: a browser failure must not abort the whole run
+                return {"__error__": f"Unexpected error: {type(exc).__name__}: {exc}"[:300]}
+
+        fetched = _with_clock(fetch_all, list(targets), events, handlers)
+        failure = fetched.pop("__error__", "Not looked up")
         for target in targets:
-            result = log.record(_with_clock(fetch, target, events, handlers))
+            result = log.record(fetched.get(target) or FetchResult("Iris pDNS", target, data=[], error=failure))
             main_results[target] = [result]
             frames.append(parse_iris_json_to_dataframe(result.data, target))
-            progress.tick()
             for spec in specs:
                 extra_result = result.extras.get(spec.rrtype)
                 if extra_result is not None:
@@ -369,13 +415,20 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
             progress.skip(row, "Not needed: the main lookup returned every record")
             progress.finish(row)
     else:
-        progress.start("pdns", len(targets))
+        base_frame = (base or {}).get("frame")
+        since = incremental_since((base or {}).get("created")) if base_frame is not None else None
+        known = set(base_frame["Domain"]) if since and not base_frame.empty else set()
+        progress.start("pdns", len(targets), f"incremental for {len(known & set(targets))} target(s)" if known else "")
         results = _record_all(log, _parallel(
-            targets, lambda t: _safe_call(fetch_dnsdb_history, "DNSDB Scout", t, t, dnsdb_limit), key="pdns"
+            targets, lambda t: _incremental_note(_safe_call(
+                fetch_dnsdb_history, "DNSDB Scout", t, t, dnsdb_limit, **({"since": since} if t in known else {})),
+                base, t in known), key="pdns"
         ))
         progress.finish("pdns")
         main_results = {t: [r] for t, r in zip(targets, results)}
         pdns = _concat([parse_dnsdb_to_dataframe(r.data, t) for t, r in zip(targets, results)])
+        if known:
+            pdns = merge_incremental(pdns, base_frame, sorted(known & set(targets)))
         # A complete ANY lookup already holds every TXT and CAA record, so supplements only run where it was cut off
         incomplete = [d for d in domains if main_results[d][0].truncated or not main_results[d][0].ok]
         for spec in specs:
@@ -400,6 +453,15 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
 
     merged = merge_supplements(pdns, {spec: _concat(frames) for spec, frames in supplements.items()}, log)
     return merged, _coverage([d for d in domains if d in main_results], main_results, caa_results)
+
+
+def _incremental_note(result, base, incremental):
+    """Says on an incremental lookup's status row that older records come from the earlier dataset."""
+    if not incremental:
+        return result
+    text = (f"Incremental: records seen since a day before {str(base.get('created', ''))[:10]}; older ones from the "
+            f"offline dataset {base.get('name') or base.get('created', '')}")
+    return replace(result, note=f"{result.note}; {text}" if result.note else text)
 
 
 def fill_pdns_gaps(pdns, coverage, host_focus, dnsdb_limit, log):
@@ -1004,21 +1066,89 @@ def reverse_cnames(names, analyzed_domains, log):
                     for name, result in zip(names, results)])
 
 
+def _background(executor, func, *args):
+    """`func(*args)` in `executor`, with this thread's context (the collection progress tracker) carried over."""
+    return executor.submit(contextvars.copy_context().run, func, *args)
+
+
+def _wait_drawing(futures):
+    """Waits for `futures` while this (the drawing) thread keeps the collection progress moving."""
+    tracker, pending = progress.current(), set(futures)
+    while pending:
+        _, pending = wait(pending, timeout=progress.TICK_SECONDS)
+        if tracker is not None:
+            tracker.tick()
+    return [future.result() for future in futures]
+
+
+def _skip_stage(stage, targets, log, row=None):
+    """Logs that `stage` was skipped because the account does not have its product."""
+    products = " or ".join(STAGE_PRODUCTS[stage])
+    log.add(STAGE_NAMES[stage], ", ".join(targets[:3]) + (" ..." if len(targets) > 3 else ""), "No data",
+            f"Skipped: the DomainTools account has no {products} product (see the Account page)")
+    if row:
+        progress.skip(row, "Skipped: not in this DomainTools account")
+
+
+def _certificate_stage(lookup_inputs, domains, ip_targets, seed_hits, host_focus, unavailable):
+    """Certificate search, then certificate events: one after the other, since the Certificate API answers too many
+    parallel calls with HTTP 503. Returns (ssl frame, events frame, StatusLog)."""
+    log = StatusLog()
+    ssl = pd.DataFrame()
+    if "certs" in unavailable:
+        _skip_stage("certs", lookup_inputs, log)
+    else:
+        ssl = collect_certificates(lookup_inputs, log, seed_hits, host_focus)
+    if "events" in unavailable:
+        _skip_stage("events", domains + ip_targets, log)
+        events = pd.DataFrame()
+    else:
+        events = collect_cert_events(domains, ip_targets, log, host_focus)
+    if "certs" in unavailable and "events" in unavailable:
+        progress.skip("certs", "Skipped: not in this DomainTools account")
+    return ssl, events, log
+
+
+def _history_stage(domains, history_days, unavailable):
+    log = StatusLog()
+    if "history" in unavailable:
+        _skip_stage("history", domains, log, "history")
+        return pd.DataFrame(), pd.DataFrame(), log
+    return (*collect_domain_history(domains, log, history_days), log)
+
+
+def _iris_stage(domains, unavailable):
+    log = StatusLog()
+    if "iris" in unavailable:
+        _skip_stage("iris", domains, log, "iris")
+        return {}, log
+    return collect_enrichment(domains, log), log
+
+
 def collect_all(target_inputs, pdns_provider, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LOOKUP_DEFAULT_MAX_HASHES,
                 progress=None, on_auth_required=None, on_auth_done=None, pivot_ips=False, pivot_max_ips=10, txt_records=0, caa_lookup=False,
                 seed_hits=None, host_focus=None, cname_lookup=False, vpndb_check=False, vpndb_only=False,
-                vpndb_max_ips=VPNDB_MAX_IPS, vpndb_details=VPNDB_DETAIL_MAX, vpndb_context=True):
+                vpndb_max_ips=VPNDB_MAX_IPS, vpndb_details=VPNDB_DETAIL_MAX, vpndb_context=True, history_days=0,
+                pdns_base=None, unavailable=()):
     """
     Runs every collection stage and returns CollectedData. `progress(label)` is called from the calling thread.
     Every domain is looked up in full (all subdomains). `host_focus` ({apex: [hostnames]}) is kept for the views'
     hostname focus, and its hostnames are looked up on their own only where an apex lookup stopped at its limit.
     CNAME chains are chased later, on demand, from the CNAME Chains lens (chase_cnames).
+
+    Stages that do not need each other run at the same time: Domain History, Iris Investigate (with the risk scores)
+    and the certificates (search, then events) in worker threads while this thread collects passive DNS (its login
+    prompt is drawn here); then the CT telemetry (needs the certificates) runs while this thread pivots on IPs and
+    checks VPNDB (both need passive DNS and Iris). `history_days` > 0 keeps only that many days of Domain History
+    changes; `pdns_base` (see collect_pdns) makes DNSDB fetch only what is new since an earlier dataset;
+    `unavailable` names stages (STAGE_PRODUCTS) whose product the account does not have, which are skipped.
     """
     def step(label):
         if progress:
             progress(label)
 
     log = StatusLog()
+    unavailable = set(unavailable or ())
     classified = classify_targets(target_inputs)
     domains, cidrs = classified["domains"], classified["cidrs"]
     lookup_inputs = [t for t in target_inputs if not is_cidr(t)]   # CIDR ranges go to VPNDB only
@@ -1047,50 +1177,52 @@ def collect_all(target_inputs, pdns_provider, dnsdb_limit, include_ct=True, ct_m
         log.add("Iris, passive DNS, certificates", ", ".join(cidrs[:3]), "No data",
                 "CIDR ranges are looked up in VPNDB only; the other sources take single IP addresses")
 
-    step("Fetching Domain History...")
-    dh, dh_ssl = collect_domain_history(domains, log)
+    step("Collecting Domain History, Iris Investigate, certificates and passive DNS at the same time...")
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        history = _background(executor, _history_stage, domains, history_days, unavailable)
+        iris = _background(executor, _iris_stage, domains, unavailable)
+        certs = _background(executor, _certificate_stage, lookup_inputs, domains, ip_targets, seed_hits, host_focus,
+                            unavailable)
+        pdns_log = StatusLog()
+        data.pdns, data.pdns_coverage = collect_pdns(
+            lookup_inputs, pdns_provider, dnsdb_limit, pdns_log, on_auth_required, on_auth_done, txt_records, caa_lookup,
+            cname_lookup, pdns_base if pdns_provider == "DNSDB Scout" else None,
+        )
+        if host_focus and pdns_provider == "DNSDB Scout":
+            data.pdns = fill_pdns_gaps(data.pdns, data.pdns_coverage, host_focus, dnsdb_limit, pdns_log)
+        step("Waiting for Domain History, Iris Investigate and certificates...")
+        (dh, dh_ssl, history_log), (data.enrichment, iris_log), (cert_ssl, cert_events, cert_log) = _wait_drawing(
+            [history, iris, certs])
+    for part in (history_log, iris_log, cert_log, pdns_log):   # status rows in a fixed order, whatever finished first
+        log.rows.extend(part.rows)
     data.dh = dh
-
-    step("Fetching certificates (domains, IPv4, IPv6)...")
-    data.ssl = _concat([dh_ssl, collect_certificates(lookup_inputs, log, seed_hits, host_focus)])
-
-    step("Fetching Risk Evidence...")
-    data.risk = collect_risk(domains, log)
-
-    step("Fetching Iris Investigate enrichment...")
-    data.enrichment = collect_enrichment(domains, log)
+    data.ssl = _concat([dh_ssl, cert_ssl])
+    data.cert_hostnames = cert_events
+    data.risk = risk_from_iris({d: data.enrichment[d] for d in domains if d in data.enrichment})
     data.ssl_active = extract_ssl_data_from_enrichment(data.enrichment)
 
-    step(f"Fetching passive DNS ({pdns_provider})...")
-    data.pdns, data.pdns_coverage = collect_pdns(
-        lookup_inputs, pdns_provider, dnsdb_limit, log, on_auth_required, on_auth_done, txt_records, caa_lookup,
-        cname_lookup,
-    )
-    if host_focus and pdns_provider == "DNSDB Scout":
-        data.pdns = fill_pdns_gaps(data.pdns, data.pdns_coverage, host_focus, dnsdb_limit, log)
-
-    if pivot_ips:
-        if pdns_provider == "DNSDB Scout":
-            step("Pivoting on hosting IPs (DNSDB reverse lookups)...")
-            data.ip_pivots = collect_ip_pivots(domains, data.pdns, data.enrichment, pivot_max_ips, log)
-        else:
-            log.add("DNSDB IP Pivot", "-", "Partial", "IP pivots require the DNSDB Scout provider")
-
-    if vpndb_check:
-        step("Checking hosting IPs for VPN, proxy and Tor (VPNDB)...")
-        data.anonymizers = collect_anonymizers(domains, ip_targets, data.pdns, data.enrichment, log, vpndb_max_ips,
-                                               vpndb_details)
-        data.exit_weeks, data.neighbour_ranges, data.hosting_asns, data.exit_neighbours = collect_anonymizer_context(
-            data.anonymizers, domains, data.enrichment, log, vpndb_details, vpndb_context)
-        data.tor_overview = collect_tor_overview(log)
-        data.prefixes, data.prefix_addresses, data.range_ips = collect_prefixes(cidrs, log)
-
-    step("Fetching certificate hostname/IP events...")
-    data.cert_hostnames = collect_cert_events(domains, ip_targets, log, host_focus)
-
-    if include_ct:
-        step("Fetching CT log and certificate co-occurrence telemetry...")
-        data.ctl, data.cert_observations = collect_ct_telemetry(data.ssl, ct_max_hashes, log)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ct_log = StatusLog()
+        ct = _background(executor, collect_ct_telemetry, data.ssl, ct_max_hashes, ct_log) \
+            if include_ct and "events" not in unavailable else None
+        if pivot_ips:
+            if pdns_provider == "DNSDB Scout":
+                step("Pivoting on hosting IPs (DNSDB reverse lookups)...")
+                data.ip_pivots = collect_ip_pivots(domains, data.pdns, data.enrichment, pivot_max_ips, log)
+            else:
+                log.add("DNSDB IP Pivot", "-", "Partial", "IP pivots require the DNSDB Scout provider")
+        if vpndb_check:
+            step("Checking hosting IPs for VPN, proxy and Tor (VPNDB)...")
+            data.anonymizers = collect_anonymizers(domains, ip_targets, data.pdns, data.enrichment, log, vpndb_max_ips,
+                                                   vpndb_details)
+            data.exit_weeks, data.neighbour_ranges, data.hosting_asns, data.exit_neighbours = collect_anonymizer_context(
+                data.anonymizers, domains, data.enrichment, log, vpndb_details, vpndb_context)
+            data.tor_overview = collect_tor_overview(log)
+            data.prefixes, data.prefix_addresses, data.range_ips = collect_prefixes(cidrs, log)
+        if ct is not None:
+            step("Fetching CT log and certificate co-occurrence telemetry...")
+            [(data.ctl, data.cert_observations)] = _wait_drawing([ct])
+            log.rows.extend(ct_log.rows)
 
     data.statuses = log.rows
     data.vpndb_raw = vpndb_raw_frame(log.raw)

@@ -1,6 +1,11 @@
-"""Shared HTTP session (retries/backoff), fetch results, and error classification for all integrations."""
+"""
+Shared HTTP session (retries/backoff), DomainTools SDK retries, the per-lookup API query count, fetch results, and
+error classification for all integrations.
+"""
+import functools
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass, field, replace
 
 import pandas as pd
 import requests
@@ -9,6 +14,67 @@ from urllib3.util.retry import Retry
 
 USER_AGENT = "DT-Analytics-Detection/2.0"
 _thread_local = threading.local()
+SDK_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})   # DomainTools SDK errors worth another try
+SDK_ATTEMPTS = 3
+SDK_BACKOFF_SECONDS = 2.0   # waits 2 s, then 4 s
+
+
+def count_query(n=1):
+    """Counts `n` API queries made by this thread (each HTTP request that reached an API)."""
+    _thread_local.queries = getattr(_thread_local, "queries", 0) + n
+
+
+def queries_made():
+    """API queries this thread has made so far (see metered)."""
+    return getattr(_thread_local, "queries", 0)
+
+
+def metered(func):
+    """
+    Wraps a fetcher so its FetchResult carries `queries`: the API queries the call made in this thread (requests
+    through get_session or a VPNDB session, SDK calls through sdk_call, Iris pDNS requests), unless it set them itself.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        before = queries_made()
+        result = func(*args, **kwargs)
+        if isinstance(result, FetchResult) and result.queries is None:
+            result = replace(result, queries=queries_made() - before)
+        return result
+    return wrapper
+
+
+def count_response(response, *args, **kwargs):
+    """requests response hook: one API query per response."""
+    count_query()
+    return response
+
+
+def sdk_call(request, attempts=SDK_ATTEMPTS, backoff=SDK_BACKOFF_SECONDS, sleep=time.sleep):
+    """
+    `request()` (one DomainTools SDK call, e.g. `lambda: api.iris_investigate(...).response()`), tried again after
+    2 s and 4 s when it fails with HTTP 429 / 5xx or a connection error; other errors (401, 404, ...) are raised at once.
+    Each attempt counts as one API query.
+    """
+    for attempt in range(1, attempts + 1):
+        count_query()
+        try:
+            return request()
+        except Exception as exc:
+            if attempt == attempts or not _transient(exc):
+                raise
+            sleep(backoff * 2 ** (attempt - 1))
+
+
+def _transient(exc):
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code in SDK_RETRY_STATUSES
+    try:
+        import httpx
+    except ImportError:   # pragma: no cover - installed with the DomainTools SDK
+        return False
+    return isinstance(exc, httpx.TransportError)
 
 
 def get_session():
@@ -28,6 +94,7 @@ def get_session():
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         session.headers["User-Agent"] = USER_AGENT
+        session.hooks["response"].append(count_response)
         _thread_local.session = session
     return session
 
@@ -44,6 +111,8 @@ class FetchResult:
     record_count: int = 0
     extras: dict = field(default_factory=dict)  # supplemental results gathered in the same session (e.g. {"TXT": FetchResult})
     cached_at: float = None   # served from the cache: when (epoch seconds) the result was originally fetched
+    queries: int = None       # API queries this lookup made (0 when served from the cache); see metered
+    cache_lifetime: float = None   # served from the cache: how long (seconds) its source keeps cached results
 
     @property
     def ok(self):
@@ -70,6 +139,7 @@ class FetchResult:
             "Detail": detail,
             # served from the lookup cache: when the result was originally fetched (UTC), else empty
             "Cached At": pd.to_datetime(self.cached_at, unit="s") if self.cached_at is not None else pd.NaT,
+            "Queries": 0 if self.cached_at is not None else int(self.queries or 0),
         }
 
 
@@ -117,6 +187,11 @@ def describe_exception(exc):
         return "Connection error"
     if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
         return describe_http_status(exc.response.status_code)
+    name = type(exc).__name__
+    if name in ("ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout", "TimeoutException"):
+        return "Request timed out"   # httpx (DomainTools SDK)
+    if name in ("ConnectError", "RemoteProtocolError", "ReadError"):
+        return "Connection error"
     code = getattr(exc, "code", None)
     if isinstance(code, int):
         detail = describe_http_status(code)

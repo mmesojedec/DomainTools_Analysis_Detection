@@ -1,17 +1,29 @@
-"""Playwright-automated Iris Investigate passive DNS client and CSRF token manager."""
+"""
+Playwright-automated Iris Investigate passive DNS client and CSRF token manager.
+
+A run checks the saved session once (opening the login window when it no longer works), then queries the targets
+with up to IRIS_PDNS_WORKERS at a time, each worker through Playwright's HTTP client with the browser session's
+cookies. Successful lookups are kept in the lookup cache like every other source.
+"""
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-from config import IRIS_PDNS_LIMIT, IRIS_SUPPLEMENT_FETCH_LIMIT, SESSION_DIR, TOKEN_FILE
+from config import IRIS_PDNS_LIMIT, IRIS_PDNS_WORKERS, IRIS_SUPPLEMENT_FETCH_LIMIT, SESSION_DIR, TOKEN_FILE
 from core.helpers import is_ip_address
 from core.pdns_features import build_pdns_frame
-from integrations.http import FetchResult, describe_http_status
+from integrations.cache import cached_fetch
+from integrations.http import FetchResult, count_query, describe_http_status
 
 SOURCE = "Iris pDNS"
 IRIS_PDNS_URL = "https://iris.domaintools.com/product-api/iris-investigate/pdns/"
 IRIS_LOGIN_URL = "https://iris.domaintools.com/iris-investigate/"
+STATE_FILE = SESSION_DIR / "run_state.json"   # the session's cookies while a run's workers use them (deleted after)
+PLAYWRIGHT_MISSING = "Playwright is not installed (pip install playwright && playwright install chromium)"
+_local = threading.local()   # this thread's (Playwright request context, CSRF token) during a run
 
 
 def load_token():
@@ -46,10 +58,12 @@ def build_pdns_payload(target, rrtype=""):
     return payload
 
 
-def _query(page, token, target, rrtype=""):
-    """Sends the pDNS POST using the browser session's cookies. Returns (records or None, error or None)."""
+def _query(request, token, target, rrtype=""):
+    """Sends the pDNS POST with the session's cookies (`request`: a Playwright APIRequestContext). Returns
+    (records or None, error or None)."""
+    count_query()
     try:
-        resp = page.request.post(
+        resp = request.post(
             IRIS_PDNS_URL,
             headers={"content-type": "application/json", "x-csrftoken": token},
             data=build_pdns_payload(target, rrtype),
@@ -111,22 +125,6 @@ def after_limit(records, rrtypes):
     return tuple(rrtypes) if records is not None and len(records) >= IRIS_PDNS_LIMIT else ()
 
 
-def _run_queries(playwright, token, target, rrtypes, if_capped=()):
-    """
-    Runs the main query plus any supplemental rrtype queries in one headless browser session. `if_capped` rrtypes are
-    queried only when the main query hit its limit.
-    """
-    browser = playwright.chromium.launch_persistent_context(user_data_dir=str(SESSION_DIR), headless=True)
-    try:
-        page = browser.new_page()
-        outcomes = {"": _query(page, token, target)}
-        for rrtype in tuple(rrtypes) + after_limit(outcomes[""][0], if_capped):
-            outcomes[rrtype] = _query(page, token, target, rrtype)
-        return outcomes
-    finally:
-        browser.close()
-
-
 def _bundle(target, outcomes):
     result = _result(target, outcomes[""][0])
     for rrtype, (records, error) in outcomes.items():
@@ -136,50 +134,120 @@ def _bundle(target, outcomes):
     return result
 
 
-def fetch_iris_pdns(target, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=()):
+def lookup_args(target, extra_rrtypes=(), if_capped_rrtypes=()):
+    """The (target, extra rrtypes, if-capped rrtypes) a target is looked up (and cached) with: IPs get no supplements."""
+    if is_ip_address(target):
+        return target, (), ()
+    return target, tuple(extra_rrtypes), tuple(if_capped_rrtypes)
+
+
+@cached_fetch(group="pdns")
+def iris_pdns_lookup(target, extra_rrtypes=(), if_capped_rrtypes=()):
     """
-    Fetches pDNS records through the authenticated Iris browser session.
-    `extra_rrtypes` (e.g. ("TXT",)) adds record-type-specific queries in the same session; their results are in `.extras`.
-    `if_capped_rrtypes` (e.g. ("CNAME",)) are queried only when the main query hit its limit.
-    `on_auth_required(target)` / `on_auth_done()` let the UI show login instructions.
+    The main pDNS query of `target` plus its supplemental rrtype queries (`if_capped_rrtypes` only when the main query
+    hit its limit), through this thread's Iris session (see fetch_iris_pdns_many); supplements are in `.extras`.
     """
+    request, token = getattr(_local, "session", (None, None))
+    if request is None:
+        return FetchResult(SOURCE, target, data=[], error="No Iris session")
+    outcomes = {"": _query(request, token, target)}
+    if outcomes[""][0] is None:
+        return FetchResult(SOURCE, target, data=[], error=outcomes[""][1])
+    for rrtype in tuple(extra_rrtypes) + after_limit(outcomes[""][0], if_capped_rrtypes):
+        outcomes[rrtype] = _query(request, token, target, rrtype)
+    return _bundle(target, outcomes)
+
+
+def _first_lookup(playwright, token, args):
+    """Looks up `args` in the persistent (logged-in) browser profile and saves its cookies to STATE_FILE for the
+    workers. Returns the FetchResult."""
+    browser = playwright.chromium.launch_persistent_context(user_data_dir=str(SESSION_DIR), headless=True)
+    try:
+        browser.storage_state(path=str(STATE_FILE))
+        os.chmod(STATE_FILE, 0o600)
+        _local.session = (browser.request, token)
+        return iris_pdns_lookup(*args)
+    finally:
+        _local.session = (None, None)
+        browser.close()
+
+
+def _worker(token, jobs, on_result):
+    """One worker thread: its own Playwright HTTP client with the session's cookies, looking up `jobs` in turn."""
+    from playwright.sync_api import sync_playwright
+    results = {}
+    with sync_playwright() as playwright:
+        context = playwright.request.new_context(storage_state=str(STATE_FILE))
+        _local.session = (context, token)
+        try:
+            for args in jobs:
+                results[args[0]] = _done(args[0], iris_pdns_lookup(*args), on_result)
+        finally:
+            _local.session = (None, None)
+            context.dispose()
+    return results
+
+
+def _done(target, result, on_result):
+    if on_result:
+        on_result(target, result)
+    return result
+
+
+def fetch_iris_pdns_many(targets, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=(),
+                         on_result=None, workers=IRIS_PDNS_WORKERS):
+    """
+    {target: FetchResult} of every target's Iris pDNS lookup (see iris_pdns_lookup). Cached results cost nothing; the
+    first lookup that needs Iris checks the saved session, and when it fails `on_auth_required(target)` is called, a
+    browser window opens for the login and `on_auth_done()` follows. The rest run `workers` at a time.
+    `on_result(target, result)` is called as each lookup finishes (from any thread).
+    """
+    jobs = [lookup_args(t, extra_rrtypes, if_capped_rrtypes) for t in dict.fromkeys(targets)]
+    results = {args[0]: _done(args[0], iris_pdns_lookup(*args), on_result)
+               for args in jobs if iris_pdns_lookup.is_cached(*args)}
+    todo = [args for args in jobs if args[0] not in results]
+    if not todo:
+        return results
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        return FetchResult(SOURCE, target, data=[], error="Playwright is not installed (pip install playwright && playwright install chromium)")
+        return {**results, **{a[0]: _done(a[0], FetchResult(SOURCE, a[0], data=[], error=PLAYWRIGHT_MISSING), on_result)
+                              for a in todo}}
 
-    rrtypes = () if is_ip_address(target) else tuple(extra_rrtypes)
-    if_capped = () if is_ip_address(target) else tuple(if_capped_rrtypes)
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
-    saved_token = load_token()
-    token_note = None
+    token, note, first = load_token(), None, todo[0]
+    try:
+        with sync_playwright() as playwright:
+            result = _first_lookup(playwright, token, first) if token else None
+            if result is None or not result.ok:
+                if on_auth_required:
+                    on_auth_required(first[0])
+                token = _capture_token_interactively(playwright)
+                if on_auth_done:
+                    on_auth_done()
+                if not token:
+                    error = "Browser closed before an Iris session token was captured"
+                    return {**results, **{a[0]: _done(a[0], FetchResult(SOURCE, a[0], data=[], error=error), on_result)
+                                          for a in todo}}
+                try:
+                    save_token(token)
+                except OSError as exc:
+                    note = f"Token not saved securely ({exc}); you will be asked to log in again"
+                result = _first_lookup(playwright, token, first)
+                if not result.ok:
+                    result = FetchResult(SOURCE, first[0], data=[], error=f"Post-login query failed: {result.error}")
+            if note and not result.note:
+                result.note = note
+            results[first[0]] = _done(first[0], result, on_result)
 
-    with sync_playwright() as p:
-        if saved_token:
-            outcomes = _run_queries(p, saved_token, target, rrtypes, if_capped)
-            if outcomes[""][0] is not None:
-                return _bundle(target, outcomes)
-
-        if on_auth_required:
-            on_auth_required(target)
-        csrf_token = _capture_token_interactively(p)
-        if on_auth_done:
-            on_auth_done()
-        if not csrf_token:
-            return FetchResult(SOURCE, target, data=[], error="Browser closed before an Iris session token was captured")
-
-        try:
-            save_token(csrf_token)
-        except OSError as exc:
-            token_note = f"Token not saved securely ({exc}); you will be asked to log in again"
-
-        outcomes = _run_queries(p, csrf_token, target, rrtypes, if_capped)
-        if outcomes[""][0] is None:
-            return FetchResult(SOURCE, target, data=[], error=f"Post-login query failed: {outcomes[''][1]}")
-        result = _bundle(target, outcomes)
-        if token_note and not result.note:
-            result.note = token_note
-        return result
+        rest = todo[1:]
+        shares = [rest[i::workers] for i in range(max(1, min(workers, len(rest))))]
+        with ThreadPoolExecutor(max_workers=len(shares)) as executor:
+            for share in executor.map(lambda jobs: _worker(token, jobs, on_result), [s for s in shares if s]):
+                results.update(share)
+    finally:
+        STATE_FILE.unlink(missing_ok=True)
+    return results
 
 
 def parse_iris_json_to_dataframe(records, target_name):

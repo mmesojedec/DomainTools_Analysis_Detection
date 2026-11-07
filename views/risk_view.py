@@ -1,4 +1,4 @@
-"""Lens 1: KPI banner, Digital Risk & Threat Engine, and DomainTools Risk Evidence."""
+"""Lens 1: KPI banner, Digital Risk & Threat Engine, and DomainTools risk scores (from Iris Investigate)."""
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -153,7 +153,7 @@ def _render_engine_status(threats, min_risk):
             st.warning("**Risk Score Threshold Disabled:** Evaluating all domains regardless of risk score.")
         if threats.unscored_domains:
             st.warning(f"**No risk score available** for {len(threats.unscored_domains)} domain(s); they were evaluated anyway: "
-                       f"{md_escape(', '.join(threats.unscored_domains))}. Check the Data Source Status panel for Risk Evidence errors.")
+                       f"{md_escape(', '.join(threats.unscored_domains))}. Iris Investigate has no score for them; check the Data Source Status panel for Iris Investigate errors.")
     with col_b:
         st.info(f"**Current Filter Level:**\n\n* **Filter Active (Score >= {min_risk})**")
 
@@ -322,7 +322,7 @@ def _render_risk_sankey(risk):
 
 def _render_risk_evidence(risk):
     st.subheader("Domain Risk Evidence (Scores & Threats)",
-                 help="DomainTools risk scores by component (Phishing, Malware, Spam) with mapped evidence tags.")
+                 help="DomainTools risk scores by component (Proximity, Phishing, Malware, Spam) with mapped evidence tags, from the Iris Investigate records of the run.")
     tab_bar, tab_radar, tab_sankey = st.tabs(["Score Comparison (Bar)", "Threat Profile (Radar)", "Attribution Flow (Sankey)"])
     with tab_bar:
         fig = px.bar(risk, x="Domain", y="Score", color="Component", barmode="group",

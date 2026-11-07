@@ -92,10 +92,11 @@ def _runs_table(runs, timezone, current_run_id):
             "Run": format_created(run["created"], timezone, "%Y-%m-%d %H:%M:%S") + ("  ◀ current" if run["id"] == current_run_id else ""),
             "Name": run["name"], "Window": run["window"] or "—", "Alerts": run["alerts"],
             "Critical": sev.get("Critical") if sev else None, "High": sev.get("High") if sev else None,
-            "Max Unified Risk": run["max_unified_risk"], "Note": run["note"], "Format": "legacy" if run["schema"] < 2 else "v2",
+            "Max Unified Risk": run["max_unified_risk"], "API queries": run.get("queries"), "Note": run["note"],
+            "Format": "legacy" if run["schema"] < 2 else "v2",
         })
     frame = pd.DataFrame(rows)
-    for col in ("Critical", "High", "Max Unified Risk"):
+    for col in ("Critical", "High", "Max Unified Risk", "API queries"):
         frame[col] = pd.to_numeric(frame[col], errors="coerce").round().astype("Int64")  # blank (not 1.0 / NaN) for legacy runs
     return frame
 

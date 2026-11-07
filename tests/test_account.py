@@ -71,7 +71,7 @@ def test_fetch_without_credentials_and_with():
 def test_missing_app_products():
     _, products = account_parts(PAYLOAD)
     missing = [feature for feature, _ in missing_app_products(products)]
-    assert missing == ["Iris Investigate", "Domain History", "Risk evidence", "Certificate events"]
+    assert missing == ["Iris Investigate", "Domain History", "Certificate events"]
     either_iris = products + [{"id": "iris-investigate-(api-only)"}]   # either Iris product will do
     assert "Iris Investigate" not in [feature for feature, _ in missing_app_products(either_iris)]
-    assert len(missing_app_products([])) == 5
+    assert len(missing_app_products([])) == 4

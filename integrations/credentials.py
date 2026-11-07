@@ -27,7 +27,7 @@ DOMAINTOOLS, DNSDB, CERT_API, VPNDB = "DomainTools API", "DNSDB Scout", "Certifi
 # DomainTools username / key variable pairs, first complete pair wins; DOMAINTOOLS_* are the names the SDK docs use
 DOMAINTOOLS_ENV_PAIRS = (("DT_API_USERNAME", "DT_API_KEY"), ("DOMAINTOOLS_USERNAME", "DOMAINTOOLS_API_KEY"))
 SERVICES = {
-    DOMAINTOOLS: "Domain History, Risk Evidence, Iris Investigate",
+    DOMAINTOOLS: "Iris Investigate (with risk scores), Domain History, Account",
     DNSDB: "Passive DNS (DNSDB)",
     CERT_API: "Certificates, CT log events",
     VPNDB: "VPN, residential proxy and Tor attribution of IPs, prefixes and ASNs",

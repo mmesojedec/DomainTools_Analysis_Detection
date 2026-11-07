@@ -5,7 +5,7 @@ from config import IRIS_INVESTIGATE_BATCH_SIZE, IRISQL_DEFAULT_RESULTS, IRISQL_P
 from core.helpers import refang_domain
 from integrations.cache import cached_fetch
 from integrations.credentials import DTAPI_MISSING, get_dt_api
-from integrations.http import FetchResult, describe_exception
+from integrations.http import FetchResult, describe_exception, sdk_call
 
 SOURCE = "Iris Investigate"
 
@@ -31,7 +31,7 @@ def unwrap_value(value, default=None):
     return default if value is None else value
 
 
-@cached_fetch()
+@cached_fetch(group="iris")
 def fetch_iris_batch(domains):
     """Runs one Iris Investigate call for up to 100 domains. `domains` is a tuple; data maps domain -> result."""
     label = ", ".join(domains[:3]) + (f" (+{len(domains) - 3} more)" if len(domains) > 3 else "")
@@ -39,7 +39,7 @@ def fetch_iris_batch(domains):
     if api is None:
         return FetchResult(SOURCE, label, data={}, error=DTAPI_MISSING)
     try:
-        response = api.iris_investigate(domains=list(domains)).response()
+        response = sdk_call(lambda: api.iris_investigate(domains=list(domains)).response())
     except Exception as exc:
         return FetchResult(SOURCE, label, data={}, error=describe_exception(exc))
 
@@ -54,7 +54,7 @@ def fetch_iris_batch(domains):
                        note=f"Not found in Iris: {', '.join(missing)}" if missing else None)
 
 
-@cached_fetch()
+@cached_fetch(group="iris")
 def fetch_iris_pivot(param, value, limit=PIVOT_RESULT_LIMIT):
     """
     One Iris Investigate search on a pivot value (e.g. param="email"): data is the list of matching domain records
@@ -65,7 +65,7 @@ def fetch_iris_pivot(param, value, limit=PIVOT_RESULT_LIMIT):
     if api is None:
         return FetchResult(SOURCE, label, data=[], error=DTAPI_MISSING)
     try:
-        response = api.iris_investigate(**{param: value}, page_size=limit).response()
+        response = sdk_call(lambda: api.iris_investigate(**{param: value}, page_size=limit).response())
     except Exception as exc:
         return FetchResult(SOURCE, label, data=[], error=describe_exception(exc))
     results = list((response or {}).get("results", []) or [])
@@ -74,7 +74,7 @@ def fetch_iris_pivot(param, value, limit=PIVOT_RESULT_LIMIT):
                        extras={"total": total})
 
 
-@cached_fetch()
+@cached_fetch(group="iris")
 def fetch_irisql(query, max_results=IRISQL_DEFAULT_RESULTS, sort_by="", page_size=IRISQL_PAGE_SIZE):
     """
     One IrisQL search (Iris Investigate, the query as the raw POST body): data is the list of matching domain records,
@@ -93,7 +93,7 @@ def fetch_irisql(query, max_results=IRISQL_DEFAULT_RESULTS, sort_by="", page_siz
         if position:
             params["position"] = position
         try:
-            response = api.iris_investigate(irisql=query, **params).response() or {}
+            response = sdk_call(lambda params=params: api.iris_investigate(irisql=query, **params).response()) or {}
         except Exception as exc:
             return FetchResult(SOURCE, label, data=results, record_count=len(results), error=describe_exception(exc),
                                extras={"total": total, "pages": pages})
@@ -120,8 +120,9 @@ def _to_naive_ts(value):
 
 def extract_iris_profile(result_obj):
     """
-    Normalizes the Iris Investigate fields used by intel rules:
-    create/expiration/first-seen dates, registrar, IPs with ASN/ISP/country, name servers, and redirects.
+    Normalizes the Iris Investigate fields used by intel rules and the domain profile: create/expiration/first-seen
+    dates, registrar, IPs with ASN/ISP/country, name servers, redirects, popularity rank, website response, current
+    MX hosts, SPF record and the email domains of the registration.
     """
     obj = result_obj if isinstance(result_obj, dict) else {}
     ips = []
@@ -159,7 +160,32 @@ def extract_iris_profile(result_obj):
         "redirect": str(unwrap_value(obj.get("redirect")) or "").strip(),
         "redirect_domain": str(unwrap_value(obj.get("redirect_domain")) or "").strip().lower(),
         "server_type": str(unwrap_value(obj.get("server_type")) or "").strip(),
+        "popularity_rank": _positive_int(unwrap_value(obj.get("popularity_rank"))),
+        "active": obj.get("active") if isinstance(obj.get("active"), bool) else None,
+        "website_response": _positive_int(unwrap_value(obj.get("website_response"))),
+        "mx_hosts": _mx_hosts(obj.get("mx")),
+        "spf": str(unwrap_value(obj.get("spf_info")) or "").strip(),
+        "email_domains": [str(unwrap_value(e)).strip().lower() for e in obj.get("email_domain", []) or []
+                          if str(unwrap_value(e) or "").strip()],
     }
+
+
+def _positive_int(value):
+    """An Iris number (popularity rank, HTTP response) as an int; None when missing or 0 (Iris: not ranked)."""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _mx_hosts(entries):
+    hosts = []
+    for entry in entries or []:
+        host = unwrap_value(entry.get("host")) if isinstance(entry, dict) else entry
+        if host and str(host).strip():
+            hosts.append(str(host).strip().lower().rstrip("."))
+    return list(dict.fromkeys(hosts))
 
 
 def extract_web_trackers(result_obj):

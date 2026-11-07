@@ -143,7 +143,10 @@ def render_profile(ctx):
         st.markdown("**Registration** (Iris Investigate)")
         facts = {"Registrar": iris["registrar"], "Created": iris["create_date"], "Expires": iris["expiration_date"],
                  "First seen": iris["first_seen"], "Web server": iris["server_type"],
-                 "Redirects to": iris["redirect_domain"] or iris["redirect"]}
+                 "Website response": iris["website_response"],
+                 "Popularity rank": f"{iris['popularity_rank']:,}" if iris["popularity_rank"] else "not ranked",
+                 "Redirects to": iris["redirect_domain"] or iris["redirect"],
+                 "Email domains": ", ".join(iris["email_domains"])}
         st.dataframe(pd.DataFrame([{"Field": k, "Value": "" if v is None or pd.isna(v) else str(v)[:80]}
                                    for k, v in facts.items()]), hide_index=True, width="stretch")
     with c_host.container(border=True):
@@ -154,6 +157,8 @@ def render_profile(ctx):
         else:
             st.dataframe(ips, hide_index=True, width="stretch")
         st.caption("**Name servers:** " + (", ".join(iris["name_servers"]) or "none"))
+        st.caption("**Mail (MX):** " + (", ".join(iris["mx_hosts"]) or "none")
+                   + (f"  \n**SPF:** `{iris['spf'][:200]}`" if iris["spf"] else ""))
         navigation.link("dns", label="Hosting and DNS of every domain")
     window_ips = set(explode_ip_events(ds.pdns_utc[ds.pdns_utc["Domain"] == domain])["IP"].astype(str)) \
         if not ds.pdns_utc.empty else set()

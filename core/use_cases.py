@@ -9,6 +9,8 @@ custom profiles of their own; both are kept in dt_settings.json.
 import re
 from dataclasses import dataclass, field
 
+import pandas as pd
+
 from config import (
     CAA_SUPPLEMENT_FETCH_LIMIT,
     CERT_CTL_LIMIT,
@@ -24,6 +26,7 @@ from config import (
     IRIS_INVESTIGATE_BATCH_SIZE,
     IRIS_PDNS_LIMIT,
     IRIS_SUPPLEMENT_FETCH_LIMIT,
+    MONITOR_HISTORY_DAYS,
     PIVOT_DEFAULT_MAX_IPS,
     PIVOT_IP_RECORD_LIMIT,
     SEED_DEFAULT_TARGETS,
@@ -47,6 +50,9 @@ COLLECTION_DEFAULTS = {
     "opt_cname": True,
     "opt_pivot": False,
     "opt_pivot_max": PIVOT_DEFAULT_MAX_IPS,
+    "opt_pdns_incremental": False,          # DNSDB: only records seen since the last offline copy of the targets
+    "opt_history_mode": "all",              # Domain History period: all, the analysis window, or opt_history_days
+    "opt_history_days": 365,                # Domain History: changes of the last N days (mode "days")
     "opt_vpndb": True,
     "opt_vpndb_max_ips": VPNDB_MAX_IPS,     # hosting IPs in the bulk request (one VPNDB query each)
     "opt_vpndb_details": VPNDB_DETAIL_MAX,  # full verdicts and weekly histories of the exits (one query each)
@@ -63,6 +69,8 @@ OPTION_LABELS = {
     "opt_txt": "Supplemental TXT lookup", "opt_txt_records": "Latest TXT records per domain",
     "opt_caa": "Supplemental CAA lookup", "opt_cname": "Supplemental CNAME lookup",
     "opt_pivot": "Pivot on hosting IPs", "opt_pivot_max": "Max IPs to pivot on",
+    "opt_pdns_incremental": "Incremental passive DNS", "opt_history_mode": "Domain History period",
+    "opt_history_days": "Domain History period (days)",
     "opt_vpndb": "VPN / proxy / Tor check (VPNDB)", "opt_vpndb_only": "Only the VPNDB IP check",
     "opt_vpndb_max_ips": "VPNDB: hosting IPs per run", "opt_vpndb_details": "VPNDB: full verdicts per run",
     "opt_vpndb_context": "VPNDB: neighbourhood and leads",
@@ -138,8 +146,11 @@ USE_CASES = (
              ("triage", "Sort subdomains by phishing signals"),
              ("alerts", "Check lookalike and email alerts"))),
     UseCase("monitor", "Monitor changes", ":material/monitoring:",
-            "What changed since the last run? New alerts, new infrastructure, resolved findings.",
-            {**VPNDB_LIGHT, WINDOW_KEY: "Last 30 days"},
+            "What changed since the last run? New alerts, new infrastructure, resolved findings. Save an offline copy "
+            "of each run: the next one then looks up only new passive DNS records.",
+            {**VPNDB_LIGHT, "opt_pdns_incremental": True, "opt_history_mode": "days",
+             "opt_history_days": MONITOR_HISTORY_DAYS,
+             WINDOW_KEY: "Last 30 days"},
             (("summary", "See new and resolved alerts since the last run"),
              ("history", "Compare runs over time"),
              ("alerts", "Review what is new"))),
@@ -235,6 +246,41 @@ def remove_profile(profiles, key):
     return [p for p in profiles or [] if profile_key(p.get("name", "")) != key]
 
 
+HISTORY_MODES = {"all": "All (up to the change limit)", "window": "Same as the analysis window",
+                 "days": "Custom number of days"}
+
+
+def history_period_days(mode, days, window=None, window_start=None, today=None):
+    """
+    Days of Domain History changes a run fetches (0: all): `days` in mode "days"; in mode "window" the analysis
+    window's (`window` a preset name; a custom range uses `window_start`, its first day), all for *All time*.
+    """
+    if mode == "days":
+        return max(0, int(days or 0))
+    if mode != "window":
+        return 0
+    if WINDOW_PRESETS.get(window):
+        return int(WINDOW_PRESETS[window])
+    if window == CUSTOM_RANGE and window_start is not None:
+        today = pd.Timestamp.now(tz="UTC").date() if today is None else pd.Timestamp(today).date()
+        return max(1, (today - pd.Timestamp(window_start).date()).days + 1)
+    return 0
+
+
+def history_limit_text(settings):
+    """The Domain History limit of `settings` for the query plan: the period (all, the analysis window or N days)."""
+    cap = f"up to {DOMAIN_HISTORY_MAX_CHANGES:,} changes"
+    mode = settings.get("opt_history_mode", "all")
+    if mode == "window":
+        window = settings.get(WINDOW_KEY)
+        days = WINDOW_PRESETS.get(window)
+        span = f"{days:,} days" if days else ("all time" if window and window != CUSTOM_RANGE else "")
+        return f"Analysis window ({span}), {cap}" if span else f"Analysis window, {cap}"
+    if mode == "days" and int(settings.get("opt_history_days") or 0) > 0:
+        return f"{int(settings['opt_history_days']):,} days, {cap}"
+    return f"{DOMAIN_HISTORY_MAX_CHANGES:,} changes"
+
+
 def query_plan(settings):
     """
     What a run with these options looks up for each target domain, and the limit of each lookup:
@@ -251,18 +297,19 @@ def query_plan(settings):
                  "Always": True}]
     dnsdb = s["opt_pdns_provider"] == "DNSDB Scout"
     rows = [
-        {"Key": "iris", "Source": "Iris Investigate", "Lookup": "Registration, current hosting, website and trackers",
+        {"Key": "iris", "Source": "Iris Investigate", "Lookup": "Registration, current hosting, risk score, website and trackers",
          "Limit": f"batches of {IRIS_INVESTIGATE_BATCH_SIZE} domains"},
         {"Key": "history", "Source": "Domain History", "Lookup": "Registration, DNS and certificate changes",
-         "Limit": f"{DOMAIN_HISTORY_MAX_CHANGES:,} changes"},
-        {"Key": "risk", "Source": "DomainTools Risk", "Lookup": "Risk score and its evidence", "Limit": "1 call"},
+         "Limit": history_limit_text(s)},
         {"Key": "certs", "Source": "Certificate API", "Lookup": "Certificates naming the domain, and certificate events",
          "Limit": f"{CERT_SEARCH_MAX_RECORDS:,} certificates, {CERT_EVENTS_MAX_RECORDS:,} events"},
     ]
     for row in rows:
         row["Always"] = True
     if dnsdb:
-        rows.append({"Key": "pdns", "Source": "DNSDB Scout", "Lookup": "Passive DNS of the domain and every subdomain (all types)",
+        rows.append({"Key": "pdns", "Source": "DNSDB Scout", "Lookup": "Passive DNS of the domain and every subdomain (all types)"
+                     + ("; incremental: only records seen since the last offline copy of these targets"
+                        if s["opt_pdns_incremental"] else ""),
                      "Limit": f"{int(s['opt_dnsdb_limit']):,} records"})
         capped = " (only when the main lookup hit its limit)"
         if s["opt_txt"]:
