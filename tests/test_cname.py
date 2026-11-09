@@ -193,7 +193,7 @@ def test_cname_lookups_are_aggregated():
     assert dnsdb.client_params("CNAME")["aggr"] == "t" and dnsdb.client_params("A")["aggr"] == "t"
     assert dnsdb.client_params("ANY")["aggr"] == "f" and dnsdb.client_params("TXT")["aggr"] == "f"
     queries = build_lookup_queries(CollectedData(statuses=[
-        {"Source": "DNSDB CNAME Supplement", "Target": "nytimes.com", "Status": "OK", "Records": 1}]))
+        {"Source": "DNSDB CNAME Lookup", "Target": "nytimes.com", "Status": "OK", "Records": 1}]))
     assert "aggr=t" in queries.loc[0, "Command"] and "limit=5000" in queries.loc[0, "Command"]
 
 
@@ -233,7 +233,7 @@ def test_lookup_queries_rebuild_chase_and_supplement_requests():
     data = CollectedData(targets=["a.com"], domain_targets=["a.com"])
     data.statuses = [{"Source": src, "Target": target, "Status": "OK", "Records": 1, "Detail": ""} for src, target in [
         ("DNSDB CNAME Chase (CNAME)", "x.example"), ("DNSDB CNAME Chase (A)", "x.example"),
-        ("DNSDB CNAME Supplement", "a.com"), ("Iris pDNS CNAME Supplement", "2 domain(s)")]]
+        ("DNSDB CNAME Lookup", "a.com"), ("Iris pDNS CNAME Lookup", "2 domain(s)")]]
     queries = build_lookup_queries(data)
     assert list(queries["Search"]) == ["RRset, type CNAME", "RRset, type A", "RRset, type CNAME"]
     assert "/rrset/name/x.example/A?limit=500" in queries.loc[1, "Command"]

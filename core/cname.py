@@ -152,9 +152,9 @@ def build_cname_map(pdns, chases=None, max_steps=CNAME_CHASE_MAX_STEPS):
     chase_index = chases_by_start(chases)
     grouped = cname_rows.groupby(["Domain", "RRName", "Value"], sort=False).agg(
         **{"First Seen": ("First Seen", "min"), "Last Seen": ("Last Seen", "max")}).reset_index()
-    # DNSDB count (times the record was seen): the main lookup holds time slices of a record and the CNAME supplement
+    # DNSDB count (times the record was seen): the main lookup holds time slices of a record and the CNAME lookup
     # one aggregated record, so the larger of the two sums, not both
-    aggregated = cname_rows["Collection"].astype(str).str.contains("supplement", case=False)
+    aggregated = cname_rows["Collection"].astype(str).str.contains("lookup|supplement", case=False)
     counts = pd.to_numeric(cname_rows["Count"], errors="coerce").fillna(0).groupby(
         [cname_rows["Domain"], cname_rows["RRName"], cname_rows["Value"], aggregated]).sum() \
         .groupby(level=[0, 1, 2]).max()

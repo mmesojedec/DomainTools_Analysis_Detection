@@ -45,9 +45,9 @@ tabs for the options being edited):
 | Domain History period, Max changes | Domain History: the latest changes (default), only those of the analysis window, or of a custom number of days, each up to the cap; or all time with no cap. Paging stops at the first older change or at the cap; a domain that reaches the cap is reported as having more changes | 100 changes per query; cap 100–20,000; no cap stops at 50,000 |
 | *(always)* | Certificate API: certificates naming the domain, and certificate events | 2,500 each |
 | Passive DNS provider, DNSDB result limit | DNSDB Scout: the domain and every subdomain, all record types (Iris pDNS: 500 records) | the limit you pick |
-| Supplemental TXT lookup | DNSDB TXT records, only when the main lookup hit its limit | 500 fetched, latest N kept |
-| Supplemental CAA lookup | DNSDB CAA record of the domain, only when the main lookup hit its limit | 100 records |
-| Supplemental CNAME lookup | DNSDB CNAME records of the domain and its subdomains, only when the main lookup hit its limit | 5,000 records |
+| TXT lookup | DNSDB TXT records, only when the main lookup hit its limit | 500 fetched, latest N kept |
+| CAA lookup | DNSDB CAA record of the domain, only when the main lookup hit its limit | 100 records |
+| CNAME lookup | DNSDB CNAME records of the domain and its subdomains, only when the main lookup hit its limit | 5,000 records |
 | Pivot on hosting IPs | DNSDB: other domains seen on each current hosting IP (DNSDB Scout only) | the max IPs per run, 2,000 records each |
 | Incremental passive DNS | DNSDB: only records seen since a day before the last offline copy of the same targets, plus that copy's older records (DNSDB Scout only; a full lookup without a copy) | the limit you pick |
 | VPN / proxy / Tor check (VPNDB) | VPNDB: verdict of the run's public IPv4 hosting addresses and of CIDR targets (only with a VPNDB key); full verdict and weekly history of the exits | *Hosting IPs per run* in one bulk request (500 by default), *Full verdicts per run* exits (50), two queries each |
@@ -64,10 +64,10 @@ Options per use case (generated from `core/use_cases.py`):
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Passive DNS provider | DNSDB Scout | · | · | · | · | · | · | · | · |
 | DNSDB result limit per domain | 5,000 | · | · | · | · | · | · | · | · |
-| Supplemental TXT lookup | on | · | · | · | off | · | · | · | · |
+| TXT lookup | on | · | · | · | off | · | · | · | · |
 | Latest TXT records per domain | 10 | · | · | · | · | · | · | · | · |
-| Supplemental CAA lookup | on | · | off | · | off | · | · | · | · |
-| Supplemental CNAME lookup | on | · | · | · | · | · | · | · | · |
+| CAA lookup | on | · | off | · | off | · | · | · | · |
+| CNAME lookup | on | · | · | · | · | · | · | · | · |
 | Pivot on hosting IPs | off | · | on | on | · | · | · | · | · |
 | Max IPs to pivot on | 10 | · | · | · | · | · | · | · | · |
 | Incremental passive DNS | off | · | · | · | · | · | on | · | · |
@@ -126,10 +126,10 @@ Limits (generated from `config.py`):
 | `DNSDB_LIMIT_OPTIONS` | 10, 50, 100, 500, 1,000, 2,000, 5,000, 10,000, 25,000, 50,000, 100,000, 1,000,000 | choices of the DNSDB result limit (Settings) |
 | `DNSDB_DEFAULT_LIMIT` | 5,000 | DNSDB records fetched per target by the main passive DNS lookup (Settings) |
 | `IRIS_PDNS_LIMIT` | 500 | Iris pDNS records fetched per target by the main lookup |
-| `TXT_SUPPLEMENT_DEFAULT_RECORDS` | 10 | latest TXT records kept per domain by the supplemental lookup |
+| `TXT_SUPPLEMENT_DEFAULT_RECORDS` | 10 | latest TXT records kept per domain by the TXT lookup |
 | `TXT_SUPPLEMENT_FETCH_LIMIT` | 500 | DNSDB TXT records fetched per name before trimming to the latest N |
 | `CAA_SUPPLEMENT_FETCH_LIMIT` | 100 | DNSDB CAA records fetched for the apex name (all are kept) |
-| `IRIS_SUPPLEMENT_FETCH_LIMIT` | 100 | Iris pDNS records requested per supplemental record-type query |
+| `IRIS_SUPPLEMENT_FETCH_LIMIT` | 100 | Iris pDNS records requested per record-type lookup query |
 | `CNAME_SUPPLEMENT_FETCH_LIMIT` | 5,000 | DNSDB CNAME records fetched (name and subdomains) when the main query was cut off |
 | `CNAME_CHASE_MAX_STEPS` | 10 | names followed per CNAME chase (DNSDB Scout's CNAME chasing limit) |
 | `CNAME_CHASE_RECORD_LIMIT` | 500 | DNSDB records fetched per chased name and record type |

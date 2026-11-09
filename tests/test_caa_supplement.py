@@ -71,7 +71,7 @@ def test_caa_supplement_recovers_record_missing_from_truncated_main_query(monkey
     def fake_fetch(target, limit=5000, rrtype="ANY", include_wildcard=True):
         calls.append((rrtype, include_wildcard))
         if rrtype == "CAA":
-            return FetchResult("DNSDB CAA Supplement", target, record_count=1, data=[
+            return FetchResult("DNSDB CAA Lookup", target, record_count=1, data=[
                 {"rrname": "nytimes.com.", "rrtype": "CAA", "rdata": ['0 issue "digicert.com"'], "time_first": BASE, "time_last": BASE + 9e6}])
         # Main query hit the limit with only A records - the CAA record was cut off
         return FetchResult("DNSDB Scout", target, truncated=True, record_count=2000, data=[
@@ -81,7 +81,7 @@ def test_caa_supplement_recovers_record_missing_from_truncated_main_query(monkey
     log = StatusLog()
     pdns, coverage = collector.collect_pdns(["nytimes.com"], "DNSDB Scout", 2000, log, caa_lookup=True)
     assert ("CAA", False) in calls
-    assert (pdns["Field"] == "CAA").sum() == 1 and set(pdns.loc[pdns["Field"] == "CAA", "Collection"]) == {"CAA supplement"}
+    assert (pdns["Field"] == "CAA").sum() == 1 and set(pdns.loc[pdns["Field"] == "CAA", "Collection"]) == {"CAA lookup"}
     assert coverage == {"nytimes.com": {"truncated": True, "caa_checked": True}}
 
     _, coverage_without = collector.collect_pdns(["nytimes.com"], "DNSDB Scout", 2000, StatusLog(), caa_lookup=False)

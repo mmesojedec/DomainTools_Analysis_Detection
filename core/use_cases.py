@@ -68,8 +68,8 @@ COLLECTION_DEFAULTS = {
 WINDOW_KEY = "analysis_window"
 OPTION_LABELS = {
     "opt_pdns_provider": "Passive DNS provider", "opt_dnsdb_limit": "DNSDB result limit per domain",
-    "opt_txt": "Supplemental TXT lookup", "opt_txt_records": "Latest TXT records per domain",
-    "opt_caa": "Supplemental CAA lookup", "opt_cname": "Supplemental CNAME lookup",
+    "opt_txt": "TXT lookup", "opt_txt_records": "Latest TXT records per domain",
+    "opt_caa": "CAA lookup", "opt_cname": "CNAME lookup",
     "opt_pivot": "Pivot on hosting IPs", "opt_pivot_max": "Max IPs to pivot on",
     "opt_pdns_incremental": "Incremental passive DNS", "opt_history_mode": "Domain History period",
     "opt_history_days": "Domain History period (days)", "opt_history_max": "Domain History changes per domain",

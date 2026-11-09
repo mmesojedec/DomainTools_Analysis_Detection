@@ -184,7 +184,7 @@ def render_cname_lens(ds, collected):
     cmap = order_by_domain(dataset_cname_map(ds), ds.selected_domains)
     if cmap.empty:
         st.info("No CNAME records in the passive DNS for the selected domains and window. Busy domains need "
-                "*Settings → Collection options → Supplemental CNAME lookup* when the main lookup stops at its limit.")
+                "*Settings → Collection options → CNAME lookup* when the main lookup stops at its limit.")
         return
     current = cmap[cmap["Current"]]
     metrics = [

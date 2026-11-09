@@ -439,7 +439,7 @@ def _render_caa(ds, unique_certs):
             elif coverage == "incomplete":
                 status = "No CAA Observed (pDNS Incomplete)"
                 reason = ("No CAA record in the returned passive DNS sample, but the query was truncated and no dedicated CAA "
-                          "lookup ran; enable Supplemental CAA lookup or raise the result limit.")
+                          "lookup ran; enable *CAA lookup* or raise the result limit.")
             else:
                 status, reason = "Unprotected (No CAA)", "Domain has no CAA DNS records; any public CA can issue."
             rows.append({

@@ -27,10 +27,10 @@ def by_source(frame, source):
 def test_dnsdb_lookups_list_names_types_and_curl_requests():
     q = build_lookup_queries(collected([
         status("DNSDB Scout", "example.com", "Partial"), status("DNSDB Scout", "1.2.3.4"), status("DNSDB Scout", "5.6.7.8"),
-        status("DNSDB CAA Supplement", "example.com"), status("DNSDB TXT Supplement", "example.com"),
+        status("DNSDB CAA Lookup", "example.com"), status("DNSDB TXT Lookup", "example.com"),
         status("DNSDB Scout", "other.org"),
         status("DNSDB Hostname Gap-Fill", "api.example.com", "Partial"),
-        status("TXT Supplement", "1 domain(s)"),   # summary row: no lookup of its own
+        status("TXT Lookup", "1 domain(s)"),   # summary row: no lookup of its own
     ], dnsdb_limit=1000), CREATED)
     main = by_source(q, "DNSDB Scout")
     assert main.loc[0, "Query"] == "*.example.com\nexample.com"   # capped: the apex was looked up on its own too
@@ -42,13 +42,13 @@ def test_dnsdb_lookups_list_names_types_and_curl_requests():
     assert main.loc[1, "Command"].endswith(f"'https://api.dnsdb.info/dnsdb/v2/lookup/rdata/ip/1.2.3.4{params}'")
     assert "limit=1000&" in main.loc[1, "Command"] and "limit=2000&" in main.loc[2, "Command"]   # 5.6.7.8: IP pivot
     assert main.loc[3, "Query"] == "*.other.org" and main.loc[3, "Command"].count("curl") == 1   # complete: one request
-    caa = by_source(q, "DNSDB CAA Supplement").loc[0]
+    caa = by_source(q, "DNSDB CAA Lookup").loc[0]
     assert caa["Query"] == "example.com" and "/rrset/name/example.com/CAA?limit=100&" in caa["Command"]   # apex only
-    txt = by_source(q, "DNSDB TXT Supplement").loc[0]
+    txt = by_source(q, "DNSDB TXT Lookup").loc[0]
     assert (txt["Search"], txt["Query"]) == ("RRset, type TXT", "*.example.com")
     gap = by_source(q, "DNSDB Hostname Gap-Fill").loc[0]
     assert (gap["Query"], gap["Status"]) == ("api.example.com", "Partial")
-    assert "TXT Supplement" not in set(q["Source"])
+    assert "TXT Lookup" not in set(q["Source"])
 
 
 def test_certificate_queries_use_the_run_inputs():
@@ -92,7 +92,7 @@ def test_domaintools_api_and_iris_rows():
     q = build_lookup_queries(collected([
         status("Domain History", "example.com"), status("Risk Evidence", "example.com"),
         status("Iris Investigate", "example.com, other.org"), status("Iris pDNS", "example.com"),
-        status("Iris pDNS TXT Supplement", "example.com"),
+        status("Iris pDNS TXT Lookup", "example.com"),
     ]), CREATED)
     creds = '-u "$DT_API_USERNAME" -k "$DT_API_KEY"'
     assert by_source(q, "Domain History").loc[0, "Command"] == \
@@ -103,12 +103,12 @@ def test_domaintools_api_and_iris_rows():
     assert iris["Command"] == f"domaintools iris_investigate --domains example.com,other.org {creds}"
     pdns = by_source(q, "Iris pDNS").loc[0]
     assert (pdns["Search"], pdns["Query"]) == ("RRName", "*.example.com")
-    assert by_source(q, "Iris pDNS TXT Supplement").loc[0, "Search"] == "RRName, type TXT"
+    assert by_source(q, "Iris pDNS TXT Lookup").loc[0, "Search"] == "RRName, type TXT"
 
 
 def test_tool_bundle_groups_by_search_type():
     q = build_lookup_queries(collected([
-        status("DNSDB Scout", "example.com"), status("DNSDB CAA Supplement", "example.com"),
+        status("DNSDB Scout", "example.com"), status("DNSDB CAA Lookup", "example.com"),
         status("Iris Investigate", "example.com, other.org"),
     ]), CREATED)
     assert tool_bundle(q, "DNSDB Scout") == "# RRset, type ANY\n*.example.com\n\n# RRset, type CAA\nexample.com"
@@ -131,12 +131,12 @@ def test_one_line_flattens_queries_for_tables():
 
 def test_capped_dnsdb_lookups_count_two_requests():
     q = build_lookup_queries(collected([
-        status("DNSDB Scout", "24ur.com", "Partial"), status("DNSDB TXT Supplement", "24ur.com"),
-        status("DNSDB CAA Supplement", "24ur.com"), status("Certificate Search", "24ur.com"),
+        status("DNSDB Scout", "24ur.com", "Partial"), status("DNSDB TXT Lookup", "24ur.com"),
+        status("DNSDB CAA Lookup", "24ur.com"), status("Certificate Search", "24ur.com"),
         status("Domain History", "24ur.com"),
     ]), CREATED)
     assert dict(zip(q["Source"], request_counts(q))) == {
-        "DNSDB Scout": 2, "DNSDB TXT Supplement": 1, "DNSDB CAA Supplement": 1, "Certificate Search": 1,
+        "DNSDB Scout": 2, "DNSDB TXT Lookup": 1, "DNSDB CAA Lookup": 1, "Certificate Search": 1,
         "Domain History": 1}
     dnsdb = q[q["Tool"] == "DNSDB Scout"]
     names = [n for n in tool_bundle(dnsdb, "DNSDB Scout").splitlines() if n and not n.startswith("#")]

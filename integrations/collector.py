@@ -295,7 +295,7 @@ class SupplementSpec:
 
     @property
     def collection(self):
-        return f"{self.rrtype} supplement"
+        return f"{self.rrtype} lookup"
 
 
 def supplement_specs(txt_records=0, caa_lookup=False, cname_lookup=False):
@@ -329,9 +329,9 @@ def merge_supplements(pdns, supplements, log):
         merged = merged.drop_duplicates(subset=DEDUP_COLUMNS, keep="first")  # main-query rows win
         added = len(merged) - before
         # Records found but already present still mean the lookup worked, so both cases are "OK"
-        log.add(f"{spec.rrtype} Supplement", f"{frame['Domain'].nunique()} domain(s)", "OK",
+        log.add(f"{spec.rrtype} Lookup", f"{frame['Domain'].nunique()} domain(s)", "OK",
                 f"Added {added} {spec.rrtype} record(s) not returned by the main query" if added
-                else f"All supplemental {spec.rrtype} records were already in the main results", added)
+                else f"All {spec.rrtype} lookup records were already in the main results", added)
     if merged is pdns or merged.empty:
         return merged
     return add_event_gaps(merged).sort_values("Date", ascending=False).reset_index(drop=True)
@@ -439,7 +439,7 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
             skipped = [d for d in domains if d in main_results and main_results[d][0].ok
                        and spec.rrtype not in main_results[d][0].extras]
             if spec.only_if_capped and skipped:
-                log.add(f"Iris pDNS {spec.rrtype} Supplement", f"{len(skipped)} domain(s)", "OK",
+                log.add(f"Iris pDNS {spec.rrtype} Lookup", f"{len(skipped)} domain(s)", "OK",
                         f"Not needed: the main lookup returned every record, {spec.rrtype} included")
         for row in ("extra", "CNAME"):
             progress.skip(row, "Not needed: the main lookup returned every record")
@@ -464,7 +464,7 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
         for spec in specs:
             skipped = len(domains) - len(incomplete)
             if skipped:
-                log.add(f"DNSDB {spec.rrtype} Supplement", f"{skipped} domain(s)", "OK",
+                log.add(f"DNSDB {spec.rrtype} Lookup", f"{skipped} domain(s)", "OK",
                         f"Not needed: the main lookup returned every record, {spec.rrtype} included")
             if incomplete:
                 progress.start(spec.rrtype, len(incomplete), f"main lookup hit its limit for {len(incomplete)} domain(s)"
@@ -473,7 +473,7 @@ def collect_pdns(targets, provider, dnsdb_limit, log, on_auth_required=None, on_
                 progress.skip(spec.rrtype, f"Not needed: the main lookup returned every record for all {skipped} "
                                            "domain(s)")
             spec_results = _parallel(incomplete, lambda d, spec=spec: _safe_call(
-                fetch_dnsdb_history, f"DNSDB {spec.rrtype} Supplement", d, d, spec.fetch_limit, spec.rrtype, spec.include_wildcard),
+                fetch_dnsdb_history, f"DNSDB {spec.rrtype} Lookup", d, d, spec.fetch_limit, spec.rrtype, spec.include_wildcard),
                 key=spec.rrtype)
             progress.finish(spec.rrtype)
             for domain, result in zip(incomplete, spec_results):

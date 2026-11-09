@@ -232,3 +232,11 @@ def hostname_matches(target, name):
 def md_escape(text):
     """Escapes Markdown control characters (including `$`, which Streamlit renders as LaTeX)."""
     return _MARKDOWN_SPECIALS.sub(r"\\\1", str(text))
+
+
+def lookup_name(text):
+    """A source or collection name with the old "Supplement" wording as "Lookup" ("DNSDB TXT Supplement" ->
+    "DNSDB TXT Lookup", "CAA supplement" -> "CAA lookup"), for datasets and cache entries saved before the rename."""
+    if not isinstance(text, str):
+        return text
+    return text.replace(" Supplement", " Lookup").replace(" supplement", " lookup")

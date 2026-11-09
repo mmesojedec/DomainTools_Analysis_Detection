@@ -71,29 +71,34 @@ def test_costs_and_commands():
     assert cmds["DomainTools CLI"].startswith("domaintools iris_investigate --irisql '# IrisQL-1.0")
     assert "--sort-by risk_score" in cmds["DomainTools CLI"] and "$DT_API_KEY" in cmds["curl"]
     assert "page_size=500&sort_by=risk_score" in cmds["curl"] and "irisql=" in cmds["Python SDK"]
+    assert "Content-Type: application/json" in cmds["curl"] and "text/plain" not in cmds["curl"]
 
 
-class FakeAPI:
+class FakePages:
+    """Stands in for irisql_page: one answer (or exception) per call, recording the params."""
     def __init__(self, pages):
         self.pages, self.calls = pages, []
 
-    def iris_investigate(self, **kwargs):
-        self.calls.append(kwargs)
+    def __call__(self, query, params, api_key):
+        self.calls.append({"irisql": query, **params})
         page = self.pages[len(self.calls) - 1]
+        if isinstance(page, Exception):
+            raise page
+        return page
 
-        class Answer:
-            def response(self):
-                if isinstance(page, Exception):
-                    raise page
-                return page
-        return Answer()
+
+def _with_pages(monkeypatch, pages):
+    fake = FakePages(pages)
+    monkeypatch.setattr(enrichment, "load_dtapi_credentials", lambda: ("user", "key"))
+    monkeypatch.setattr(enrichment, "irisql_page", fake)
+    return fake
 
 
 def test_fetch_irisql_pages_until_the_limit_and_is_cached(monkeypatch):
-    api = FakeAPI([{"results": [record("a.com", 1), record("b.com", 2)], "total_count": 9, "has_more_results": True,
-                    "position": "p2"},
-                   {"results": [record("c.com", 3)], "total_count": 9, "has_more_results": True, "position": "p3"}])
-    monkeypatch.setattr(enrichment, "get_dt_api", lambda: api)
+    api = _with_pages(monkeypatch, [
+        {"results": [record("a.com", 1), record("b.com", 2)], "total_count": 9, "has_more_results": True,
+         "position": "p2"},
+        {"results": [record("c.com", 3)], "total_count": 9, "has_more_results": True, "position": "p3"}])
     query = irisql.normalize('domain contains "x"')
     result = enrichment.fetch_irisql(query, 3, "risk_score", page_size=2)
     assert [r["domain"] for r in result.data] == ["a.com", "b.com", "c.com"]
@@ -105,11 +110,49 @@ def test_fetch_irisql_pages_until_the_limit_and_is_cached(monkeypatch):
 
 
 def test_fetch_irisql_keeps_pages_fetched_before_an_error(monkeypatch):
-    api = FakeAPI([{"results": [record("a.com", 1)], "total_count": 5, "has_more_results": True, "position": "p2"},
-                   RuntimeError("400 Bad Request")])
-    monkeypatch.setattr(enrichment, "get_dt_api", lambda: api)
-    result = enrichment.fetch_irisql(irisql.normalize('domain contains "x"'), 10, page_size=1)
-    assert result.error and [r["domain"] for r in result.data] == ["a.com"]
+    _with_pages(monkeypatch, [{"results": [record("a.com", 1)], "total_count": 5, "has_more_results": True,
+                               "position": "p2"},
+                              enrichment.IrisQLError("HTTP 400: Invalid IrisQL")])
+    result = enrichment.fetch_irisql(irisql.normalize('domain contains "y"'), 10, page_size=1)
+    assert result.error == "HTTP 400: Invalid IrisQL" and [r["domain"] for r in result.data] == ["a.com"]
+
+
+class FakeResponse:
+    def __init__(self, status, body):
+        self.status_code, self.ok, self._body = status, status < 400, body
+
+    def json(self):
+        return self._body
+
+
+class FakeSession:
+    def __init__(self, response):
+        self.response, self.sent = response, {}
+
+    def post(self, url, **kwargs):
+        self.sent = {"url": url, **kwargs}
+        return self.response
+
+
+def test_irisql_page_sends_the_query_as_json_content_type(monkeypatch):
+    session = FakeSession(FakeResponse(200, {"response": {"results": [record("a.com", 1)], "total_count": 1}}))
+    monkeypatch.setattr(enrichment, "get_session", lambda: session)
+    query = irisql.normalize('domain contains "x"')
+    page = enrichment.irisql_page(query, {"page_size": 5}, "secret")
+    assert page["total_count"] == 1 and session.sent["data"] == query.encode()
+    assert session.sent["headers"]["Content-Type"] == "application/json"
+    assert session.sent["headers"]["X-Api-Key"] == "secret" and session.sent["params"] == {"page_size": 5}
+
+
+def test_irisql_page_raises_the_api_message(monkeypatch):
+    monkeypatch.setattr(enrichment, "get_session",
+                        lambda: FakeSession(FakeResponse(400, {"error": {"message": "Unknown field FOO"}})))
+    try:
+        enrichment.irisql_page("# IrisQL-1.0\nFOO MATCHES \"x\"", {}, "secret")
+    except enrichment.IrisQLError as exc:
+        assert str(exc) == "HTTP 400: Unknown field FOO"
+    else:
+        raise AssertionError("expected IrisQLError")
 
 
 def test_irisql_page_is_always_in_the_menu():

@@ -85,7 +85,7 @@ class LookupSettings:
     save_offline: bool = False    # live mode: also save the collected data as an offline dataset
     offline_id: str = None        # offline mode: dataset to load
     seed_preselect: int = SEED_DEFAULT_TARGETS   # derived targets pre-selected from certificate inputs
-    cname_lookup: bool = False    # CNAME supplement where a capped main query holds no CNAME
+    cname_lookup: bool = False    # CNAME lookup where a capped main query holds no CNAME
     fresh: bool = False           # re-run from Cached details: query every source again (refreshes these targets' cache)
     vpndb_check: bool = False     # VPNDB verdict (VPN, residential proxy, Tor) of the hosting IPs
     vpndb_only: bool = False      # IP check use case: only VPNDB, for the IP targets
@@ -384,18 +384,18 @@ def render_collection_options(prefix="", force_refresh=True):
                  disabled=st.session_state[prefix + "opt_pdns_provider"] != "DNSDB Scout",
                  help="Maximum passive DNS records fetched per queried name. Very large limits slow down charts and tables.")
     c1, c2 = st.columns(2)
-    c1.checkbox("Supplemental TXT lookup", key=prefix + "opt_txt",
+    c1.checkbox("TXT lookup", key=prefix + "opt_txt",
                 help="Runs an extra TXT-only passive DNS query per domain (DNSDB: name/TXT and *.name/TXT; Iris pDNS: rrtype "
                      "TXT in the same browser session) and merges the latest records. Large result limits are often filled "
                      "by A/NS/CNAME records before any TXT record appears, leaving TXT fingerprinting and SPF/tunneling "
                      "detections empty.")
     c2.number_input("Latest TXT records per domain", min_value=1, max_value=500, step=1, key=prefix + "opt_txt_records",
                     disabled=not st.session_state[prefix + "opt_txt"])
-    c1.checkbox("Supplemental CAA lookup", key=prefix + "opt_caa",
+    c1.checkbox("CAA lookup", key=prefix + "opt_caa",
                 help="Queries the CAA record of each domain name directly (DNSDB: name/CAA; Iris pDNS: rrtype CAA in the same "
                      "session). Without it, a CAA record can fall outside a truncated pDNS result and the domain looks "
                      "unprotected.")
-    c2.checkbox("Supplemental CNAME lookup", key=prefix + "opt_cname",
+    c2.checkbox("CNAME lookup", key=prefix + "opt_cname",
                 help="Queries CNAME records of each domain and its subdomains (DNSDB: *.name/CNAME and name/CNAME; Iris "
                      "pDNS: rrtype CNAME in the same session), up to 5,000 records, where the main lookup stopped at its "
                      "limit (it then holds only some of the CNAMEs). DNSDB returns them aggregated, one record per "
@@ -868,7 +868,7 @@ def render_cache_settings():
         "Cache lifetime", labels, index=labels.index(current), key="cache_lifetime",
         help="How long a successful lookup is reused: the same domain, name, record type and limit looked up again "
              "(in this or a later run, also after an app restart) costs no API query. Covers passive DNS and its TXT / "
-             "CAA / CNAME supplements, CNAME chases and reverse lookups, IP pivots, certificates, Domain History, "
+             "CAA / CNAME lookups, CNAME chases and reverse lookups, IP pivots, certificates, Domain History, "
              "Iris Investigate (per batch of domains, with risk scores) and VPNDB. Each source can keep its results "
              "for its own lifetime (below). Kept in dt_cache/ (local, git-ignored). Data Source Status "
              "marks each reused lookup *From cache*. Off: always query.")

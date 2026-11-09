@@ -4,10 +4,16 @@ import pandas as pd
 from config import IRIS_INVESTIGATE_BATCH_SIZE, IRISQL_DEFAULT_RESULTS, IRISQL_PAGE_SIZE, PIVOT_RESULT_LIMIT
 from core.helpers import refang_domain
 from integrations.cache import cached_fetch
-from integrations.credentials import DTAPI_MISSING, get_dt_api
-from integrations.http import FetchResult, describe_exception, sdk_call
+from integrations.credentials import DTAPI_MISSING, get_dt_api, load_dtapi_credentials
+from integrations.http import FetchResult, describe_exception, describe_http_status, get_session, sdk_call
 
 SOURCE = "Iris Investigate"
+IRISQL_URL = "https://api.domaintools.com/v1/iris-investigate/"
+IRISQL_TIMEOUT = 120
+
+
+class IrisQLError(RuntimeError):
+    """The API refused an IrisQL page; the message is shown as is."""
 
 TRACKER_FIELDS = (
     ("ga4", "Google Analytics 4 (GA4)"),
@@ -77,13 +83,13 @@ def fetch_iris_pivot(param, value, limit=PIVOT_RESULT_LIMIT):
 @cached_fetch(group="iris")
 def fetch_irisql(query, max_results=IRISQL_DEFAULT_RESULTS, sort_by="", page_size=IRISQL_PAGE_SIZE):
     """
-    One IrisQL search (Iris Investigate, the query as the raw POST body): data is the list of matching domain records,
+    One IrisQL search (Iris Investigate, the query as the POST body with Content-Type application/json): data is the list of matching domain records,
     requested page by page (`position`) until `max_results`; extras: "total" (matching domains in Iris), "pages",
     "message". An error keeps the records of the pages fetched before it.
     """
     label = "IrisQL: " + next((line.strip() for line in query.splitlines()[1:] if line.strip()), query.strip())[:80]
-    api = get_dt_api()
-    if api is None:
+    creds = load_dtapi_credentials()
+    if not creds:
         return FetchResult(SOURCE, label, data=[], error=DTAPI_MISSING)
     results, total, pages, position, message = [], 0, 0, None, None
     while len(results) < max_results:
@@ -93,9 +99,10 @@ def fetch_irisql(query, max_results=IRISQL_DEFAULT_RESULTS, sort_by="", page_siz
         if position:
             params["position"] = position
         try:
-            response = sdk_call(lambda params=params: api.iris_investigate(irisql=query, **params).response()) or {}
+            response = irisql_page(query, params, creds[1])
         except Exception as exc:
-            return FetchResult(SOURCE, label, data=results, record_count=len(results), error=describe_exception(exc),
+            error = str(exc) if isinstance(exc, IrisQLError) else describe_exception(exc)
+            return FetchResult(SOURCE, label, data=results, record_count=len(results), error=error,
                                extras={"total": total, "pages": pages})
         pages += 1
         results.extend(response.get("results", []) or [])
@@ -106,6 +113,29 @@ def fetch_irisql(query, max_results=IRISQL_DEFAULT_RESULTS, sort_by="", page_siz
             break
     return FetchResult(SOURCE, label, data=results, record_count=len(results), truncated=total > len(results),
                        extras={"total": total, "pages": pages, "message": message})
+
+
+def irisql_page(query, params, api_key):
+    """
+    One page of an IrisQL search: the query as the POST body with Content-Type application/json (the SDK sends
+    text/plain). Retries on 429 / 5xx come from the shared session. Returns the "response" object; raises
+    IrisQLError with the HTTP status and the API's message when the API refuses the query.
+    """
+    resp = get_session().post(IRISQL_URL, params=params, data=query.encode("utf-8"), timeout=IRISQL_TIMEOUT,
+                              headers={"X-Api-Key": api_key, "Content-Type": "application/json",
+                                       "Accept": "application/json"})
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    if not resp.ok:
+        error = body.get("error") if isinstance(body, dict) else None
+        reason = error.get("message") if isinstance(error, dict) else error
+        detail = describe_http_status(resp.status_code)
+        raise IrisQLError(f"{detail}: {reason}" if reason and resp.status_code not in (401, 403) else detail)
+    if not isinstance(body, dict):
+        raise IrisQLError("Invalid JSON response")
+    return body.get("response", body) or {}
 
 
 def iris_batches(target_domains):

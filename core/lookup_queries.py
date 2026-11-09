@@ -37,6 +37,8 @@ from integrations.dnsdb import CHASE_SOURCE, MAX_BATCH_SIZE, RDATA_SOURCE, _look
 from integrations.enrichment import iris_batches
 from integrations.iris import build_pdns_payload
 
+LOOKUP_SUFFIXES = (" Lookup", " Supplement")   # record-type lookups (" Supplement": saved before the rename)
+
 QUERY_COLUMNS = ["Source", "Target", "Tool", "Search", "Query", "Command", "Status", "Records", "Cached", "Cached At",
                  "Pages"]
 TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "Iris pDNS", "VPNDB"]
@@ -189,11 +191,11 @@ def build_lookup_queries(collected, created=None):
                     built = _events("sha256", {"sha256": sha}, start)
                 rows.append(_row(row_status, "DomainTools Certificates", *built, target=sha))
         elif source in ("DNSDB Scout", "DNSDB IP Pivot", "DNSDB Hostname Gap-Fill") or source.startswith(CHASE_SOURCE) or \
-                (source.startswith("DNSDB ") and source.endswith(" Supplement")):
+                (source.startswith("DNSDB ") and source.endswith(LOOKUP_SUFFIXES)):
             if not target or target == "-" or " " in target:
                 continue
             chase = source.startswith(CHASE_SOURCE)
-            rrtype = source.split()[1] if source.endswith(" Supplement") else \
+            rrtype = source.split()[1] if source.endswith(LOOKUP_SUFFIXES) else \
                 source.rpartition("(")[2].rstrip(")") if chase else "ANY"
             wildcard = rrtype != "CAA" and source != "DNSDB Hostname Gap-Fill" and not chase
             if chase:
@@ -212,10 +214,10 @@ def build_lookup_queries(collected, created=None):
             curl = (f'curl -s -H "X-API-Key: $DNSDB_API_KEY" -H \'Accept: application/x-ndjson\' '
                     f'{shlex.quote(f"{rdata_url(target)}?{query}")}')
             rows.append(_row(status, "DNSDB Scout", "Rdata name, type CNAME", target, curl))
-        elif source == "Iris pDNS" or (source.startswith("Iris pDNS ") and source.endswith(" Supplement")):
-            if " " in target:   # "N domain(s)" summary rows of supplements that were not needed
+        elif source == "Iris pDNS" or (source.startswith("Iris pDNS ") and source.endswith(LOOKUP_SUFFIXES)):
+            if " " in target:   # "N domain(s)" summary rows of lookups that were not needed
                 continue
-            rrtype = source.split()[2] if source.endswith(" Supplement") else ""
+            rrtype = source.split()[2] if source.endswith(LOOKUP_SUFFIXES) else ""
             rows.append(_row(status, "Iris pDNS", *_iris_pdns(target, rrtype)))
         elif source == "IrisQL":
             request = status.get("Request") or {}

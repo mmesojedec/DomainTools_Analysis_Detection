@@ -195,16 +195,16 @@ def test_run_usage_and_what_is_left():
     statuses = [FetchResult("Iris Investigate", "a.com", queries=1).status_row(),
                 FetchResult("Domain History", "a.com", queries=3).status_row(),
                 FetchResult("Domain History", "b.com", cached_at=1.0, queries=0).status_row(),
-                FetchResult("DNSDB TXT Supplement", "a.com", queries=1).status_row(),
+                FetchResult("DNSDB TXT Lookup", "a.com", queries=1).status_row(),
                 FetchResult("VPNDB", "2 IP(s)", queries=2).status_row(),
                 FetchResult("Cert Events (IP)", "1.2.3.4", error="Server error (HTTP 503)").status_row(),
-                {"Source": "TXT Supplement", "Target": "1 domain(s)", "Status": "OK", "Detail": ""}]
+                {"Source": "TXT Lookup", "Target": "1 domain(s)", "Status": "OK", "Detail": ""}]
     usage = run_usage(statuses).set_index("Product")
     assert usage.loc["domain-history"].tolist()[1:] == [2, 1, 3]
     assert queries_by_product(statuses) == {"domain-history": 3, "iris-investigate": 1, "DNSDB": 1, "VPNDB": 2}
     assert failed_lookups(statuses) == 1
     assert source_product("CT Log Events") == ("DomainTools API", "certificate-events")
-    assert cache_group("Iris pDNS TXT Supplement") == "pdns" and cache_group("Cert Events (IP)") == "certs"
+    assert cache_group("Iris pDNS TXT Lookup") == "pdns" and cache_group("Cert Events (IP)") == "certs"
 
     products = [{"id": "iris-investigate-(api-only)", "rest": {"month": "5"}},
                 {"id": "domain-history", "per_month_limit": "100", "usage": {"month": "95"}, "rest": {"month": ""}}]

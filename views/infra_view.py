@@ -237,13 +237,13 @@ def _render_txt_fingerprints(app_df, pdns_norm):
                  help="TXT records mapped to SaaS integrations, plus Base64/Base32 strings typical of DNS tunneling and C2.")
     supplemental = 0
     if not pdns_norm.empty and "Collection" in pdns_norm.columns:
-        supplemental = int((pdns_norm["Collection"] == "TXT supplement").sum())
+        supplemental = int(pdns_norm["Collection"].isin(["TXT lookup", "TXT supplement"]).sum())
     if app_df.empty:
-        st.info("No TXT records found in Passive DNS or Domain History. Enable *Settings → Collection options → Supplemental TXT "
+        st.info("No TXT records found in Passive DNS or Domain History. Enable *Settings → Collection options → TXT "
                 "lookup* to query TXT records separately from the main pDNS result limit.")
         return
     if supplemental:
-        st.caption(f"Includes {supplemental} TXT record(s) from the supplemental TXT lookup (latest records per domain).")
+        st.caption(f"Includes {supplemental} TXT record(s) from the TXT lookup (latest records per domain).")
     suspicious = app_df[app_df["Category"] == "Potential Tunneling / C2"]
     if not suspicious.empty:
         st.error(f"**Action Required:** {len(suspicious)} suspicious encoded TXT payloads detected.")

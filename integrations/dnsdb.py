@@ -136,7 +136,7 @@ def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True,
     """
     api_key = load_dnsdb_key()
     clean_target = str(target).strip() if is_ip_address(target) else refang_domain(target)
-    source = SOURCE if rrtype == "ANY" else f"DNSDB {rrtype} Supplement"
+    source = SOURCE if rrtype == "ANY" else f"DNSDB {rrtype} Lookup"
     if rrtype != "ANY" and is_ip_address(clean_target):
         return FetchResult(source, clean_target, data=[], note=f"{rrtype} lookups do not apply to IP targets")
     if not api_key:

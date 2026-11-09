@@ -164,7 +164,7 @@ def test_cache_summary_counts_cached_lookups_and_their_expiry():
         {"Source": "DNSDB Scout", "Target": "a.com", "Status": "OK", "Detail": "From cache (2 h old)",
          "Cached At": pd.Timestamp("2026-10-30 08:00")},
         {"Source": "DNSDB Scout", "Target": "b.com", "Status": "OK", "Detail": "", "Cached At": pd.NaT},
-        {"Source": "DNSDB TXT Supplement", "Target": "2 domain(s)", "Status": "OK", "Detail": "Not needed"},
+        {"Source": "DNSDB TXT Lookup", "Target": "2 domain(s)", "Status": "OK", "Detail": "Not needed"},
     ]
     row = cache_summary(statuses, 86400, "2026-10-30T10:00:00Z").iloc[0]
     assert (row["Lookups"], row["From Cache"], row["Live"]) == (2, 1, 1)     # the summary row is not a lookup

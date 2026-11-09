@@ -43,7 +43,7 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
    [VPNDB](USAGE.md#vpn-residential-proxy-and-tor-vpndb) for VPN, residential proxy and Tor exits (with the weekly
    history of each exit, the ranges and networks around the hosting, and DNSDB's other domains on dedicated exits),
    and CIDR targets are looked up there as ranges. Where a passive DNS lookup stopped at its limit, record-type
-   supplements fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside
+   lookups fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside
    the collected data are [chased](#cname-chains) to their final addresses. Every lookup's outcome is recorded in
    [Data Source Status](#data-source-status), with the API queries it made. Independent sources run at the same
    time (see [Workflows](WORKFLOWS.md#collection-order)), and sources missing from the DomainTools account are
@@ -451,7 +451,7 @@ current run.
   CA/B Forum policy OID, a DV / OV / EV validation level, or a recognized public CA issuer. Only those can be a
   *CAA Breach*. Certificates with explicit signs of a private CA are reported as *Non-Public / Private CA
   Certificate*, and unverifiable issuers as a low-confidence *CAA Mismatch (CA Trust Unverified)*.
-- **Supplemental CAA lookup:** without a direct CAA lookup and with truncated pDNS results, the CAA audit reports
+- **CAA lookup:** without a direct CAA lookup and with truncated pDNS results, the CAA audit reports
   *No CAA Observed (pDNS Incomplete)* rather than *Unprotected*.
 - **CNAME rules** read the [CNAME chains](#cname-chains). *Dangling CNAME* needs a chase result, so it only fires
   for chased chains (*Chase CNAMEs* in the CNAME Chains page); unchased takeover-prone
@@ -751,7 +751,7 @@ Raw Records and Lookup Queries are left out.
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
 | Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
 | Run History | Run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs, offline datasets |
-| Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including supplements and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
+| Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Data Export | Confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 
 ## A suggested triage workflow

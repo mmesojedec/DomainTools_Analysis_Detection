@@ -17,7 +17,7 @@ def test_txt_lookup_urls_and_ip_skip():
     urls = _lookup_urls("a.com", "TXT")
     assert urls[0].endswith("/rrset/name/*.a.com/TXT") and urls[1].endswith("/rrset/name/a.com/TXT")
     result = fetch_dnsdb_history.__wrapped__("1.2.3.4", 10, "TXT")
-    assert result.ok and result.data == [] and result.source == "DNSDB TXT Supplement"
+    assert result.ok and result.data == [] and result.source == "DNSDB TXT Lookup"
 
 
 def test_iris_txt_payload():
@@ -42,7 +42,7 @@ def test_dnsdb_supplement_merges_missing_txt(monkeypatch):
         if rrtype == "TXT":
             records = [dnsdb_txt("a.com", f"v=spf1 include:mail{i}.example -all", i) for i in range(15)]
             records.append({"rrname": "a.com.", "rrtype": "A", "rdata": ["1.1.1.1"], "time_first": BASE, "time_last": BASE + 60})  # main dup
-            return FetchResult("DNSDB TXT Supplement", target, data=[r for r in records if r["rrtype"] == "TXT"], record_count=15)
+            return FetchResult("DNSDB TXT Lookup", target, data=[r for r in records if r["rrtype"] == "TXT"], record_count=15)
         return FetchResult("DNSDB Scout", target, data=[{"rrname": "a.com.", "rrtype": "A", "rdata": ["1.1.1.1"], "time_first": BASE, "time_last": BASE + 60},
                                                         dnsdb_txt("a.com", "v=spf1 include:mail14.example -all", 14)], record_count=2,
                            truncated=True)   # supplements only run where the main lookup was cut off
@@ -52,11 +52,11 @@ def test_dnsdb_supplement_merges_missing_txt(monkeypatch):
     pdns, _ = collector.collect_pdns(["a.com", "9.9.9.9"], "DNSDB Scout", 2, log, txt_records=10)
     txt = pdns[(pdns["Field"] == "TXT") & (pdns["Domain"] == "a.com")]
     assert len(txt) == 10  # latest 10 kept; the newest one was already in the main results and is not duplicated
-    assert (txt["Collection"] == "TXT supplement").sum() == 9
+    assert (txt["Collection"] == "TXT lookup").sum() == 9
     statuses = {(r["Source"], r["Target"]): r for r in log.rows}
-    assert "Kept latest 10 of 15" in statuses[("DNSDB TXT Supplement", "a.com")]["Detail"]
-    assert statuses[("TXT Supplement", "1 domain(s)")]["Records"] == 9
-    assert ("DNSDB TXT Supplement", "9.9.9.9") not in statuses  # IP targets are not queried for TXT
+    assert "Kept latest 10 of 15" in statuses[("DNSDB TXT Lookup", "a.com")]["Detail"]
+    assert statuses[("TXT Lookup", "1 domain(s)")]["Records"] == 9
+    assert ("DNSDB TXT Lookup", "9.9.9.9") not in statuses  # IP targets are not queried for TXT
 
 
 def test_supplement_disabled(monkeypatch):
@@ -74,7 +74,7 @@ def test_iris_supplement_uses_same_session_extras(monkeypatch):
         main = FetchResult("Iris pDNS", target, data=[{"rrname": "a.com", "rrtype": "A", "rdata": "1.1.1.1", "first_seen": "2024-01-01T00:00:00Z"}],
                            record_count=1)
         if "TXT" in extra_rrtypes:
-            main.extras["TXT"] = FetchResult("Iris pDNS TXT Supplement", target, record_count=3, data=[
+            main.extras["TXT"] = FetchResult("Iris pDNS TXT Lookup", target, record_count=3, data=[
                 {"rrname": "_dmarc.a.com", "rrtype": "TXT", "rdata": f'"v=DMARC1; p=reject; ri={i}"',
                  "first_seen": f"2024-0{i + 1}-01T00:00:00Z", "last_seen": f"2024-0{i + 1}-02T00:00:00Z"} for i in range(3)])
         return main
@@ -85,7 +85,7 @@ def test_iris_supplement_uses_same_session_extras(monkeypatch):
     txt = pdns[pdns["Field"] == "TXT"]
     assert len(txt) == 2 and set(txt["RRName"]) == {"_dmarc.a.com"}
     assert list(txt.sort_values("First Seen")["First Seen"].dt.month) == [2, 3]
-    assert any(r["Source"] == "Iris pDNS TXT Supplement" and "Kept latest 2 of 3" in r["Detail"] for r in log.rows)
+    assert any(r["Source"] == "Iris pDNS TXT Lookup" and "Kept latest 2 of 3" in r["Detail"] for r in log.rows)
 
 
 def test_dnsdb_supplements_skip_domains_whose_main_lookup_was_complete(monkeypatch):
@@ -100,8 +100,8 @@ def test_dnsdb_supplements_skip_domains_whose_main_lookup_was_complete(monkeypat
     collector.collect_pdns(["big.com", "small.com"], "DNSDB Scout", 10, log, txt_records=5, caa_lookup=True)
     assert sorted(calls) == [("big.com", "ANY"), ("big.com", "CAA"), ("big.com", "TXT"), ("small.com", "ANY")]
     skipped = {r["Source"]: r for r in log.rows if r["Target"] == "1 domain(s)"}
-    assert set(skipped) == {"DNSDB TXT Supplement", "DNSDB CAA Supplement"}
-    assert skipped["DNSDB TXT Supplement"]["Detail"].startswith("Not needed")
+    assert set(skipped) == {"DNSDB TXT Lookup", "DNSDB CAA Lookup"}
+    assert skipped["DNSDB TXT Lookup"]["Detail"].startswith("Not needed")
 
 
 class FakeResponse:
@@ -139,3 +139,19 @@ def test_apex_is_looked_up_only_when_the_wildcard_lookup_is_capped(monkeypatch):
     limited = True
     result = dnsdb.fetch_dnsdb_history.__wrapped__("a.com", 10)
     assert requested == ["*.a.com/ANY", "a.com/ANY"] and result.truncated
+
+
+def test_old_supplement_names_read_as_lookups():
+    import pandas as pd
+
+    from core.helpers import lookup_name
+    from core.offline import _rename_lookups
+    from integrations.http import FetchResult
+    assert lookup_name("DNSDB TXT Supplement") == "DNSDB TXT Lookup" and lookup_name("CAA supplement") == "CAA lookup"
+    assert lookup_name("DNSDB Scout") == "DNSDB Scout" and lookup_name(None) is None
+    assert FetchResult("Iris pDNS CAA Supplement", "a.com").status_row()["Source"] == "Iris pDNS CAA Lookup"  # from cache
+    values = {"statuses": [{"Source": "CNAME Supplement", "Target": "2 domain(s)"}],
+              "pdns": pd.DataFrame({"Collection": ["Main", "TXT supplement"]})}
+    _rename_lookups(values)
+    assert values["statuses"][0]["Source"] == "CNAME Lookup"
+    assert values["pdns"]["Collection"].tolist() == ["Main", "TXT lookup"]

@@ -44,6 +44,7 @@ from config import (
     VPNDB_REVERSE_LIMIT,
     VPNDB_REVERSE_MAX,
 )
+from core.helpers import lookup_name
 from core.persistence import load_settings, save_setting
 from integrations.collector import CollectedData
 
@@ -167,7 +168,16 @@ def load_offline_dataset(dataset_id):
             values[item.name] = _frame_from_json(_read_gz(frame_path))
         elif item.name in other:
             values[item.name] = other[item.name]
+    _rename_lookups(values)
     return CollectedData(**values), manifest
+
+
+def _rename_lookups(values):
+    """Record-type lookups saved as "... Supplement" / "... supplement" get their current "Lookup" names."""
+    values["statuses"] = [{**row, "Source": lookup_name(row.get("Source"))} for row in values.get("statuses") or []]
+    pdns = values.get("pdns")
+    if isinstance(pdns, pd.DataFrame) and "Collection" in pdns.columns:
+        pdns["Collection"] = pdns["Collection"].map(lookup_name)
 
 
 def incremental_base(run_key, provider="DNSDB Scout", limit=None):
@@ -187,6 +197,8 @@ def incremental_base(run_key, provider="DNSDB Scout", limit=None):
             frame = _frame_from_json(_read_gz(frame_path))
         except (OSError, ValueError):
             continue
+        if "Collection" in frame.columns:
+            frame["Collection"] = frame["Collection"].map(lookup_name)
         return {"frame": frame, "created": manifest.get("created"), "name": manifest.get("name"), "id": manifest["id"]}
     return None
 
@@ -257,9 +269,9 @@ PARTS = {
              lambda s: (f"Up to {int(s.get('dnsdb_limit') or DNSDB_DEFAULT_LIMIT):,} records per domain"
                         if s.get("pdns_provider", "DNSDB Scout") == "DNSDB Scout" else
                         f"Up to {IRIS_PDNS_LIMIT:,} records per domain")
-             + (f"; TXT supplement: latest {s['txt_records']} per domain" if s.get("txt_records") else "")
-             + ("; CAA supplement" if s.get("caa_lookup") else "")
-             + ("; CNAME supplement" if s.get("cname_lookup") else "")),
+             + (f"; TXT lookup: latest {s['txt_records']} per domain" if s.get("txt_records") else "")
+             + ("; CAA lookup" if s.get("caa_lookup") else "")
+             + ("; CNAME lookup" if s.get("cname_lookup") else "")),
     "pdns_coverage": ("Passive DNS coverage", "DNSDB Scout / Iris pDNS", "How much of each domain the lookups "
                       "returned (complete or cut off at the limit)", lambda s: "–"),
     "ssl": ("Certificates", "Certificate API", "Certificates naming the domains (search)",

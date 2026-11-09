@@ -129,7 +129,7 @@ def _bundle(target, outcomes):
     result = _result(target, outcomes[""][0])
     for rrtype, (records, error) in outcomes.items():
         if rrtype:
-            result.extras[rrtype] = FetchResult(f"Iris pDNS {rrtype} Supplement", target, data=records or [], error=error,
+            result.extras[rrtype] = FetchResult(f"Iris pDNS {rrtype} Lookup", target, data=records or [], error=error,
                                                 record_count=len(records or []))
     return result
 

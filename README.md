@@ -21,7 +21,7 @@ threat engine over the combined telemetry.
 - **Collects** domain, DNS, certificate and enrichment data per target, with per-source status so errors and
   truncated results are never silent. Targets can be domains, IPs, or certificates (fingerprints, CN, SAN,
   public key, serial, organization, issuer), which are resolved to the domains and IPs they cover. Where passive DNS
-  stops at its limit, TXT, CAA and CNAME supplements fill in what the detections need.
+  stops at its limit, TXT, CAA and CNAME lookups fill in what the detections need.
 - **Detects** 72 behaviors (fast-flux, parked-to-weaponized, CAA breaches, abnormal certificate rotation, DNS tunneling,
   dangling CNAMEs, shared infrastructure, domain hopping, lookalikes, ...), each with a severity, a confidence, a
   category and a MITRE ATT&CK technique.
@@ -159,7 +159,7 @@ core/
     txt_fingerprints.py        TXT SaaS fingerprinting and encoded-payload detection
 
 integrations/
-  collector.py                 Runs all collection stages (parallel where safe), pDNS supplements, on-demand CNAME chases (per-domain query budget), and records per-source status
+  collector.py                 Runs all collection stages (parallel where safe), pDNS record-type lookups, on-demand CNAME chases (per-domain query budget), and records per-source status
   http.py                      Shared requests session with retry/backoff, DomainTools SDK retries, per-lookup query count, FetchResult, StatusLog
   cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime and each source's own
   credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
@@ -170,7 +170,7 @@ integrations/
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
   estimate.py                  Cost estimate of the next Analyze (no query; cached lookups left out)
-  enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches and web tracker extraction
+  enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches (JSON POST) and web tracker extraction
   iris.py                      Iris pDNS via an authenticated Playwright session: one session check, then parallel workers, cached
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:

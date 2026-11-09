@@ -12,6 +12,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from core.helpers import lookup_name
+
 USER_AGENT = "DT-Analytics-Detection/2.0"
 _thread_local = threading.local()
 SDK_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})   # DomainTools SDK errors worth another try
@@ -132,7 +134,7 @@ class FetchResult:
         else:
             status = "OK"
         return {
-            "Source": self.source,
+            "Source": lookup_name(self.source),
             "Target": self.target,
             "Status": status,
             "Records": self.record_count,

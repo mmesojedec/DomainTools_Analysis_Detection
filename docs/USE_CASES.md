@@ -88,7 +88,7 @@ How the certificate inputs are expanded is in [Certificate inputs](USAGE.md#cert
 | --- | --- | --- | --- |
 | Monitor domains over time | The same target list, re-run later with the *Monitor changes* use case and *Save offline copy* | **Run History**, *Only first detected in this run* | New, resolved and recurring alerts, trends, per-domain history; each run's API queries (Run History), and only new passive DNS records per re-run |
 | Re-analyze without API calls | An offline dataset | Data source *Offline dataset* | The same views with different thresholds or windows, no quota used |
-| Re-run a lookup in another tool | Any run | **Lookup Queries** | CertsQL, DNSDB names and record types (supplements and CNAME chase steps included), Iris domain lists, VPNDB requests, `domaintools` CLI and curl commands |
+| Re-run a lookup in another tool | Any run | **Lookup Queries** | CertsQL, DNSDB names and record types (record-type lookups and CNAME chase steps included), Iris domain lists, VPNDB requests, `domaintools` CLI and curl commands |
 | Share findings | Any run | *Export Detections, IOCs & Report* under the alerts | Detections and IOC lists (CSV / JSON), STIX 2.1 bundle, HTML / Markdown evidence report |
 | Share confirmed indicators | Alerts or domains marked Malicious | *Confirmed indicators* (Alerts page and **Data Export**) | Only what you confirmed, as CSV, a MISP event or a STIX bundle, plus Iris searches for more of the same infrastructure |
 | Watch a target list | Any run, *Watch this list* on the Summary | **Run History → Watched Lists** (*Run now*), Summary *What's new since the last analysis* | New IPs, name servers, certificates, hostnames and alerts since the list's last run |
