@@ -311,7 +311,7 @@ def test_domain_history_cap_option_reaches_the_cache_key_and_plan():
     assert collector.history_args("a.com", "2026-10-01", 2000) == ("a.com", 2000, "2026-10-01")
     assert history_cap("all", 2500) == 2500 and history_cap("unlimited", 2500) == 0 and history_cap("days", None) == 1000
     assert history_limit_text({"opt_history_max": 2500}) == "2,500 changes"
-    assert history_limit_text({"opt_history_mode": "unlimited"}).startswith("All time, no cap")
+    assert history_limit_text({"opt_history_mode": "unlimited"}).startswith("All time, no limit")
 
 
 def test_fetch_the_rest_replaces_only_the_capped_domains_history(monkeypatch):

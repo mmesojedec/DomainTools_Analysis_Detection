@@ -72,7 +72,7 @@ def run_usage(statuses):
 
 
 def queries_by_product(statuses):
-    """{product (or service): queries} of a run, for its Run History snapshot."""
+    """{product (or service): queries} of a run, for its Runs & Diffs snapshot."""
     usage = run_usage(statuses)
     return {row["Product"]: int(row["Queries"]) for row in usage.to_dict("records") if row["Queries"]}
 
@@ -102,7 +102,7 @@ def remaining(products, product):
 
 def capped_history(statuses):
     """
-    Domains whose Domain History stopped at the cap (or the no-cap safeguard), so more changes are available:
+    Domains whose Domain History stopped at Max changes (or the no-limit safeguard), so more changes are available:
     {domain: changes fetched}, from the run's status rows.
     """
     capped = {}

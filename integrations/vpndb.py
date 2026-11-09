@@ -23,6 +23,7 @@ from integrations.credentials import VPNDB_MISSING, load_vpndb_key, vpndb_base_u
 from integrations.http import USER_AGENT, FetchResult, count_query, count_response, describe_exception, describe_http_status
 
 SOURCE = "VPNDB"
+VPNDB_RATE_LIMIT = "600 requests per 5 minutes, shared by all keys of the account"
 REQUEST_TIMEOUT = 60
 BULK_LIMIT = 10000          # addresses per bulk request
 DEFAULT_MAX_PAGES = 5       # pages followed per paged list call
@@ -34,12 +35,17 @@ MISS_REASONS = {
     "out_of_scope": "out of VPNDB's scope",
 }
 _thread_local = threading.local()
+# Metered paths: a demo account's answers to these carry the quota headers; a customer account's never do.
+METERED_PREFIXES = ("/ip/", "/bulk", "/prefix/", "/asn/", "/org/", "/service/", "/country/", "/search")
 _last_quota = {}   # the quota headers of the last metered answer, with "at" (epoch seconds): the Account page
 _quota_lock = threading.Lock()
 
 
 def last_quota():
-    """The quota VPNDB reported on its last metered answer this session ({"remaining", ..., "at"}), or {}."""
+    """
+    The quota VPNDB reported on its last metered answer this session ({"remaining", ..., "at"}); {"no_quota": True,
+    "at"} when that answer had no quota headers (a customer account: only demo accounts have a quota); {} before any.
+    """
     with _quota_lock:
         return dict(_last_quota)
 
@@ -112,10 +118,10 @@ def _request(target, path, params=None, body=None, auth=True, text=False):
     except Exception as exc:
         return FetchResult(SOURCE, target, error=describe_exception(exc)), None
     extras = {"quota": quota} if (quota := _quota(response)) else {}
-    if quota:
+    if quota or (auth and response.status_code in (200, 404) and path.startswith(METERED_PREFIXES)):
         with _quota_lock:
             _last_quota.clear()
-            _last_quota.update(quota, at=time.time())
+            _last_quota.update(quota or {"no_quota": True}, at=time.time())
     if response.status_code == 200:
         data = response.text if text else _json(response)
         result = FetchResult(SOURCE, target, data=data, record_count=1, extras=extras)

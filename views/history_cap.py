@@ -1,5 +1,5 @@
 """
-Domains whose Domain History stopped at the cap (Settings → Collection options → Domain History): a notice naming
+Domains whose Domain History stopped at Max changes (Settings → Collection options → Domain History): a notice naming
 them, and a button that fetches the rest of their history into the loaded run.
 """
 import streamlit as st
@@ -11,7 +11,7 @@ from integrations.credentials import get_dt_api
 from integrations.domain_history import PAGE_SIZE
 from views.sidebar import TOAST_KEY
 
-HOW = ("To fetch them, click **Fetch the rest** here, or raise *Max changes* or pick *All time, no cap* under "
+HOW = ("To fetch them, click **Fetch the rest** here, or raise *Max changes* or pick *All time, no limit* under "
        "Settings → Collection options → Domain History and analyze again.")
 REST_CAPS = {0: "All changes", 5_000: "Up to 5,000 per domain", 10_000: "Up to 10,000 per domain"}
 
@@ -30,7 +30,7 @@ def _capped(domains=None):
 
 def render_history_cap_notice(domains=None, compact=False, key="history_rest"):
     """
-    Notice naming the domains (of `domains`, the Global View Filter's selection; None for all) whose Domain History stopped at the cap: they have more changes.
+    Notice naming the domains (of `domains`, the Global View Filter's selection; None for all) whose Domain History stopped at Max changes: they have more changes.
     With `compact`, one short line; otherwise with a button (widget keys from `key`) that fetches the rest.
     """
     collected, capped = _capped(domains)
@@ -39,17 +39,17 @@ def render_history_cap_notice(domains=None, compact=False, key="history_rest"):
     names = sorted(capped)
     if compact:
         listed = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
-        st.caption(f":blue[:material/history: Domain History stopped at the cap for {_count(len(names))}: {listed}. "
+        st.caption(f":blue[:material/history: Domain History reached Max changes for {_count(len(names))}: {listed}. "
                    "More changes are available: use **Fetch the rest** on the Domain Profile or on Raw Records → "
                    "Domain History Logs.]", help=HOW)
         return
     if len(names) == 1:
-        text = (f"**Domain History stopped at the cap for {names[0]}** ({capped[names[0]]:,} changes fetched). It has "
+        text = (f"**Domain History reached Max changes for {names[0]}** ({capped[names[0]]:,} changes fetched). It has "
                 "more changes.")
     else:
         listed = ", ".join(f"{d} ({capped[d]:,})" for d in names[:8]) + \
             (f" and {len(names) - 8} more" if len(names) > 8 else "")
-        text = (f"**Domain History stopped at the cap for {len(names)} domains**: {listed} changes fetched. These "
+        text = (f"**Domain History reached Max changes for {len(names)} domains**: {listed} changes fetched. These "
                 "domains have more changes.")
     with st.container(border=True):
         st.markdown(f":material/history: {text}", help=HOW)
@@ -66,7 +66,7 @@ def _render_fetch_rest(collected, names, key):
                         key=key + "_go", icon=":material/download:", disabled=not has_key,
                         help=f"Fetches the Domain History of {', '.join(names)} again, from the newest change, "
                              f"{PAGE_SIZE} per query (up to {pages:,} queries per domain), and puts it in this "
-                             "run in place of the capped history. Long histories take a while (about 3 s per "
+                             "run in place of the shorter history. Long histories take a while (about 3 s per "
                              "query) and longer to process. Uses Domain History quota, also with an offline "
                              "dataset. Detections update with the results."
                              + ("" if has_key else " Needs DomainTools API credentials."))
@@ -84,7 +84,7 @@ def _render_fetch_rest(collected, names, key):
     failed = [row["Target"] for row in rows if row.get("Status") == "Error"]
     st.session_state[TOAST_KEY] = (f"Domain History: {fetched:,} changes for {_count(len(rows))} with {queries:,} "
                                    "queries. Detections are updated."
-                                   + (f" Still capped: {', '.join(still)}." if still else "")
+                                   + (f" Still more changes: {', '.join(still)}." if still else "")
                                    + (f" Failed: {', '.join(failed)}." if failed else "")
                                    + " Save an offline copy to keep them.")
     st.rerun()

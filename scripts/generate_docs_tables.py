@@ -147,8 +147,8 @@ def other_values_table():
         ("Pivot strength (Pivot Ranking)", f"strong: shared by 2–{config.PIVOT_STRONG_MAX:,} domains in Iris; useful: "
                                            f"up to {config.PIVOT_USEFUL_MAX:,}; weak: more"),
         ("Burst of new subdomains (Subdomain Triage)", f"{config.TRIAGE_BURST_MIN}+ first seen in the same hour"),
-        ("Offline datasets kept (default; change on Run History)", f"{config.MAX_OFFLINE_DATASETS} newest"),
-        ("Run snapshots kept per target set (default; change on Run History)", f"{config.MAX_RUN_SNAPSHOTS} newest"),
+        ("Offline datasets kept (default; change on Offline Datasets)", f"{config.MAX_OFFLINE_DATASETS} newest"),
+        ("Run snapshots kept per target set (default; change on Runs & Diffs)", f"{config.MAX_RUN_SNAPSHOTS} newest"),
         ("Rows shown in raw tables", f"{config.MAX_RAW_DISPLAY_ROWS:,}"),
     ]
     lines = ["| What | Value |", "| --- | --- |"]

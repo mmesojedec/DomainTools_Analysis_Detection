@@ -248,10 +248,10 @@ def remove_profile(profiles, key):
     return [p for p in profiles or [] if profile_key(p.get("name", "")) != key]
 
 
-HISTORY_MODES = {"all": "Latest changes, up to the cap (default)",
-                 "window": "Analysis window, up to the cap",
-                 "days": "Custom number of days, up to the cap",
-                 "unlimited": "All time, no cap"}
+HISTORY_MODES = {"all": "Latest changes, up to Max changes (default)",
+                 "window": "Analysis window, up to Max changes",
+                 "days": "Custom number of days, up to Max changes",
+                 "unlimited": "All time, no limit"}
 
 
 def history_period_days(mode, days, window=None, window_start=None, today=None):
@@ -273,7 +273,7 @@ def history_period_days(mode, days, window=None, window_start=None, today=None):
 
 
 def history_cap(mode, cap):
-    """Changes fetched per domain at most: `cap` (the default when unset), 0 for "All time, no cap"."""
+    """Changes fetched per domain at most: `cap` (the default when unset), 0 for "All time, no limit"."""
     if mode == "unlimited":
         return 0
     return max(1, int(cap or DOMAIN_HISTORY_MAX_CHANGES))
@@ -283,7 +283,7 @@ def history_limit_text(settings):
     """The Domain History limit of `settings` for the query plan: the period and the cap of changes per domain."""
     mode = settings.get("opt_history_mode", "all")
     if mode == "unlimited":
-        return f"All time, no cap (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,}); slower for long histories"
+        return f"All time, no limit (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,}); slower for long histories"
     cap = history_cap(mode, settings.get("opt_history_max"))
     if mode == "window":
         window = settings.get(WINDOW_KEY)

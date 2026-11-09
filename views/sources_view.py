@@ -126,8 +126,8 @@ def _render_queries(statuses):
         "Queries": COUNT, "From cache": st.column_config.NumberColumn("Cached lookups"),
         "Left": st.column_config.NumberColumn(format="localized", help=(
             "Left this month (DomainTools, from the Account page), in the current quota period (DNSDB, after *Check "
-            "DNSDB quota* on the Account page) or today (VPNDB, from its last answer); empty when not known yet. No "
-            "query is made for it here."))})
+            "DNSDB quota* on the Account page) or today (VPNDB demo accounts, from the last answer; customer accounts have "
+            "no quota); empty when not known. No query is made for it here."))})
 
 
 def _render_all(statuses):

@@ -66,6 +66,21 @@ def test_verdict_sends_the_key_and_keeps_the_quota(session):
     assert vpndb.lookup_ip("45.248.77.91").note.startswith("From cache") and len(session.calls) == 1
 
 
+def test_a_customer_account_answer_without_quota_headers_means_no_quota(session):
+    session.responses.append(Response(body={"ip": "8.8.8.8", "anonymous": False}))
+    assert vpndb.lookup_ip("8.8.8.8").ok and "quota" not in vpndb.lookup_ip("8.8.8.8").extras
+    quota = vpndb.last_quota()
+    assert quota["no_quota"] is True and quota["at"] > 0 and "remaining" not in quota
+
+
+def test_a_demo_quota_replaces_no_quota_and_free_answers_change_nothing(session):
+    session.responses.append(Response(body={"ip": "8.8.4.4"}, headers={"X-Quota-Remaining-Day": "29000"}))
+    vpndb.lookup_ip("8.8.4.4")
+    session.responses.append(Response(body={"datasetVersion": "2026-10-30"}))
+    vpndb.meta()   # free: no quota headers even for a demo account
+    assert vpndb.last_quota()["remaining_day"] == "29000" and "no_quota" not in vpndb.last_quota()
+
+
 def test_a_miss_is_data_not_an_error(session):
     session.responses.append(Response(404, {"observed": False, "reason": "not_collected"}))
     result = vpndb.lookup_ip("2001:db8::1")

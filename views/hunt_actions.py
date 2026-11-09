@@ -20,7 +20,7 @@ def current_run_id():
 def analyze_button(targets, via, key, label="Analyze as a new run", container=None, **kwargs):
     """Starts a new run on `targets` right away, linked to the current run through `via`."""
     kwargs.setdefault("help", "Replaces the sidebar targets with this value and runs Analyze with the current "
-                              "collection options. The new run remembers it came from this one (Run History → Hunt "
+                              "collection options. The new run remembers it came from this one (Runs & Diffs → Hunt "
                               "tree).")
     (container or st).button(label, key=key, on_click=start_hunt, args=(list(targets), via, current_run_id()),
                              icon=":material/travel_explore:", **kwargs)

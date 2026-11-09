@@ -18,7 +18,7 @@ from core.account import (
 from integrations.account import account_information
 from integrations.credentials import load_dnsdb_key, load_vpndb_key
 from integrations.dnsdb import fetch_dnsdb_rate_limit
-from integrations.vpndb import last_quota
+from integrations.vpndb import VPNDB_RATE_LIMIT, last_quota
 from views.api_usage_view import DNSDB_QUOTA_KEY
 
 REFRESH_KEY = "account_refresh_requested"
@@ -74,7 +74,15 @@ def _render_other_quotas():
         if not load_vpndb_key():
             st.caption("No VPNDB key (Settings → API credentials).")
         elif not quota:
-            st.caption("VPNDB reports its quota with each answer: it shows here after the next VPNDB lookup.")
+            st.caption("Only VPNDB demo accounts have a quota; VPNDB reports it with each answer, so it shows here "
+                       "after the next VPNDB lookup that reaches the API (lookups answered from the lookup cache do "
+                       f"not). The only limit of a customer account is {VPNDB_RATE_LIMIT}.")
+        elif quota.get("no_quota"):
+            st.success("No quota: this is a customer account (only demo accounts have one).",
+                       icon=":material/all_inclusive:")
+            st.caption(f"The only limit is {VPNDB_RATE_LIMIT}; beyond it VPNDB answers HTTP 429 and asks to wait "
+                       f"60 s. As of the last VPNDB answer, "
+                       f"{pd.Timestamp(quota['at'], unit='s', tz='UTC'):%Y-%m-%d %H:%M UTC}.")
         else:
             labels = {"remaining": "Remaining", "remaining_day": "Remaining today", "remaining_lists": "Lists left",
                       "notice": "Notice"}

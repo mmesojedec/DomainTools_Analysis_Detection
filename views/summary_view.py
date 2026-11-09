@@ -374,12 +374,12 @@ def _render_since_last_run(view, new_alerts, targets):
                                                             "History and see only what changed.")
     c_watch, c_note = st.columns([1.2, 4], vertical_alignment="center")
     if watch:
-        c_note.caption(f"Watched as **{md_escape(watch['name'])}** (Run History → Watched lists).")
+        c_note.caption(f"Watched as **{md_escape(watch['name'])}** (Runs & Diffs → Watched lists).")
         if c_watch.button("Stop watching", key="summary_unwatch", icon=":material/visibility_off:"):
             remove_watch(targets)
             st.rerun()
     elif c_watch.button("Watch this list", key="summary_watch", icon=":material/visibility:",
-                        help="Saves the target list so you can rerun it from Run History; each rerun shows what is "
+                        help="Saves the target list so you can rerun it from Runs & Diffs; each rerun shows what is "
                              "new here."):
         save_watch(", ".join(targets[:3]) + (f" +{len(targets) - 3}" if len(targets) > 3 else ""), targets)
         st.toast("Watching this target list.")

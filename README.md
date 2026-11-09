@@ -55,7 +55,7 @@ threat engine over the combined telemetry.
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
   offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records.
 - **Watches API usage**: the sidebar estimates each run's queries per product against what the account has left,
-  every lookup records the queries it made (Data sources, Run History), sources missing from the account are
+  every lookup records the queries it made (Data sources, Runs & Diffs), sources missing from the account are
   skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
   same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
 - **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
@@ -184,7 +184,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen
-  history_cap.py               Domains whose Domain History stopped at the cap: notice and Fetch the rest
+  history_cap.py               Domains whose Domain History stopped at Max changes: notice and Fetch the rest
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
                                on dedicated exits, Tor network, CIDR address grids

@@ -247,11 +247,11 @@ def _on(flag, text):
 
 
 def _history_limit(s):
-    """The Domain History period and cap a dataset's run used (older datasets: the default cap)."""
+    """The Domain History period and Max changes a dataset's run used (older datasets: the default)."""
     cap = s.get("history_max", DOMAIN_HISTORY_MAX_CHANGES)
     period = f"Changes of the last {int(s['history_days']):,} days, " if s.get("history_days") else ""
     if not cap:
-        return (period or "") + "no cap"
+        return (period or "") + "no limit"
     return (period + "up to " if period else "Up to ") + f"{int(cap):,} changes per domain"
 
 

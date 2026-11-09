@@ -36,7 +36,7 @@ analysis window, timezone, view filters).
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *CNAME Chains* · *Certificates* |
 | **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* |
 | **Evidence** | *Raw Records* · *Lookup Queries* |
-| **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Run History → Offline Datasets* to name it (see [Offline datasets](#offline-datasets)) · *Data Export* · *Run History* (saved runs, comparisons, trends, offline datasets) |
+| **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Offline Datasets* to name it · *Offline Datasets*: load, rename and delete saved datasets (see [Offline datasets](#offline-datasets)) · *Data Export* · *Runs & Diffs* (saved runs, comparisons, trends) |
 | **Data sources** | *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
 | **Settings** | *Settings*: collection options, use cases & profiles, detection thresholds, brand watchlist, lookup cache, API credentials |
 | **Account** | *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) |
@@ -112,7 +112,7 @@ is in [Pages](USER_GUIDE.md#pages).
 5. Mark what you reviewed: a status per alert group on **Alerts**, a verdict per domain on its profile. Follow a lead
    with *Analyze* to start the next run of the hunt.
 6. **Data Export** (and **Lookup Queries**) to hand the findings over, including the *Confirmed indicators* of what
-   you marked Malicious; **Run History** next time, to see what changed.
+   you marked Malicious; **Runs & Diffs** next time, to see what changed.
 
 ### Use cases and profiles
 
@@ -142,7 +142,7 @@ The sidebar, top to bottom; collection options are on the **Settings** page.
 
 | Control | What it does |
 | --- | --- |
-| **Data source** | *Live lookups* opens the **Start** page and queries the DomainTools APIs for the targets you enter (only when you click it: leaving the IrisQL, CertsQL or Run History page switches the option back to *Live lookups* without moving you). *IrisQL* opens the IrisQL page, where an IrisQL query finds the targets first and the ones you pick are analyzed with live lookups (see [IrisQL](#irisql)); the option stays selected while you are on that page, and leaving it switches back to *Live lookups*. *CertsQL* does the same with the CertsQL page, where a CertsQL query finds certificates and the domains and IPs they name (see [CertsQL](#certsql)). *Offline dataset* opens **Manage Data → Run History → Offline Datasets**: pick a dataset and click **Load offline dataset** to re-analyze data saved from an earlier live run, with no API calls (leaving that page switches back to *Live lookups*). |
+| **Data source** | *Live lookups* opens the **Start** page and queries the DomainTools APIs for the targets you enter (only when you click it: leaving the IrisQL, CertsQL or Offline Datasets page switches the option back to *Live lookups* without moving you). *IrisQL* opens the IrisQL page, where an IrisQL query finds the targets first and the ones you pick are analyzed with live lookups (see [IrisQL](#irisql)); the option stays selected while you are on that page, and leaving it switches back to *Live lookups*. *CertsQL* does the same with the CertsQL page, where a CertsQL query finds certificates and the domains and IPs they name (see [CertsQL](#certsql)). *Offline dataset* opens **Manage Data → Offline Datasets**: pick a dataset and click **Load offline dataset** to re-analyze data saved from an earlier live run, with no API calls (leaving that page switches back to *Live lookups*). |
 | **Targets: domains, IPs, or certificates** | One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses go to every source; CIDR ranges (`104.21.59.0/24`) go to VPNDB only ([CIDR ranges](#cidr-ranges)). Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
 | **Save offline copy** | Also saves everything this run collects to `dt_offline/` for later re-analysis. Forgot to tick it? Click **Save offline copy** on the status line at the top of any page after the run. |
 | **Show international domains in Unicode** | Shows punycode names (`xn--bcher-kva.de`) as Unicode (`bücher.de`) in every table, text and chart, on every page; also in *Offline dataset* mode. Display only: see [International domains](#international-domains). |
@@ -164,7 +164,7 @@ done, the Summary keeps the list in **Lookups of the last Analyze** (collapsed),
 came from the cache: lookup, target, when it was fetched, its age and when it expires; the Data sources page still has
 every single lookup's status. Between the end of the collection and the first page, *Analyzing the collected
 data* shows the steps that turn the lookups into the pages: the tables, the detection rules, the comparison with
-earlier runs and the risk profiles. Domain History is usually the slowest lookup: it pages through up to the cap of
+earlier runs and the risk profiles. Domain History is usually the slowest lookup: it pages through up to *Max changes* of
 change events (1,000 by default), 100 per request, and the API allows a limited number of Domain History requests per minute (20 on
 a standard service level, about one every 3 s), so a domain with 1,000 changes takes about 30 s. Asking for pages
 in parallel does not help: requests over the limit fail with HTTP 503. A *Domain History period* stops the paging
@@ -188,7 +188,7 @@ global defaults:
 | Passive DNS | Pivot on hosting IPs (domain hopping) | Off | DNSDB reverse lookups on each domain's current non-CDN IPs, to find other domains that used them. One extra query per IP. DNSDB Scout only. |
 | Passive DNS | Max IPs to pivot on | 10 | Caps the pivots above. |
 | Passive DNS | Incremental passive DNS (only records seen since the last offline copy) | Off (on in *Monitor changes*) | For target lists you analyze again and again. When an offline copy of the same targets exists (same provider and DNSDB limit), DNSDB returns only the records seen since a day before that copy, and the copy's older records are added; a record seen again replaces its earlier version. Each target is still one DNSDB query, but the result limit holds new records instead of old ones, and the lookup is faster. Without a copy the lookup is complete, as usual; the status row of each incremental lookup names the copy. Save an offline copy of each run so the next one builds on it. DNSDB Scout only. |
-| Domain History | Domain History period, Days, Max changes | Latest changes, cap 1,000 (custom, 90 days, in *Monitor changes*) | Which changes Domain History fetches for each domain. It is separate from the sidebar's analysis window, which only filters what the pages show. **Latest changes, up to the cap** (default): the newest changes, up to the cap; short histories come in full. **Analysis window, up to the cap**: only the changes inside the window picked in the sidebar when you click Analyze (a custom range counts from its first day; *All time*: no period). **Custom number of days, up to the cap**: the last N days (*Days*, 365 by default), more or less than the window. **All time, no cap**: every change (stops at 50,000 as a safeguard); domains with long histories take many queries and longer to collect and process. **Max changes**: 1,000 by default, 100 to 20,000; above 1,000 the Settings tab warns that collection and processing get slower. Domain History returns the newest changes first, 100 per query. A domain that reaches the cap has more changes: the Summary (Data health), the Domain Profile and *Raw Records → Domain History Logs* name those domains (only the ones the Global View Filters select). On the Domain Profile and Raw Records, **Fetch the rest** fetches their history again (all changes, or up to 5,000 or 10,000 per domain) and puts it in the loaded run in place of the capped history; detections update. It uses Domain History quota, also with an offline dataset; save an offline copy to keep the result. Each use case and custom profile keeps its own period and cap (*Settings → Use cases & profiles*); the query plan table shows them, e.g. *Analysis window (30 days), up to 1,000 changes*. The sidebar's options line shows *history 30 d / 2,000* or *history no cap* when they differ from the default. |
+| Domain History | Domain History period, Days, Max changes | Latest changes, Max changes 1,000 (custom, 90 days, in *Monitor changes*) | Which changes Domain History fetches for each domain. It is separate from the sidebar's analysis window, which only filters what the pages show. **Latest changes, up to Max changes** (default): the newest changes, up to *Max changes*; short histories come in full. **Analysis window, up to Max changes**: only the changes inside the window picked in the sidebar when you click Analyze (a custom range counts from its first day; *All time*: no period). **Custom number of days, up to Max changes**: the last N days (*Days*, 365 by default), more or less than the window. **All time, no limit**: every change (stops at 50,000 as a safeguard); domains with long histories take many queries and longer to collect and process. **Max changes**: 1,000 by default, 100 to 20,000; above 1,000 the Settings tab warns that collection and processing get slower. Domain History returns the newest changes first, 100 per query. A domain that reaches *Max changes* has more changes: the Summary (Data health), the Domain Profile and *Raw Records → Domain History Logs* name those domains (only the ones the Global View Filters select). On the Domain Profile and Raw Records, **Fetch the rest** fetches their history again (all changes, or up to 5,000 or 10,000 per domain) and puts it in the loaded run in place of the shorter history; detections update. It uses Domain History quota, also with an offline dataset; save an offline copy to keep the result. Each use case and custom profile keeps its own period and *Max changes* (*Settings → Use cases & profiles*); the query plan table shows them, e.g. *Analysis window (30 days), up to 1,000 changes*. The sidebar's options line shows *history 30 d / 2,000* or *history no limit* when they differ from the default. |
 | VPNDB | Check hosting IPs for VPN, residential proxy and Tor | On in every use case | Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, passive DNS addresses most recently seen first; no CDN or private addresses) to VPNDB in one bulk request, then fetches the full verdict (sharing, Tor role, evidence) of the ones VPNDB attributes to a VPN, proxy or Tor, within the budget of the three options below. Each use case sets its own budget: *Map related infrastructure*, *Hunt C2* and *Report & export* 500 IPs / 50 verdicts with the neighbourhood; *Triage* 100 / 20 with it; *Subdomain takeover* 100 / 10, *Phishing* and *Monitor changes* 200 / 20 without it (see [Reference](REFERENCE.md)). Each IP is one VPNDB query (a demo account has 30,000 a day). Needs a VPNDB key ([Credentials](INSTALLATION.md#credentials)); without one the check is skipped. See [VPN, residential proxy and Tor](#vpn-residential-proxy-and-tor-vpndb). |
 | VPNDB | Hosting IPs per run | 500 (the use case sets it) | Public IPv4 hosting addresses sent in the bulk request; each IP is one VPNDB query. |
 | VPNDB | Full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
@@ -859,7 +859,7 @@ Under **Analyze the selection**, choose **What to analyze**: **Domains**, **IPs*
 how many are ticked). Only the ticks of the chosen tab(s) are used, so IPs pre-selected on the IPs tab stay out of a
 domain run unless you choose them; the other tab keeps its ticks. Then pick the **Use case** (as on the Start page: it
 sets the collection options and the analysis window) and click the Analyze button, which says what the run takes
-(e.g. *Analyze 10 domains*). The chosen targets (at most 100) become the sidebar targets and are analyzed as a new run, which opens on the Summary (the sidebar switches back to *Live lookups*); Run History notes it as *via IrisQL: …* with the query's
+(e.g. *Analyze 10 domains*). The chosen targets (at most 100) become the sidebar targets and are analyzed as a new run, which opens on the Summary (the sidebar switches back to *Live lookups*); Runs & Diffs notes it as *via IrisQL: …* with the query's
 first condition. **Add to the sidebar targets** adds the same chosen targets to the target box without analyzing, to combine them with
 other targets first.
 
@@ -947,7 +947,7 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
 | Raw JSON | The certificate records as received, with a download |
 
 Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs**, pick the **Use case** and click
-the Analyze button, or click **Add to the sidebar targets**, as on the IrisQL page. Run History notes the run as *via CertsQL: …*, and **Lookup Queries → CertsQL**
+the Analyze button, or click **Add to the sidebar targets**, as on the IrisQL page. Runs & Diffs notes the run as *via CertsQL: …*, and **Lookup Queries → CertsQL**
 shows the query and its curl request.
 
 ## Account
@@ -971,13 +971,15 @@ asks again. The query counts against the *account-information* product, not agai
   queries this month. An empty monthly limit means the product only has hour or minute limits (e.g. Iris Detect).
 - Both tables list only the products in the API response, so they follow each account's subscription.
 - **Other services**: **Check DNSDB quota** asks DNSDB for the key's limit, what is left, when it resets and when the
-  key expires (the check does not count against the quota). VPNDB reports its quota with every answer; the last one
-  of the session is shown (what is left, today and in total).
+  key expires (the check does not count against the quota). Only VPNDB demo accounts have a quota, reported with
+  every answer; the last one of the session is shown (what is left, today and in total). A customer account has no
+  quota: after its first VPNDB lookup of the session (one that reaches the API, not the lookup cache) the page says
+  so, with its only limit, 600 requests per 5 minutes shared by all keys of the account.
 - **Endpoints of file downloads** lists the feed files your account can download; **Raw response** has the full JSON.
 
 Usage is counted by DomainTools across every client of the account (other scripts, the Iris UI, the MCP server), not
 only this app. Lookups served from the cache cost no query and so do not show here. What each run cost is on the
-Data sources page (**API queries**) and in Run History (**API queries** column).
+Data sources page (**API queries**) and in Runs & Diffs (**API queries** column).
 
 ## Offline datasets
 
@@ -985,11 +987,11 @@ Data sources page (**API queries**) and in Run History (**API queries** column).
    - before it: in **Live lookups** mode, tick **Save offline copy** in the sidebar, then click **Analyze**;
    - after it: click **Manage Data → Save offline copy** in the top menu, or **Save offline copy** on the status line at the top of any
      page. It saves the run on screen with the lookups made since (CNAME chases ...), with no new API calls, and
-     links it to the run in Run History. From the top menu, **Run History → Offline Datasets** then opens with the new
+     links it to the run in Runs & Diffs. From the top menu, **Offline Datasets** then opens with the new
      copy selected, where you can rename it (e.g. after the case or the question it answers). A run that is
      already saved, or a loaded offline dataset, just opens there. The status line then reads *Offline copy saved*.
-2. Later, switch **Data source** to **Offline dataset** in the sidebar (or open **Manage Data → Run History →
-   Offline Datasets**). Pick the dataset (its targets, passive DNS source and record counts are shown under it) and
+2. Later, switch **Data source** to **Offline dataset** in the sidebar (or open **Manage Data → Offline
+   Datasets**). Pick the dataset (its targets, passive DNS source and record counts are shown under it) and
    click **Load offline dataset**. The analysis opens on the Summary.
 3. Change the window, thresholds or filters to re-analyze it. **No API calls are made** and no new run is saved.
 
@@ -1009,7 +1011,7 @@ Under the selected dataset, **What's in this dataset** lists every part with:
 may be more: raise the limit under *Settings → Collection options* and analyze again to fetch them.
 
 Datasets are gzipped JSON (never pickle), stored with owner-only permissions and linked to the run they came from.
-Manage them under **Manage Data → Run History → Offline Datasets**: rename, delete (with confirmation), and set how
+Manage them under **Manage Data → Offline Datasets**: rename, delete (with confirmation), and set how
 many are kept (default 20).
 
 ## Where local data is stored

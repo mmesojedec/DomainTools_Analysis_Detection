@@ -236,7 +236,7 @@ def render_run_diff(view):
             st.markdown("##### Resolved Since Last Run")
             st.caption("Detections present in the previous run that no longer fire (fixed, taken down, or outside the current window).")
             table(view.resolved[[c for c in ["Domain", "Threat Type", "Severity", "Confidence", "Threat Logic"] if view.resolved[c].notna().any()]])
-        st.caption("Open the **Run History & Comparison** lens to compare any two runs.")
+        st.caption("Open **Manage Data → Runs & Diffs** to compare any two runs.")
 
 
 def render_exports(ds, alerts, profiles, correlation):

@@ -1,4 +1,5 @@
-"""Run History & Comparison: browse saved runs, inspect one, compare any two, and manage (rename, note, delete, export)."""
+"""Runs & Diffs (Previous Runs & Comparison): browse saved runs, inspect one, compare any two, and manage them; the
+Offline Datasets page (saved datasets: load, rename, delete, retention)."""
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -49,11 +50,8 @@ from core.run_history import (
 from views import navigation
 from views.common import chart, table
 from views.sidebar import (
-    DATA_MODE_KEY,
     HISTORY_TAB_KEY,
-    OFFLINE_MODE,
     OFFLINE_SELECT_KEY,
-    OFFLINE_TAB,
     TOAST_KEY,
     request_offline_load,
     start_hunt,
@@ -407,8 +405,10 @@ def _render_dataset_breakdown(dataset_id, manifest):
             st.dataframe(capped, hide_index=True, width="stretch")
 
 
-def _render_offline_datasets():
-    """Option 6 housekeeping: saved offline datasets (rename, delete, retention)."""
+def render_offline_datasets():
+    """Offline Datasets page (Manage Data): saved offline datasets (load, rename, delete, retention)."""
+    st.subheader("Offline Datasets", help="Datasets saved from live runs (dt_offline/): load one to re-analyze it "
+                 "without API calls, rename it, delete it, and choose how many are kept.")
     datasets = list_offline_datasets()
     st.caption("Offline datasets hold everything a live run collected (dt_offline/, local and git-ignored). Pick one "
                "and click **Load offline dataset** to re-analyze it without API calls. They can contain sensitive "
@@ -516,15 +516,13 @@ def _render_watches(timezone):
 
 
 def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
-    st.subheader("Run History & Comparison",
+    st.subheader("Previous Runs & Comparison",
                  help="Every analysis run is saved locally (dt_runs/). Browse past runs of a target list, compare any two, follow "
-                      "trends, review one domain across all target lists, manage runs, and manage offline datasets.")
+                      "trends, review one domain across all target lists and manage runs. Offline datasets have their "
+                      "own page: Manage Data → Offline Datasets.")
     target_sets = list_target_sets()
     if not target_sets:
         st.info("No saved runs yet. Each Analyze run is saved automatically once its results are displayed.")
-        with st.expander(OFFLINE_TAB, expanded=bool(st.session_state.get(OFFLINE_SAVED_KEY))
-                         or st.session_state.get(DATA_MODE_KEY) == OFFLINE_MODE):
-            _render_offline_datasets()
         return
     keys = [s["key"] for s in target_sets]
     meta = {s["key"]: s for s in target_sets}
@@ -540,7 +538,7 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         return
     table(_runs_table(runs, timezone, current_run_id))
     tabs = st.tabs(["Run Details", "Compare Runs", "Trends", "Domain History", "Hunt Tree", "Watched Lists",
-                    "Manage Runs", OFFLINE_TAB], key=HISTORY_TAB_KEY, on_change="rerun")
+                    "Manage Runs"], key=HISTORY_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
     with tabs[0]:
         _render_run_details(key, runs, timezone)
@@ -556,5 +554,3 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         _render_watches(timezone)
     with tabs[6]:
         _render_manage(key, runs, timezone)
-    with tabs[7]:
-        _render_offline_datasets()

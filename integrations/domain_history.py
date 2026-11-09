@@ -23,8 +23,8 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=N
     """
     Fetches change events via the DomainTools SDK with offset pagination. data = {"response": {"changes": [...]}}.
     The API returns the newest changes first, so with `since` (an ISO date) paging stops at the first change before
-    it, and older changes are left out. `max_changes` caps the changes per domain (0: no cap, up to
-    DOMAIN_HISTORY_SAFETY_LIMIT); a domain that reaches the cap is `truncated`: it has more changes.
+    it, and older changes are left out. `max_changes` limits the changes per domain (Max changes; 0: no limit, up to
+    DOMAIN_HISTORY_SAFETY_LIMIT); a domain that reaches it is `truncated`: it has more changes.
     """
     limit = int(max_changes) if max_changes else DOMAIN_HISTORY_SAFETY_LIMIT
     clean_dom = refang_domain(domain)
@@ -53,7 +53,7 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=N
     truncated = len(changes) >= limit
     note = None
     if truncated:
-        note = (f"Stopped at the cap of {limit:,} changes; more changes are available" if max_changes else
+        note = (f"Stopped at Max changes ({limit:,}); more changes are available" if max_changes else
                 f"Stopped at the safety limit of {limit:,} changes; more changes are available")
     if since:
         note = "; ".join(filter(None, [note, f"Changes since {since} (Domain History period)"]))

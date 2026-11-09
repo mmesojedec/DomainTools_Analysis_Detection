@@ -49,7 +49,7 @@ from views.collection_progress import summary as collection_summary
 from views.common import install_copy_fallback, render_window_banner
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
-from views.history_view import OFFLINE_SAVED_KEY, render_run_history
+from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_run_history
 from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
 from views.infra_view import render_infra_lens
@@ -64,14 +64,12 @@ from views.seed_view import render_seed_preview, render_seed_provenance, render_
 from views.settings_view import brand_watchlist, render_settings
 from views.sidebar import (
     DATA_MODE_KEY,
-    HISTORY_TAB_KEY,
     HUNT_KEY,
     LAST_PAGE_KEY,
     LIVE_MODE,
     OFFLINE_ARRIVE_KEY,
     OFFLINE_MODE,
     OFFLINE_SELECT_KEY,
-    OFFLINE_TAB,
     QUERY_MODES,
     LookupSettings,
     current_thresholds,
@@ -381,7 +379,7 @@ def save_offline_now():
         st.session_state[OFFLINE_SAVE_ERROR] = str(exc)
         return
     origin["offline_id"] = manifest["id"]
-    if st.session_state.get("current_run_id"):   # already in Run History: link the dataset to that run
+    if st.session_state.get("current_run_id"):   # already in Runs & Diffs: link the dataset to that run
         update_offline_manifest(manifest["id"], run_id=st.session_state.current_run_id)
     else:
         st.session_state.offline_pending_id = manifest["id"]
@@ -570,15 +568,15 @@ def page_sources():
 
 
 def page_save():
-    """Top menu *Save offline copy*: saves the run on screen (no API calls), then opens Run History's Offline Datasets
-    with it selected so it can be named."""
+    """Top menu *Save offline copy*: saves the run on screen (no API calls), then opens Offline Datasets with it
+    selected so it can be named."""
     collected = st.session_state.get("collected")
     origin = st.session_state.get("data_origin") or {}
     st.header("Save offline copy")
     if collected is None:
-        st.info("Nothing to save yet: analyze some targets first. Saved datasets are listed under Run History → "
+        st.info("Nothing to save yet: analyze some targets first. Saved datasets are listed under Manage Data → "
                 "Offline Datasets.")
-        navigation.link("history", label="Open Run History")
+        navigation.link("offline", label="Open Offline Datasets")
         return
     if origin.get("mode") == "live" and not origin.get("offline_id"):
         save_offline_now()
@@ -587,9 +585,7 @@ def page_save():
         st.error(f"The offline copy could not be saved: {error}")
         return
     dataset_id = origin.get("offline_id") or (origin.get("manifest") or {}).get("id")
-    navigation.open_tab("history", HISTORY_TAB_KEY, OFFLINE_TAB, **({OFFLINE_SELECT_KEY: dataset_id,
-                                                                      OFFLINE_SAVED_KEY: dataset_id} if dataset_id
-                                                                     else {}))
+    navigation.go("offline", **({OFFLINE_SELECT_KEY: dataset_id, OFFLINE_SAVED_KEY: dataset_id} if dataset_id else {}))
 
 
 def page_history():
@@ -618,6 +614,7 @@ PAGE_FUNCTIONS = {
     "export": data_page(lambda: render_export_lens(CTX.ds, CTX.collected, CTX.view.active.reset_index(drop=True),
                                                    CTX.profiles, st.session_state.get("run_created"))),
     "history": page_history,
+    "offline": render_offline_datasets,
     "save": page_save,
     "settings": render_settings,
     "account": render_account_page,
@@ -639,15 +636,15 @@ def main():
     render_docs_link()
     query_pages = {page: mode for mode, page in QUERY_MODES.items()}   # irisql -> IrisQL, certsql -> CertsQL
     last_page = st.session_state.get(LAST_PAGE_KEY)
-    if st.session_state.pop(OFFLINE_ARRIVE_KEY, False):   # sent to Run History by Data source → Offline dataset
+    if st.session_state.pop(OFFLINE_ARRIVE_KEY, False):   # sent to Offline Datasets by Data source → Offline dataset
         st.session_state[DATA_MODE_KEY] = OFFLINE_MODE
     elif nav.url_path in query_pages and nav.url_path != last_page:   # Data source follows the query pages:
         st.session_state[DATA_MODE_KEY] = query_pages[nav.url_path]      # selected on one, back to live off it
     elif last_page in query_pages and nav.url_path not in query_pages \
             and st.session_state.get(DATA_MODE_KEY) == query_pages[last_page]:
         st.session_state[DATA_MODE_KEY] = LIVE_MODE
-    elif st.session_state.get(LAST_PAGE_KEY) == "history" and nav.url_path != "history" \
-            and st.session_state.get(DATA_MODE_KEY) == OFFLINE_MODE:   # Offline dataset lives on Run History
+    elif st.session_state.get(LAST_PAGE_KEY) == "offline" and nav.url_path != "offline" \
+            and st.session_state.get(DATA_MODE_KEY) == OFFLINE_MODE:   # Offline dataset lives on Offline Datasets
         st.session_state[DATA_MODE_KEY] = LIVE_MODE
     st.session_state[LAST_PAGE_KEY] = nav.url_path
 

@@ -187,5 +187,6 @@ def test_manage_data_groups_saving_exporting_and_history_after_evidence():
     from views import navigation
     order = list(navigation.SECTIONS)
     assert order[order.index("Evidence") + 1:] == ["Manage Data", "Data sources", "Settings", "Account", "Help"]
-    assert [spec.key for spec in navigation.SECTIONS["Manage Data"]] == ["save", "export", "history"]
+    assert [spec.key for spec in navigation.SECTIONS["Manage Data"]] == ["save", "offline", "export", "history"]
+    assert navigation.title("history") == "Runs & Diffs" and navigation.title("offline") == "Offline Datasets"
     assert [spec.key for spec in navigation.SECTIONS["Evidence"]] == ["raw", "queries"]

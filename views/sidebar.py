@@ -182,7 +182,7 @@ def history_option_text():
     """The Domain History period and cap of the next Analyze, e.g. "the last 30 days, up to 1,000 changes"."""
     days, cap = next_history_days(), next_history_cap()
     if not cap:
-        return "every change (all time, no cap)"
+        return "every change (all time, no limit)"
     return (f"the last {days:,} days, " if days else "the newest changes, ") + f"up to {cap:,} per domain"
 
 
@@ -206,7 +206,7 @@ def options_summary():
     days, cap = next_history_days(), next_history_cap()
     if days or cap != DOMAIN_HISTORY_MAX_CHANGES:
         parts.append("history " + " / ".join(filter(None, [f"{days} d" if days else "",
-                                                           f"{cap:,}" if cap else "no cap"])))
+                                                           f"{cap:,}" if cap else "no limit"])))
     if opt["opt_force_refresh"]:
         parts.append("force refresh")
     return " · ".join(parts)
@@ -236,9 +236,8 @@ LIVE_MODE = "Live lookups"
 IRISQL_MODE = "IrisQL"
 CERTSQL_MODE = "CertsQL"
 QUERY_MODES = {IRISQL_MODE: "irisql", CERTSQL_MODE: "certsql"}   # data source -> its query page
-HISTORY_TAB_KEY = "history_tab"            # Run History's tab row
-OFFLINE_TAB = "Offline Datasets"
-OFFLINE_SELECT_KEY = "offline_manage"       # the dataset picked on Run History → Offline Datasets
+HISTORY_TAB_KEY = "history_tab"            # Runs & Diffs' tab row
+OFFLINE_SELECT_KEY = "offline_manage"       # the dataset picked on Manage Data → Offline Datasets
 OFFLINE_LOAD_KEY = "offline_load"           # a dataset whose Load button was clicked: the next app run loads it
 OFFLINE_JUMP_KEY = "_offline_jump"          # Data source just switched to Offline dataset: open Offline Datasets
 OFFLINE_ARRIVE_KEY = "_offline_arrive"      # ... and keep it selected there (a page switch drops the radio's change)
@@ -260,14 +259,14 @@ def render_logo():
 
 def render_offline_controls():
     """
-    Offline mode: the datasets are picked and loaded on Run History → Offline Datasets (opened when this mode is
+    Offline mode: the datasets are picked and loaded on Manage Data → Offline Datasets (opened when this mode is
     chosen); a Load click there comes back here as a run. Loading makes no API calls.
     """
     if st.session_state.pop(OFFLINE_JUMP_KEY, False):
-        navigation.open_tab("history", HISTORY_TAB_KEY, OFFLINE_TAB, **{OFFLINE_ARRIVE_KEY: True})
+        navigation.go("offline", **{OFFLINE_ARRIVE_KEY: True})
     dataset_id = st.session_state.pop(OFFLINE_LOAD_KEY, None)
     manifest = next((m for m in list_offline_datasets() if m["id"] == dataset_id), None) if dataset_id else None
-    st.sidebar.caption("Pick a saved dataset under **Manage Data → Run History → Offline Datasets** and click **Load "
+    st.sidebar.caption("Pick a saved dataset under **Manage Data → Offline Datasets** and click **Load "
                        "offline dataset**. It is re-analyzed without any API calls.")
     st.sidebar.button("Open Offline Datasets", icon=":material/folder_open:", key="offline_open",
                       on_click=open_offline_datasets, width="stretch")
@@ -277,18 +276,18 @@ def render_offline_controls():
 
 
 def open_offline_datasets():
-    """Callback: the next app run opens Run History → Offline Datasets."""
+    """Callback: the next app run opens Manage Data → Offline Datasets."""
     st.session_state[OFFLINE_JUMP_KEY] = True
 
 
 def request_offline_load(dataset_id):
-    """Callback of *Load offline dataset* on Run History: the next app run loads `dataset_id` (sidebar offline mode)."""
+    """Callback of *Load offline dataset* on Offline Datasets: the next app run loads `dataset_id` (sidebar offline mode)."""
     st.session_state[DATA_MODE_KEY] = OFFLINE_MODE
     st.session_state[OFFLINE_LOAD_KEY] = dataset_id
 
 
 def _data_mode_changed():
-    """Data source radio clicked: Offline dataset opens Run History → Offline Datasets, Live lookups the Start page
+    """Data source radio clicked: Offline dataset opens Manage Data → Offline Datasets, Live lookups the Start page
     (IrisQL / CertsQL open their query page below). Only a click jumps: the app switching the source back to live
     when you leave a query page keeps you where you went."""
     mode = st.session_state.get(DATA_MODE_KEY)
@@ -320,7 +319,7 @@ def render_lookup_controls(settings_page=None):
              "finds the targets first: an IrisQL query lists matching domains from Iris Investigate, and the ones you "
              "pick are analyzed with live lookups. CertsQL opens the CertsQL page: a CertsQL query lists matching "
              "certificates (Certificate Search), and the domains and IPs they name that you pick are analyzed with "
-             "live lookups. Offline dataset opens Run History → Offline Datasets, where you load data "
+             "live lookups. Offline dataset opens Manage Data → Offline Datasets, where you load data "
              "saved from an earlier live run and re-analyze it (different window, thresholds, or filters) without any "
              "API calls.",
     )
@@ -423,16 +422,16 @@ def render_collection_options(prefix="", force_refresh=True):
                  format_func=HISTORY_MODES.get,
                  help="Which changes Domain History fetches for each domain. It returns the newest changes first, "
                       "100 per query.\n\n"
-                      "- **Latest changes, up to the cap** (default): the newest changes, up to the cap. Short "
-                      "histories come in full; a domain with a longer history stops at the cap, and the app tells "
+                      "- **Latest changes, up to Max changes** (default): the newest changes, up to *Max changes*. "
+                      "Short histories come in full; a domain with a longer history stops there, and the app tells "
                       "you which domains have more.\n"
-                      "- **Analysis window, up to the cap**: only the changes inside the analysis window picked in "
-                      "the sidebar when you click Analyze (*All time*: no period), still up to the cap.\n"
-                      "- **Custom number of days, up to the cap**: the changes of the last N days, more or less than "
+                      "- **Analysis window, up to Max changes**: only the changes inside the analysis window picked in "
+                      "the sidebar when you click Analyze (*All time*: no period), still up to *Max changes*.\n"
+                      "- **Custom number of days, up to Max changes**: the changes of the last N days, more or less than "
                       "the window.\n"
-                      f"- **All time, no cap**: every change of every domain (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,} "
+                      f"- **All time, no limit**: every change of every domain (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,} "
                       "as a safeguard). Long histories take many queries and longer to collect and process.\n\n"
-                      "A period or a low cap costs fewer queries, but detections that compare with older history "
+                      "A period or a low *Max changes* costs fewer queries, but detections that compare with older history "
                       "(dormancy, parking) see only what was fetched.")
     c2.number_input("Days", min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
                     disabled=mode != "days", help="With *Custom number of days*: the changes of the last N days.")
@@ -442,10 +441,10 @@ def render_collection_options(prefix="", force_refresh=True):
                          "A domain that reaches it has more changes, and the app says so.")
     cap = int(st.session_state[prefix + "opt_history_max"] or DOMAIN_HISTORY_MAX_CHANGES)
     if mode == "unlimited":
-        st.caption(":orange[:material/warning: No cap: domains with long histories (thousands of changes) take many "
+        st.caption(":orange[:material/warning: No limit: domains with long histories (thousands of changes) take many "
                    "Domain History queries, and collecting and processing them takes longer.]")
     elif cap > DOMAIN_HISTORY_MAX_CHANGES:
-        st.caption(f":orange[:material/warning: A cap above {DOMAIN_HISTORY_MAX_CHANGES:,} means up to "
+        st.caption(f":orange[:material/warning: Max changes above {DOMAIN_HISTORY_MAX_CHANGES:,} means up to "
                    f"{-(-cap // 100):,} queries per domain with a long history, and slower collection and "
                    "processing.]")
     if not prefix:

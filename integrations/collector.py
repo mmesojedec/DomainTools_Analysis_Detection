@@ -211,7 +211,7 @@ def collect_domain_history(domains, log, days=0, max_changes=DOMAIN_HISTORY_MAX_
     """
     since = history_since(days)
     scope = ", ".join(filter(None, [f"changes since {since}" if since else "",
-                                    f"up to {max_changes:,} per domain" if max_changes else "no cap"]))
+                                    f"up to {max_changes:,} per domain" if max_changes else "no limit"]))
     progress.start("history", len(domains), scope)
     results = _record_all(log, _parallel(domains, lambda d: _safe_call(fetch_domain_history, "Domain History", d,
                                                                        *history_args(d, since, max_changes)),

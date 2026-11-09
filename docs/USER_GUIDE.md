@@ -109,7 +109,7 @@ Each lookup has one of these statuses:
 
 Missing data lowers what the detections can see, so check this page when a domain has fewer alerts than expected.
 Each lookup also shows **Queries**: the API queries it made (pages and retries included; 0 when the lookup cache
-answered); Run History keeps each run's total. When a run returned no data at all, a status panel with every lookup
+answered); Runs & Diffs keeps each run's total. When a run returned no data at all, a status panel with every lookup
 is shown instead of the pages. A source whose DomainTools product the account does not have is listed as skipped.
 
 ## KPI banner
@@ -641,7 +641,7 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
 - **Changes Since Last Run** (Alerts page): compared with the previous run of the same target list, it shows new and
   resolved alerts and added / removed infrastructure (IPs, name servers, certificates, ...).
 - **First Detected / Runs Seen** use every saved run, from any target list, that covered the domain.
-- **Run History** page (also on the Start page under *Browse saved run history*):
+- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*; also on the Start page under *Browse saved run history*):
   - **Run Details:** one run's alerts, risk and DIF.
   - **Compare Runs:** any two runs; new, resolved and persisting alerts, infrastructure changes, and risk / DIF changes.
   - **Trends:** detections per run by severity, Unified Risk per domain with DIF-change markers, and infrastructure counts per run.
@@ -650,8 +650,8 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
   - **Hunt Tree:** every hunt, from its first run to each run started from a lead ([below](#leads-and-the-hunt-tree)).
   - **Watched Lists:** the target lists you watch, each with *Run now* ([below](#watched-target-lists)).
   - **Manage Runs:** name and annotate runs, export as JSON, delete (with confirmation), and set retention (default 10 per target list).
-  - **Offline Datasets:** see [Usage](USAGE.md#offline-datasets).
 - Runs saved by earlier versions show in a reduced *legacy* format (no severity, risk or DIF).
+- **Offline Datasets** has its own page, *Manage Data → Offline Datasets*: see [Usage](USAGE.md#offline-datasets).
 
 ## Suppressions and exports
 
@@ -707,13 +707,13 @@ Self-signed certificate cards (Certificates → Self-Signed) offer the same: *An
 a `sha256:` / `sha1:` input) and *Find in Iris* (by SHA-1).
 
 A run started this way remembers the run it came from and what led to it. The Summary shows the **hunt trail**
-(first run → … → this run), and **Run History → Hunt Tree** shows every hunt as a tree, with *Analyze again* to rerun a
+(first run → … → this run), and **Runs & Diffs → Hunt Tree** shows every hunt as a tree, with *Analyze again* to rerun a
 branch.
 
 ### Watched target lists
 
 *Watch this list* (Summary, *What's new since the last analysis*) saves the run's target list in `dt_settings.json`.
-**Run History → Watched Lists** reruns it with *Run now*; the Summary then lists what is new since the list's last run:
+**Runs & Diffs → Watched Lists** reruns it with *Run now*; the Summary then lists what is new since the list's last run:
 alerts and IPs, name servers, MX hosts, certificates, web trackers and hostnames. (Hostnames are compared from the
 second run after this version; older runs did not record them.)
 
@@ -728,7 +728,7 @@ bundle; the section also lists the Iris Investigate searches for the strong and 
 
 The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Overview** (Summary, Domain profile, Alerts),
 **Infrastructure** (DNS & Hosting, VPNDB, CNAME Chains, Certificates), **Hunt** (Pivot Ranking, Hostname Inventory,
-Subdomain Triage), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Data Export, Run History),
+Subdomain Triage), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
 **Data sources**, **Settings** and **Help**. With *Analyst mode* off, Hunt,
 Raw Records and Lookup Queries are left out.
 
@@ -747,10 +747,11 @@ Raw Records and Lookup Queries are left out.
 | Pivot Ranking | Every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it; add values to the targets or find their domains in Iris |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
-| Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Run History → Offline Datasets with it selected, to give it a name; that tab also loads a dataset (*Load offline dataset*) |
+| Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Offline Datasets with it selected, to give it a name |
+| Offline Datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename, delete and how many are kept |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
 | Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
-| Run History | Run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs, offline datasets |
+| Runs & Diffs | Previous Runs & Comparison: run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs |
 | Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Data Export | Confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 
