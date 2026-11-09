@@ -128,3 +128,4 @@ def install_copy_fallback():
     """Makes the Copy buttons of st.code blocks (curl, Python, queries, lists) work where the browser refuses the
     clipboard API; drawn once per run, the script patches the page once."""
     st.html(_COPY_FALLBACK, unsafe_allow_javascript=True)
+

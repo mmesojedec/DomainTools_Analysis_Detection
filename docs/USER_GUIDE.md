@@ -85,8 +85,20 @@ The window (sidebar, default *Last 30 days*) keeps only records **active** in it
 
 ## Data Source Status
 
-A collapsed panel under the window banner. Its title shows the number of errors and partial results, e.g.
-"Data Source Status — 5 error(s), 9 partial". Open it to see a summary per source and every lookup with its status:
+The **Data sources** page shows how every lookup of the run went. At the top, the run in numbers: targets, lookups,
+the share answered (all but errors), records returned, API queries, lookups from the lookup cache and, after an
+Analyze in this session, the collection time with its slowest steps. A bar per source shows its lookups by status.
+The tabs below:
+
+- **By source**: outcomes, records (total, average and largest per lookup), queries and cache hits per source, the
+  ones with errors or partial lookups first. A source near its limit on many targets may need a higher limit.
+- **By target**: the same per target, with the sources that failed or stopped at a limit for it.
+- **Needs attention**: every failed or partial lookup with what happened.
+- **API queries**: queries per service and DomainTools product, next to what each has left (known from the Account
+  page, *Check DNSDB quota* and VPNDB's last answer; no query is made for it).
+- **All lookups**: every lookup, filtered by status, source and target.
+
+Each lookup has one of these statuses:
 
 | Status | Meaning |
 | --- | --- |
@@ -95,10 +107,10 @@ A collapsed panel under the window banner. Its title shows the number of errors 
 | No data | The source had nothing for this target |
 | Error | Authentication failure, rate limit, timeout or other error; the reason is shown |
 
-Missing data lowers what the detections can see, so check this panel when a domain has fewer alerts than expected.
+Missing data lowers what the detections can see, so check this page when a domain has fewer alerts than expected.
 Each lookup also shows **Queries**: the API queries it made (pages and retries included; 0 when the lookup cache
-answered). The Data sources page adds them up per service and DomainTools product under **API queries**, and Run
-History keeps each run's total. A source whose DomainTools product the account does not have is listed as skipped.
+answered); Run History keeps each run's total. When a run returned no data at all, a status panel with every lookup
+is shown instead of the pages. A source whose DomainTools product the account does not have is listed as skipped.
 
 ## KPI banner
 
@@ -736,7 +748,7 @@ Raw Records and Lookup Queries are left out.
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
 | Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Run History → Offline Datasets with it selected, to give it a name; that tab also loads a dataset (*Load offline dataset*) |
-| Data sources | Data Source Status of every lookup (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
+| Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
 | Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
 | Run History | Run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs, offline datasets |
 | Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including supplements and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |

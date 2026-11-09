@@ -116,8 +116,8 @@ def render_account_page():
                               "Usage is counted by DomainTools for all clients of this account, not only this app.")
     result, fetched = _load()
     with st.container(horizontal=True, vertical_alignment="center"):
-        st.caption(f"Fetched {fetched:%Y-%m-%d %H:%M:%S %Z}. Kept for an hour and shared with the cost estimate "
-                   "and Analyze; each refresh is one Account Information query.")
+        st.caption(f"Fetched {fetched:%Y-%m-%d %H:%M:%S %Z}. Kept for an hour and shared with Analyze "
+                   "and the Data sources page; each refresh is one Account Information query.")
         if st.button("Refresh", icon=":material/refresh:", key="account_refresh"):
             st.session_state[REFRESH_KEY] = True
             st.rerun()

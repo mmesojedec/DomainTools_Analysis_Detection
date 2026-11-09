@@ -379,7 +379,7 @@ def test_certificate_and_event_gaps_filled_only_when_capped():
 
 
 def test_collect_all_keeps_focus_for_analyzed_domains_only(monkeypatch):
-    monkeypatch.setattr(collector, "collect_domain_history", lambda domains, log, days=0: (pd.DataFrame(), pd.DataFrame()))
+    monkeypatch.setattr(collector, "collect_domain_history", lambda domains, log, days=0, max_changes=1000: (pd.DataFrame(), pd.DataFrame()))
     monkeypatch.setattr(collector, "collect_certificates", lambda *a: pd.DataFrame())
     monkeypatch.setattr(collector, "collect_enrichment", lambda *a: {})
     monkeypatch.setattr(collector, "collect_pdns", lambda *a: (pd.DataFrame(), {}))

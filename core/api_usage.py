@@ -1,7 +1,7 @@
 """
 API usage of a run: which service and DomainTools product each lookup counts against, the queries a run made (status
-rows' "Queries": 0 for results from the lookup cache), and how a cost estimate compares with what the account has
-left. Pure functions; the estimate itself is built in integrations.estimate.
+rows' "Queries": 0 for results from the lookup cache), what each product has left, and the per-source, per-target
+and overall statistics of the Data sources page. Pure functions.
 """
 import pandas as pd
 
@@ -26,8 +26,6 @@ CACHE_GROUP_PREFIXES = (("Iris pDNS", "pdns"), ("DNSDB", "pdns"), ("Iris Investi
                         ("Domain History", "history"), ("Certificate Search", "certs"), ("CertsQL", "certs"),
                         ("Cert Events", "certs"), ("CT Log", "certs"), ("VPNDB", "vpndb"))
 USAGE_COLUMNS = ["Service", "Product", "Lookups", "From cache", "Queries"]
-ESTIMATE_COLUMNS = ["Service", "Product", "Lookups", "From cache", "Queries (min)", "Queries (max)", "Left",
-                    "Status"]
 
 
 def source_product(source):
@@ -101,26 +99,88 @@ def remaining(products, product):
     return None
 
 
-def compare_estimate(estimate, products=None, quotas=None):
+
+def capped_history(statuses):
     """
-    `estimate` rows ({"Service", "Product", "Lookups", "From cache", "Queries (min)", "Queries (max)"}) with "Left"
-    (DomainTools products from the account's `products`; DNSDB and VPNDB from `quotas` {service: remaining}) and a
-    "Status": "over" when even the fewest queries exceed what is left, "may exceed" when the most would, else "ok"
-    ("unknown" when nothing is known about what is left).
+    Domains whose Domain History stopped at the cap (or the no-cap safeguard), so more changes are available:
+    {domain: changes fetched}, from the run's status rows.
     """
-    rows = []
-    for row in estimate:
-        product = row["Product"]
-        left = remaining(products, product) if row["Service"] == DOMAINTOOLS else (quotas or {}).get(row["Service"])
-        if left is None:
-            status = "unknown"
-        elif row["Queries (min)"] > left:
-            status = "over"
-        elif row["Queries (max)"] > left:
-            status = "may exceed"
-        else:
-            status = "ok"
-        rows.append({**row, "Left": left, "Status": status})
-    frame = pd.DataFrame(rows, columns=ESTIMATE_COLUMNS)
-    frame["Left"] = pd.to_numeric(frame["Left"], errors="coerce").astype("Int64")
+    capped = {}
+    for row in statuses or []:
+        detail = str(row.get("Detail") or "")
+        if str(row.get("Source", "")).startswith("Domain History") and row.get("Status") == "Partial" \
+                and ("more changes are available" in detail or detail.startswith("Stopped at")):   # older runs
+            capped[row.get("Target")] = int(row.get("Records") or 0)
+    return capped
+
+
+STATUSES = ("OK", "Partial", "No data", "Error")
+SOURCE_STAT_COLUMNS = ["Source", "Product", "Lookups", "Answered", "OK", "Partial", "No data", "Errors", "Records",
+                       "Avg records", "Max records", "Queries", "From cache"]
+TARGET_STAT_COLUMNS = ["Target", "Sources", "Lookups", "OK", "Partial", "No data", "Errors", "Records", "Queries",
+                       "From cache", "Needs attention"]
+
+
+def status_frame(statuses):
+    """The run's status rows as a frame with numeric Records / Queries and a boolean "Cached" column."""
+    frame = pd.DataFrame([row for row in statuses or [] if row.get("Source")],
+                         columns=["Source", "Target", "Status", "Records", "Detail", "Cached At", "Queries"])
+    frame["Records"] = pd.to_numeric(frame["Records"], errors="coerce").fillna(0).astype(int)
+    frame["Queries"] = pd.to_numeric(frame["Queries"], errors="coerce").fillna(0).astype(int)
+    frame["Cached"] = pd.to_datetime(frame["Cached At"], errors="coerce").notna() \
+        | frame["Detail"].astype(str).str.contains("From cache", regex=False)
+    frame["Target"] = frame["Target"].fillna("").astype(str)
     return frame
+
+
+def _counts(frame):
+    status = frame["Status"]
+    return {"Lookups": len(frame), "OK": int((status == "OK").sum()), "Partial": int((status == "Partial").sum()),
+            "No data": int((status == "No data").sum()), "Errors": int((status == "Error").sum()),
+            "Records": int(frame["Records"].sum()), "Queries": int(frame["Queries"].sum()),
+            "From cache": int(frame["Cached"].sum())}
+
+
+def run_overview(statuses):
+    """The run in numbers: lookups, targets and sources, outcome counts, records, API queries, cache hits, and the
+    share of lookups that got an answer ("Answered": all but errors, 0-1)."""
+    frame = status_frame(statuses)
+    counts = _counts(frame)
+    return {**counts, "Targets": int(frame["Target"].nunique()), "Sources": int(frame["Source"].nunique()),
+            "Answered": (1 - counts["Errors"] / counts["Lookups"]) if counts["Lookups"] else 0.0}
+
+
+def source_stats(statuses):
+    """One row per source (SOURCE_STAT_COLUMNS): outcomes, records (total, average and largest per lookup), API
+    queries and cache hits; "Answered" is the share of its lookups without an error (0-1)."""
+    frame = status_frame(statuses)
+    rows = []
+    for source, group in frame.groupby("Source", sort=False):
+        counts = _counts(group)
+        rows.append({"Source": source, "Product": product_label(*source_product(source)), **counts,
+                     "Answered": 1 - counts["Errors"] / counts["Lookups"],
+                     "Avg records": round(group["Records"].mean(), 1), "Max records": int(group["Records"].max())})
+    return pd.DataFrame(rows, columns=SOURCE_STAT_COLUMNS).sort_values(
+        ["Errors", "Partial", "Records"], ascending=False, kind="stable").reset_index(drop=True)
+
+
+def target_stats(statuses):
+    """One row per target (TARGET_STAT_COLUMNS): how many sources looked it up, their outcomes, records, queries and
+    cache hits, and "Needs attention": the sources that failed or stopped at a limit for it."""
+    frame = status_frame(statuses)
+    rows = []
+    for target, group in frame.groupby("Target", sort=False):
+        issues = group[group["Status"].isin(["Error", "Partial"])]
+        rows.append({"Target": target, "Sources": int(group["Source"].nunique()), **_counts(group),
+                     "Needs attention": ", ".join(f"{s} ({st.lower()})" for s, st in zip(issues["Source"],
+                                                                                          issues["Status"]))})
+    return pd.DataFrame(rows, columns=TARGET_STAT_COLUMNS).sort_values(
+        ["Errors", "Partial", "Records"], ascending=False, kind="stable").reset_index(drop=True)
+
+
+def attention_rows(statuses):
+    """Lookups that failed or stopped at a limit, errors first, with what happened."""
+    frame = status_frame(statuses)
+    frame = frame[frame["Status"].isin(["Error", "Partial"])]
+    return frame.sort_values(["Status", "Source", "Target"], kind="stable")[
+        ["Status", "Source", "Target", "Records", "Detail"]].reset_index(drop=True)

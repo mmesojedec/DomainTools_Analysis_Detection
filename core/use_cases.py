@@ -22,6 +22,7 @@ from config import (
     CT_LOOKUP_DEFAULT_MAX_HASHES,
     DNSDB_DEFAULT_LIMIT,
     DOMAIN_HISTORY_MAX_CHANGES,
+    DOMAIN_HISTORY_SAFETY_LIMIT,
     IP_CHECK_MAX_IPS,
     IRIS_INVESTIGATE_BATCH_SIZE,
     IRIS_PDNS_LIMIT,
@@ -51,8 +52,9 @@ COLLECTION_DEFAULTS = {
     "opt_pivot": False,
     "opt_pivot_max": PIVOT_DEFAULT_MAX_IPS,
     "opt_pdns_incremental": False,          # DNSDB: only records seen since the last offline copy of the targets
-    "opt_history_mode": "all",              # Domain History period: all, the analysis window, or opt_history_days
+    "opt_history_mode": "all",              # Domain History period: HISTORY_MODES
     "opt_history_days": 365,                # Domain History: changes of the last N days (mode "days")
+    "opt_history_max": DOMAIN_HISTORY_MAX_CHANGES,   # Domain History: cap of changes per domain (not in mode "unlimited")
     "opt_vpndb": True,
     "opt_vpndb_max_ips": VPNDB_MAX_IPS,     # hosting IPs in the bulk request (one VPNDB query each)
     "opt_vpndb_details": VPNDB_DETAIL_MAX,  # full verdicts and weekly histories of the exits (one query each)
@@ -70,7 +72,7 @@ OPTION_LABELS = {
     "opt_caa": "Supplemental CAA lookup", "opt_cname": "Supplemental CNAME lookup",
     "opt_pivot": "Pivot on hosting IPs", "opt_pivot_max": "Max IPs to pivot on",
     "opt_pdns_incremental": "Incremental passive DNS", "opt_history_mode": "Domain History period",
-    "opt_history_days": "Domain History period (days)",
+    "opt_history_days": "Domain History period (days)", "opt_history_max": "Domain History changes per domain",
     "opt_vpndb": "VPN / proxy / Tor check (VPNDB)", "opt_vpndb_only": "Only the VPNDB IP check",
     "opt_vpndb_max_ips": "VPNDB: hosting IPs per run", "opt_vpndb_details": "VPNDB: full verdicts per run",
     "opt_vpndb_context": "VPNDB: neighbourhood and leads",
@@ -246,14 +248,17 @@ def remove_profile(profiles, key):
     return [p for p in profiles or [] if profile_key(p.get("name", "")) != key]
 
 
-HISTORY_MODES = {"all": "All (up to the change limit)", "window": "Same as the analysis window",
-                 "days": "Custom number of days"}
+HISTORY_MODES = {"all": "Latest changes, up to the cap (default)",
+                 "window": "Analysis window, up to the cap",
+                 "days": "Custom number of days, up to the cap",
+                 "unlimited": "All time, no cap"}
 
 
 def history_period_days(mode, days, window=None, window_start=None, today=None):
     """
-    Days of Domain History changes a run fetches (0: all): `days` in mode "days"; in mode "window" the analysis
-    window's (`window` a preset name; a custom range uses `window_start`, its first day), all for *All time*.
+    Days of Domain History changes a run fetches (0: no period, the newest changes): `days` in mode "days"; in mode
+    "window" the analysis window's (`window` a preset name; a custom range uses `window_start`, its first day), none
+    for *All time*.
     """
     if mode == "days":
         return max(0, int(days or 0))
@@ -267,18 +272,27 @@ def history_period_days(mode, days, window=None, window_start=None, today=None):
     return 0
 
 
+def history_cap(mode, cap):
+    """Changes fetched per domain at most: `cap` (the default when unset), 0 for "All time, no cap"."""
+    if mode == "unlimited":
+        return 0
+    return max(1, int(cap or DOMAIN_HISTORY_MAX_CHANGES))
+
+
 def history_limit_text(settings):
-    """The Domain History limit of `settings` for the query plan: the period (all, the analysis window or N days)."""
-    cap = f"up to {DOMAIN_HISTORY_MAX_CHANGES:,} changes"
+    """The Domain History limit of `settings` for the query plan: the period and the cap of changes per domain."""
     mode = settings.get("opt_history_mode", "all")
+    if mode == "unlimited":
+        return f"All time, no cap (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,}); slower for long histories"
+    cap = history_cap(mode, settings.get("opt_history_max"))
     if mode == "window":
         window = settings.get(WINDOW_KEY)
         days = WINDOW_PRESETS.get(window)
         span = f"{days:,} days" if days else ("all time" if window and window != CUSTOM_RANGE else "")
-        return f"Analysis window ({span}), {cap}" if span else f"Analysis window, {cap}"
+        return f"Analysis window ({span}), up to {cap:,} changes" if span else f"Analysis window, up to {cap:,} changes"
     if mode == "days" and int(settings.get("opt_history_days") or 0) > 0:
-        return f"{int(settings['opt_history_days']):,} days, {cap}"
-    return f"{DOMAIN_HISTORY_MAX_CHANGES:,} changes"
+        return f"{int(settings['opt_history_days']):,} days, up to {cap:,} changes"
+    return f"{cap:,} changes"
 
 
 def query_plan(settings):

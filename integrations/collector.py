@@ -197,21 +197,51 @@ def history_since(days, today=None):
     return (today - pd.Timedelta(days=int(days))).strftime("%Y-%m-%d")
 
 
-def history_args(domain, since=None):
-    """The arguments a domain's Domain History is fetched (and cached) with."""
-    return (domain, DOMAIN_HISTORY_MAX_CHANGES, since) if since else (domain,)
+def history_args(domain, since=None, max_changes=DOMAIN_HISTORY_MAX_CHANGES):
+    """The arguments a domain's Domain History is fetched (and cached) with (`max_changes` 0: no cap)."""
+    if since or max_changes != DOMAIN_HISTORY_MAX_CHANGES:
+        return (domain, max_changes, since) if since else (domain, max_changes)
+    return (domain,)
 
 
-def collect_domain_history(domains, log, days=0):
-    """Domain History of each domain; `days` > 0 keeps only the changes of that many days (fewer pages, queries)."""
+def collect_domain_history(domains, log, days=0, max_changes=DOMAIN_HISTORY_MAX_CHANGES):
+    """
+    Domain History of each domain: the newest `max_changes` changes (0: no cap); `days` > 0 keeps only the changes of
+    that many days (fewer pages, queries).
+    """
     since = history_since(days)
-    progress.start("history", len(domains), f"changes since {since}" if since else "")
+    scope = ", ".join(filter(None, [f"changes since {since}" if since else "",
+                                    f"up to {max_changes:,} per domain" if max_changes else "no cap"]))
+    progress.start("history", len(domains), scope)
     results = _record_all(log, _parallel(domains, lambda d: _safe_call(fetch_domain_history, "Domain History", d,
-                                                                       *history_args(d, since)), key="history"))
+                                                                       *history_args(d, since, max_changes)),
+                                         key="history"))
     progress.finish("history")
     dh = _concat([parse_history_to_dataframe(r.data, d) for d, r in zip(domains, results)])
     ssl = _concat([extract_ssl_data(r.data, d) for d, r in zip(domains, results)])
     return dh, ssl
+
+
+def fetch_rest_of_history(collected, domains, max_changes=0):
+    """
+    Fetches the Domain History of `domains` again, without a period and up to `max_changes` per domain (0: no cap),
+    and puts it in place of what `collected` holds for them: their changes, their Domain History certificates and
+    their status rows. Returns the new status rows (one per domain).
+    """
+    log = StatusLog()
+    dh, ssl = collect_domain_history(list(domains), log, 0, max_changes)
+    names = set(domains)
+    old_dh = collected.dh[~collected.dh["Domain"].isin(names)] if not collected.dh.empty else collected.dh
+    collected.dh = _concat([old_dh, dh])
+    if not collected.ssl.empty and {"Domain", "Source"} <= set(collected.ssl.columns):
+        old_ssl = collected.ssl[~(collected.ssl["Domain"].isin(names) & (collected.ssl["Source"] == "Domain History"))]
+    else:
+        old_ssl = collected.ssl
+    collected.ssl = _concat([old_ssl, ssl])
+    collected.statuses = [row for row in collected.statuses
+                          if not (str(row.get("Source", "")).startswith("Domain History") and row.get("Target") in names)
+                          ] + log.rows
+    return log.rows
 
 
 def collect_certificates(targets, log, seed_hits=None, host_focus=None):
@@ -1109,12 +1139,12 @@ def _certificate_stage(lookup_inputs, domains, ip_targets, seed_hits, host_focus
     return ssl, events, log
 
 
-def _history_stage(domains, history_days, unavailable):
+def _history_stage(domains, history_days, history_max, unavailable):
     log = StatusLog()
     if "history" in unavailable:
         _skip_stage("history", domains, log, "history")
         return pd.DataFrame(), pd.DataFrame(), log
-    return (*collect_domain_history(domains, log, history_days), log)
+    return (*collect_domain_history(domains, log, history_days, history_max), log)
 
 
 def _iris_stage(domains, unavailable):
@@ -1129,7 +1159,7 @@ def collect_all(target_inputs, pdns_provider, dnsdb_limit, include_ct=True, ct_m
                 progress=None, on_auth_required=None, on_auth_done=None, pivot_ips=False, pivot_max_ips=10, txt_records=0, caa_lookup=False,
                 seed_hits=None, host_focus=None, cname_lookup=False, vpndb_check=False, vpndb_only=False,
                 vpndb_max_ips=VPNDB_MAX_IPS, vpndb_details=VPNDB_DETAIL_MAX, vpndb_context=True, history_days=0,
-                pdns_base=None, unavailable=()):
+                history_max=DOMAIN_HISTORY_MAX_CHANGES, pdns_base=None, unavailable=()):
     """
     Runs every collection stage and returns CollectedData. `progress(label)` is called from the calling thread.
     Every domain is looked up in full (all subdomains). `host_focus` ({apex: [hostnames]}) is kept for the views'
@@ -1140,7 +1170,7 @@ def collect_all(target_inputs, pdns_provider, dnsdb_limit, include_ct=True, ct_m
     and the certificates (search, then events) in worker threads while this thread collects passive DNS (its login
     prompt is drawn here); then the CT telemetry (needs the certificates) runs while this thread pivots on IPs and
     checks VPNDB (both need passive DNS and Iris). `history_days` > 0 keeps only that many days of Domain History
-    changes; `pdns_base` (see collect_pdns) makes DNSDB fetch only what is new since an earlier dataset;
+    changes, and `history_max` caps them per domain (0: no cap); `pdns_base` (see collect_pdns) makes DNSDB fetch only what is new since an earlier dataset;
     `unavailable` names stages (STAGE_PRODUCTS) whose product the account does not have, which are skipped.
     """
     def step(label):
@@ -1179,7 +1209,7 @@ def collect_all(target_inputs, pdns_provider, dnsdb_limit, include_ct=True, ct_m
 
     step("Collecting Domain History, Iris Investigate, certificates and passive DNS at the same time...")
     with ThreadPoolExecutor(max_workers=3) as executor:
-        history = _background(executor, _history_stage, domains, history_days, unavailable)
+        history = _background(executor, _history_stage, domains, history_days, history_max, unavailable)
         iris = _background(executor, _iris_stage, domains, unavailable)
         certs = _background(executor, _certificate_stage, lookup_inputs, domains, ip_targets, seed_hits, host_focus,
                             unavailable)

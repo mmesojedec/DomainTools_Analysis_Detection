@@ -1,5 +1,5 @@
 """API collection: risk from Iris, SDK retries, query counting, per-source cache lifetimes, parallel stages,
-skipped products, Domain History period, incremental passive DNS, cost estimate and the Iris fields used in rules."""
+skipped products, Domain History period, incremental passive DNS and the Iris fields used in rules."""
 import threading
 import time
 
@@ -9,23 +9,25 @@ import pytest
 import integrations.collector as collector
 from core.account import unavailable_stages
 from core.api_usage import (
+    attention_rows,
     cache_group,
-    compare_estimate,
     failed_lookups,
     queries_by_product,
     remaining,
+    run_overview,
     run_usage,
     source_product,
+    source_stats,
+    target_stats,
 )
 from core.threat_detection.context import DomainContext
 from core.threat_detection.enrichment_rules import apply_popularity, rule_iris_mail
 from core.use_cases import query_plan
-from integrations import cache, domain_history, estimate, iris
+from integrations import cache, domain_history, iris
 from integrations.enrichment import extract_iris_profile
 from integrations.http import FetchResult, StatusLog, count_query, metered, sdk_call
 from integrations.progress import CollectionProgress, tracking
 from integrations.risk import risk_from_iris
-from views.sidebar import LookupSettings
 
 DOMAIN_RISK = {"risk_score": 97, "components": [
     {"name": "proximity", "risk_score": 81},
@@ -189,7 +191,7 @@ def test_progress_draws_only_from_the_thread_that_created_it():
     assert len(drawn) == 1
 
 
-def test_run_usage_and_estimate_against_what_is_left():
+def test_run_usage_and_what_is_left():
     statuses = [FetchResult("Iris Investigate", "a.com", queries=1).status_row(),
                 FetchResult("Domain History", "a.com", queries=3).status_row(),
                 FetchResult("Domain History", "b.com", cached_at=1.0, queries=0).status_row(),
@@ -207,29 +209,7 @@ def test_run_usage_and_estimate_against_what_is_left():
     products = [{"id": "iris-investigate-(api-only)", "rest": {"month": "5"}},
                 {"id": "domain-history", "per_month_limit": "100", "usage": {"month": "95"}, "rest": {"month": ""}}]
     assert remaining(products, "iris-investigate") == 5 and remaining(products, "domain-history") == 5
-    frame = compare_estimate([
-        {"Service": "DomainTools API", "Product": "iris-investigate", "Lookups": 1, "From cache": 0,
-         "Queries (min)": 1, "Queries (max)": 1},
-        {"Service": "DomainTools API", "Product": "domain-history", "Lookups": 4, "From cache": 0,
-         "Queries (min)": 4, "Queries (max)": 40},
-        {"Service": "DNSDB", "Product": "DNSDB", "Lookups": 9, "From cache": 0, "Queries (min)": 9,
-         "Queries (max)": 9},
-        {"Service": "VPNDB", "Product": "VPNDB", "Lookups": 1, "From cache": 0, "Queries (min)": 1,
-         "Queries (max)": 1}], products, {"DNSDB": 3})
-    assert frame["Status"].tolist() == ["ok", "may exceed", "over", "unknown"]
 
-
-def test_estimate_leaves_out_cached_lookups(monkeypatch):
-    settings = LookupSettings("", "DNSDB Scout", 5000, True, 10, False, False, 10, 10, True, False,
-                              cname_lookup=True, vpndb_check=False)
-    monkeypatch.setattr(estimate.fetch_domain_history, "peek", lambda *a: a[0] == "a.com")
-    rows = {row["Product"]: row for row in estimate.estimate_run(["a.com", "b.com", "1.2.3.4"], settings)}
-    assert set(rows) == {"iris-investigate", "domain-history", "certificate-search", "certificate-events", "DNSDB"}
-    history = rows["domain-history"]
-    assert (history["From cache"], history["Queries (min)"], history["Queries (max)"]) == (1, 1, 10)
-    assert rows["iris-investigate"]["Queries (max)"] == 1
-    assert rows["certificate-events"]["Queries (max)"] == 3 * 5 + 20   # pages of 3 lookups, 2 CT calls x 10
-    assert "iris-investigate" not in {r["Product"] for r in estimate.estimate_run(["a.com"], settings, {"iris"})}
 
 
 def test_iris_pdns_uses_the_cache_without_opening_a_browser(monkeypatch):
@@ -294,3 +274,89 @@ def test_domain_history_period_follows_the_option_or_the_analysis_window():
     monitor = effective_settings(BY_KEY["monitor"])
     assert (monitor["opt_history_mode"], monitor["opt_history_days"]) == ("days", 90)
     assert "90 days" in next(r["Limit"] for r in query_plan(monitor) if r["Key"] == "history")
+
+
+def _history_api(total, calls):
+    changes = [{"timestamp": "2026-10-01T00:00:00Z", "field": "ip"}] * total
+
+    class Api:
+        def domain_history(self, domain, page_size, offset):
+            calls.append(offset)
+            page = changes[offset:offset + page_size]
+            return type("R", (), {"data": lambda self: {"response": {"changes": page}}})()
+    return Api()
+
+
+def test_domain_history_cap_flags_domains_with_more_changes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(domain_history, "get_dt_api", lambda: _history_api(450, calls))
+    capped = domain_history.fetch_domain_history("long.com", 200)
+    assert capped.truncated and capped.record_count == 200 and "more changes are available" in capped.note
+    assert calls == [0, 100]
+    calls.clear()
+    full = domain_history.fetch_domain_history("long.com", 0)   # no cap: every page
+    assert not full.truncated and full.record_count == 450 and calls == [0, 100, 200, 300, 400]
+    from core.api_usage import capped_history
+    statuses = [capped.status_row(), full.status_row(),
+                FetchResult("Domain History", "x.com", error="boom", record_count=5).status_row(),
+                {"Source": "Domain History", "Target": "old.com", "Status": "Partial", "Records": 1000,
+                 "Detail": "Stopped at 1000 change events"}]   # a dataset saved before the cap option
+    assert capped_history(statuses) == {"long.com": 200, "old.com": 1000}
+
+
+def test_domain_history_cap_option_reaches_the_cache_key_and_plan():
+    from core.use_cases import history_cap, history_limit_text
+    assert collector.history_args("a.com", None, 1000) == ("a.com",)
+    assert collector.history_args("a.com", None, 0) == ("a.com", 0)
+    assert collector.history_args("a.com", "2026-10-01", 2000) == ("a.com", 2000, "2026-10-01")
+    assert history_cap("all", 2500) == 2500 and history_cap("unlimited", 2500) == 0 and history_cap("days", None) == 1000
+    assert history_limit_text({"opt_history_max": 2500}) == "2,500 changes"
+    assert history_limit_text({"opt_history_mode": "unlimited"}).startswith("All time, no cap")
+
+
+def test_fetch_the_rest_replaces_only_the_capped_domains_history(monkeypatch):
+    calls = []
+
+    def fake(domains, log, days=0, max_changes=1000):
+        calls.append((list(domains), days, max_changes))
+        for d in domains:
+            log.record(FetchResult("Domain History", d, data={}, record_count=2500))
+        return (pd.DataFrame({"Domain": ["long.com"] * 2, "Field": ["IP", "NS"]}),
+                pd.DataFrame({"Domain": ["long.com"], "Source": ["Domain History"], "Hash": ["new"]}))
+
+    monkeypatch.setattr(collector, "collect_domain_history", fake)
+    data = collector.CollectedData(
+        dh=pd.DataFrame({"Domain": ["long.com", "short.com"], "Field": ["IP", "IP"]}),
+        ssl=pd.DataFrame({"Domain": ["long.com", "long.com"], "Source": ["Domain History", "Certificate API"],
+                          "Hash": ["old", "cert"]}),
+        statuses=[{"Source": "Domain History", "Target": "long.com", "Status": "Partial", "Records": 1000,
+                   "Detail": "Stopped at the cap of 1,000 changes; more changes are available"},
+                  {"Source": "Domain History", "Target": "short.com", "Status": "OK", "Records": 1, "Detail": ""}])
+    rows = collector.fetch_rest_of_history(data, ["long.com"], 0)
+    assert calls == [(["long.com"], 0, 0)] and len(rows) == 1
+    assert sorted(data.dh["Domain"]) == ["long.com", "long.com", "short.com"]
+    assert set(data.ssl["Hash"]) == {"cert", "new"}   # the capped Domain History certificates are replaced
+    from core.api_usage import capped_history
+    assert capped_history(data.statuses) == {} and len(data.statuses) == 2
+
+
+def test_data_sources_stats_per_run_source_and_target():
+    statuses = [FetchResult("Domain History", "a.com", record_count=1000, truncated=True,
+                            note="Stopped at the cap of 1,000 changes; more changes are available", queries=10).status_row(),
+                FetchResult("Domain History", "b.com", record_count=4, cached_at=1.0).status_row(),
+                FetchResult("DNSDB", "a.com", error="Server error (HTTP 503)", queries=2).status_row(),
+                FetchResult("DNSDB", "b.com", queries=1).status_row()]
+    overview = run_overview(statuses)
+    assert (overview["Lookups"], overview["Targets"], overview["Sources"]) == (4, 2, 2)
+    assert (overview["OK"], overview["Partial"], overview["No data"], overview["Errors"]) == (1, 1, 1, 1)
+    assert (overview["Records"], overview["Queries"], overview["From cache"], overview["Answered"]) == (1004, 13, 1, 0.75)
+    sources = source_stats(statuses).set_index("Source")
+    assert sources.index.tolist() == ["DNSDB", "Domain History"]   # errors first
+    assert sources.loc["Domain History", ["Product", "Avg records", "Max records", "From cache"]].tolist() == \
+        ["domain-history", 502.0, 1000, 1]
+    assert sources.loc["DNSDB", "Answered"] == 0.5
+    targets = target_stats(statuses).set_index("Target")
+    assert targets.loc["a.com", "Needs attention"] == "Domain History (partial), DNSDB (error)"
+    assert targets.loc["b.com", "Needs attention"] == "" and targets.loc["b.com", "Sources"] == 2
+    assert attention_rows(statuses)["Status"].tolist() == ["Error", "Partial"]
+    assert run_overview([])["Lookups"] == 0 and source_stats([]).empty

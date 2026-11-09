@@ -11,7 +11,15 @@ from core.dataset import expand_multiline_rows
 from core.offline import format_size
 from core.timezone import format_in_tz
 from integrations.cache import cache_ttl, cache_usage, group_ttl
-from views.common import capped_table, clean_strings, format_datetime_columns, selected_rows, selection_key, table
+from views.common import (
+    capped_table,
+    clean_strings,
+    format_datetime_columns,
+    selected_rows,
+    selection_key,
+    table,
+)
+from views.history_cap import render_history_cap_notice
 
 CERT_COLUMNS = [
     "Domain", "Source", "Common Name", "Issuer", "Duration", "Validation Level", "Is Self Signed", "Hash",
@@ -72,6 +80,7 @@ def _render_domain_history(ds):
     if ds.dh.empty:
         return
     st.subheader("Domain History Logs")
+    render_history_cap_notice(ds.selected_domains, key="raw_history_rest")
     time_col = f"Timestamp ({ds.timezone})"
     base = ds.dh[["Domain", "Date", "Field", "Before", "After", "Day of Week", "Days Since Previous Event"]].copy()
     base = clean_strings(format_datetime_columns(base, ["Date"])).rename(columns={"Date": time_col, "Domain": "Domain / IP"})
@@ -205,7 +214,8 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
             ("Cache lifetime", lifetime_label, "Settings → Lookup cache. How long a successful lookup is reused; "
                                                "sources with their own lifetime are listed there"),
             ("From cache", f"{hits:,} of {total:,}", "Lookups of this run served from the cache (no API query)"),
-            ("API queries", f"{total - hits:,}", "Lookups of this run that queried the APIs (now cached too)"),
+            ("Queried live", f"{total - hits:,}", "Lookups of this run that queried the APIs (now cached too); the "
+                                                  "API queries they made are on the API queries tab"),
             ("Oldest cached data", _ago(oldest), "Age of the oldest cached result this run used"),
             ("First expiry", _until(expires), "When the first result of this run leaves the cache; a later run then "
                                               "queries it again"),
@@ -226,7 +236,7 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
             st.dataframe(view, hide_index=True, width="stretch", column_config={
                 "Lookups": st.column_config.NumberColumn("Lookups", help="Lookups of this run from that source"),
                 "From Cache": st.column_config.NumberColumn("From cache", help="Served from the cache, no API query"),
-                "Live": st.column_config.NumberColumn("API queries", help="Queried the API in this run"),
+                "Live": st.column_config.NumberColumn("Queried live", help="Lookups that queried the API in this run"),
                 "Oldest Cached At": st.column_config.DatetimeColumn("Oldest cached at", format="YYYY-MM-DD HH:mm"),
                 "Newest Cached At": st.column_config.DatetimeColumn("Newest cached at", format="YYYY-MM-DD HH:mm"),
                 "Expires At": st.column_config.DatetimeColumn(

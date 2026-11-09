@@ -16,6 +16,9 @@ from config import (
     DEFAULT_THRESHOLDS,
     DNSDB_DEFAULT_LIMIT,
     DNSDB_LIMIT_OPTIONS,
+    DOMAIN_HISTORY_CAP_MAX,
+    DOMAIN_HISTORY_MAX_CHANGES,
+    DOMAIN_HISTORY_SAFETY_LIMIT,
     FETCH_CACHE_TTL_SECONDS,
     LOGO_CANDIDATES,
     SEED_DEFAULT_TARGETS,
@@ -39,6 +42,7 @@ from core.use_cases import (
     PROFILES_SETTING,
     effective_settings,
     find_case,
+    history_cap,
     history_period_days,
 )
 from core.window import CUSTOM_RANGE, DEFAULT_WINDOW, WINDOW_PRESETS
@@ -61,7 +65,6 @@ from integrations.credentials import (
     saved_sections,
 )
 from views import navigation
-from views.api_usage_view import render_cost_estimate
 from views.idn_display import UNICODE_KEY, display_name
 
 
@@ -89,7 +92,8 @@ class LookupSettings:
     vpndb_max_ips: int = VPNDB_MAX_IPS      # hosting IPs in the bulk request
     vpndb_details: int = VPNDB_DETAIL_MAX   # full verdicts and weekly histories
     vpndb_context: bool = True              # neighbouring /24s, hosting networks, leads on dedicated exits
-    history_days: int = 0                   # Domain History: only changes of the last N days (0: all)
+    history_days: int = 0                   # Domain History: only changes of the last N days (0: no period)
+    history_max: int = DOMAIN_HISTORY_MAX_CHANGES   # Domain History: changes per domain at most (0: no cap)
     pdns_incremental: bool = False          # DNSDB: only records seen since the last offline copy of the targets
 
     def collection_summary(self):
@@ -100,6 +104,7 @@ class LookupSettings:
                 "cname_lookup": self.cname_lookup, "vpndb_check": self.vpndb_check, "vpndb_only": self.vpndb_only,
                 "vpndb_max_ips": self.vpndb_max_ips, "vpndb_details": self.vpndb_details,
                 "vpndb_context": self.vpndb_context, "history_days": self.history_days,
+                "history_max": self.history_max,
                 "pdns_incremental": self.pdns_incremental}
 
 
@@ -154,7 +159,7 @@ def lookup_settings(raw_input, run, save_offline=False):
                           cname_lookup=bool(opt["opt_cname"]), vpndb_check=bool(opt["opt_vpndb"]),
                           vpndb_only=bool(opt["opt_vpndb_only"]), vpndb_max_ips=int(opt["opt_vpndb_max_ips"]),
                           vpndb_details=int(opt["opt_vpndb_details"]), vpndb_context=bool(opt["opt_vpndb_context"]),
-                          history_days=next_history_days(),
+                          history_days=next_history_days(), history_max=next_history_cap(),
                           pdns_incremental=bool(opt["opt_pdns_incremental"] and dnsdb))
 
 
@@ -165,6 +170,20 @@ def next_history_days():
     start = custom[0] if isinstance(custom, (list, tuple)) and custom else None
     return history_period_days(opt.get("opt_history_mode", "all"), opt.get("opt_history_days"),
                                opt.get("analysis_window"), start)
+
+
+def next_history_cap():
+    """Domain History changes per domain the next Analyze fetches at most (0: no cap)."""
+    opt = st.session_state
+    return history_cap(opt.get("opt_history_mode", "all"), opt.get("opt_history_max"))
+
+
+def history_option_text():
+    """The Domain History period and cap of the next Analyze, e.g. "the last 30 days, up to 1,000 changes"."""
+    days, cap = next_history_days(), next_history_cap()
+    if not cap:
+        return "every change (all time, no cap)"
+    return (f"the last {days:,} days, " if days else "the newest changes, ") + f"up to {cap:,} per domain"
 
 
 def options_summary():
@@ -184,8 +203,10 @@ def options_summary():
         parts.append(f"IP pivots {opt['opt_pivot_max']}")
     if opt["opt_pdns_incremental"] and opt["opt_pdns_provider"] == "DNSDB Scout":
         parts.append("incremental pDNS")
-    if next_history_days():
-        parts.append(f"history {next_history_days()} d")
+    days, cap = next_history_days(), next_history_cap()
+    if days or cap != DOMAIN_HISTORY_MAX_CHANGES:
+        parts.append("history " + " / ".join(filter(None, [f"{days} d" if days else "",
+                                                           f"{cap:,}" if cap else "no cap"])))
     if opt["opt_force_refresh"]:
         parts.append("force refresh")
     return " · ".join(parts)
@@ -343,7 +364,6 @@ def render_lookup_controls(settings_page=None):
     if case is not None:
         st.sidebar.caption(f"**Use case:** {case.title}" + (" (options changed since)" if changed else ""))
     st.sidebar.caption(f"**Options:** {options_summary()}")
-    render_cost_estimate(raw_input, lookup_settings(raw_input, False))
     if settings_page is not None:
         st.sidebar.page_link(settings_page, label="Change collection options", icon=":material/tune:")
     render_credential_chip(settings_page)
@@ -395,24 +415,41 @@ def render_collection_options(prefix="", force_refresh=True):
                      "but the result limit holds new records instead of old ones, and the lookup is faster. Without an "
                      "offline copy the lookup is complete, as usual. Save an offline copy of each run (sidebar) so the "
                      "next one builds on it. DNSDB Scout only.")
-    st.markdown("**Domain History**")
-    c1, c2 = st.columns(2)
+    st.markdown("**Domain History**", help="Separate from the analysis window in the sidebar, which only filters "
+                "what the pages show. These options decide which changes Domain History fetches.")
+    mode = st.session_state[prefix + "opt_history_mode"]
+    c1, c2, c3 = st.columns([2, 1, 1])
     c1.selectbox("Domain History period", list(HISTORY_MODES), key=prefix + "opt_history_mode",
                  format_func=HISTORY_MODES.get,
-                 help="Which changes Domain History fetches. **All**: every change, up to 1,000 per domain (the "
-                      "default; dormancy and parking detections then see the whole past). **Same as the analysis "
-                      "window**: only the changes of the window chosen in the sidebar (All time fetches all). **Custom "
-                      "number of days**: the last N days, to fetch more or less than the window. Domain History "
-                      "returns the newest changes first, 100 per query, so a short period stops after the first page "
-                      "or two and costs fewer queries; detections that compare with older history (dormancy, parking) "
-                      "then see only this period.")
-    c2.number_input("Days of Domain History", min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
-                    disabled=st.session_state[prefix + "opt_history_mode"] != "days",
-                    help="With *Custom number of days*: the changes of the last N days are fetched.")
+                 help="Which changes Domain History fetches for each domain. It returns the newest changes first, "
+                      "100 per query.\n\n"
+                      "- **Latest changes, up to the cap** (default): the newest changes, up to the cap. Short "
+                      "histories come in full; a domain with a longer history stops at the cap, and the app tells "
+                      "you which domains have more.\n"
+                      "- **Analysis window, up to the cap**: only the changes inside the analysis window picked in "
+                      "the sidebar when you click Analyze (*All time*: no period), still up to the cap.\n"
+                      "- **Custom number of days, up to the cap**: the changes of the last N days, more or less than "
+                      "the window.\n"
+                      f"- **All time, no cap**: every change of every domain (stops at {DOMAIN_HISTORY_SAFETY_LIMIT:,} "
+                      "as a safeguard). Long histories take many queries and longer to collect and process.\n\n"
+                      "A period or a low cap costs fewer queries, but detections that compare with older history "
+                      "(dormancy, parking) see only what was fetched.")
+    c2.number_input("Days", min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
+                    disabled=mode != "days", help="With *Custom number of days*: the changes of the last N days.")
+    c3.number_input("Max changes", min_value=100, max_value=DOMAIN_HISTORY_CAP_MAX, step=500,
+                    key=prefix + "opt_history_max", disabled=mode == "unlimited",
+                    help=f"Most changes fetched per domain (default {DOMAIN_HISTORY_MAX_CHANGES:,}; 100 per query). "
+                         "A domain that reaches it has more changes, and the app says so.")
+    cap = int(st.session_state[prefix + "opt_history_max"] or DOMAIN_HISTORY_MAX_CHANGES)
+    if mode == "unlimited":
+        st.caption(":orange[:material/warning: No cap: domains with long histories (thousands of changes) take many "
+                   "Domain History queries, and collecting and processing them takes longer.]")
+    elif cap > DOMAIN_HISTORY_MAX_CHANGES:
+        st.caption(f":orange[:material/warning: A cap above {DOMAIN_HISTORY_MAX_CHANGES:,} means up to "
+                   f"{-(-cap // 100):,} queries per domain with a long history, and slower collection and "
+                   "processing.]")
     if not prefix:
-        days = next_history_days()
-        st.caption("Next Analyze: " + (f"the last {days:,} days of changes." if days else
-                                       "every change, up to 1,000 per domain."))
+        st.caption(f"Next Analyze: {history_option_text()}.")
     st.markdown("**VPNDB**")
     st.checkbox("Check hosting IPs for VPN, residential proxy and Tor", key=prefix + "opt_vpndb",
                 help="On in every use case. Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, "
@@ -685,9 +722,6 @@ def render_analysis_window():
             custom_range = (picked[0], picked[1])
         else:
             st.sidebar.caption("Select both a start and an end date.")
-    if st.session_state.get("opt_history_mode") == "window":
-        st.sidebar.caption("Domain History is also fetched for this window on the next Analyze (Settings → Collection "
-                           "options → Domain History period).")
     return WindowChoice(preset, custom_range)
 
 

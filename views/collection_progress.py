@@ -25,8 +25,9 @@ def plan_settings(settings):
             "opt_pivot_max": settings.pivot_max_ips, "opt_ct": settings.include_ct, "opt_ct_max": settings.ct_max_hashes,
             "opt_vpndb": settings.vpndb_check, "opt_vpndb_only": settings.vpndb_only,
             "opt_vpndb_max_ips": settings.vpndb_max_ips, "opt_vpndb_details": settings.vpndb_details,
-            "opt_vpndb_context": settings.vpndb_context, "opt_history_mode": "days" if settings.history_days else "all",
-            "opt_history_days": settings.history_days or 1,
+            "opt_vpndb_context": settings.vpndb_context, "opt_history_mode": ("unlimited" if not settings.history_max
+                                                      else "days" if settings.history_days else "all"),
+            "opt_history_days": settings.history_days or 1, "opt_history_max": settings.history_max,
             "opt_pdns_incremental": settings.pdns_incremental}
 
 

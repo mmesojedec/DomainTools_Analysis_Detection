@@ -112,7 +112,7 @@ core/
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
   account.py                   Account Information rows: product names, usage, limits and what is left, expiry; the products each collection stage needs
-  api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, cost estimate vs what is left
+  api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, what is left, Data sources statistics
   query_assist.py              IrisQL / CertsQL editor suggestions: fields, each field's operators, value templates, flagged lines
   hostnames.py                 Hostname focus filter, Hostname Inventory (lifecycle, flags) and hostname-certificate links
   pivots.py                    Pivot Ranking: shared Iris Investigate values ranked by Iris pivot count
@@ -184,6 +184,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen
+  history_cap.py               Domains whose Domain History stopped at the cap: notice and Fetch the rest
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
                                on dedicated exits, Tor network, CIDR address grids
@@ -192,7 +193,8 @@ views/                         One module per page + sidebar, alert tools, certi
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards
   settings_view.py             Settings: collection options, use cases & profiles, thresholds, brand watchlist, cache, credentials
   account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry; DNSDB and VPNDB quotas
-  api_usage_view.py            Sidebar cost estimate, the run's API queries (Data sources), skipped products
+  api_usage_view.py            What each service has left, skipped products
+  sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
   docs_view.py                 In-app documentation (Help → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)

@@ -1,7 +1,7 @@
 """
 DomainTools Account Information (SDK): the account's products, limits and usage. Not in the lookup cache (usage
-changes); `account_information()` keeps the last answer for an hour in memory, shared by the Account page, the cost
-estimate and the product check of each Analyze, so they cost at most one query an hour.
+changes); `account_information()` keeps the last answer for an hour in memory, shared by the Account page, the Data
+sources page (what is left) and the product check of each Analyze, so they cost at most one query an hour.
 """
 import threading
 import time

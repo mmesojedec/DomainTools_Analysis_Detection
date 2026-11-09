@@ -41,8 +41,8 @@ tabs for the options being edited):
 | Option | Lookup | Limit |
 | --- | --- | --- |
 | *(always)* | Iris Investigate: registration, current hosting, risk score and its evidence, website and trackers | batches of 100 domains |
-| *(always)* | Domain History: registration, DNS and certificate changes | 1,000 changes |
-| Domain History period | Domain History: all changes (default), only those of the analysis window, or of a custom number of days; paging stops at the first older change | 100 changes per query |
+| *(always)* | Domain History: registration, DNS and certificate changes | 1,000 changes (the cap) |
+| Domain History period, Max changes | Domain History: the latest changes (default), only those of the analysis window, or of a custom number of days, each up to the cap; or all time with no cap. Paging stops at the first older change or at the cap; a domain that reaches the cap is reported as having more changes | 100 changes per query; cap 100–20,000; no cap stops at 50,000 |
 | *(always)* | Certificate API: certificates naming the domain, and certificate events | 2,500 each |
 | Passive DNS provider, DNSDB result limit | DNSDB Scout: the domain and every subdomain, all record types (Iris pDNS: 500 records) | the limit you pick |
 | Supplemental TXT lookup | DNSDB TXT records, only when the main lookup hit its limit | 500 fetched, latest N kept |
@@ -73,6 +73,7 @@ Options per use case (generated from `core/use_cases.py`):
 | Incremental passive DNS | off | · | · | · | · | · | on | · | · |
 | Domain History period | all | · | · | · | · | · | days | · | · |
 | Domain History period (days) | 365 | · | · | · | · | · | 90 | · | · |
+| Domain History changes per domain | 1,000 | · | · | · | · | · | · | · | · |
 | VPN / proxy / Tor check (VPNDB) | on | · | · | · | · | · | · | · | · |
 | VPNDB: hosting IPs per run | 500 | 100 | · | · | 100 | 200 | 200 | · | · |
 | VPNDB: full verdicts per run | 50 | 20 | · | · | 10 | 20 | 20 | 100 | · |
@@ -135,7 +136,9 @@ Limits (generated from `config.py`):
 | `CNAME_CHASE_QUERIES_PER_DOMAIN` | 10 | DNSDB queries a CNAME chase click may spend per domain (cached lookups are free) |
 | `CNAME_RDATA_MAX_PER_CLICK` | 10 | names looked up per click of a reverse CNAME lookup |
 | `CNAME_RDATA_RECORD_LIMIT` | 5,000 | names per reverse CNAME (RDATA) lookup |
-| `DOMAIN_HISTORY_MAX_CHANGES` | 1,000 | Domain History changes fetched per domain |
+| `DOMAIN_HISTORY_MAX_CHANGES` | 1,000 | Domain History: default cap of changes fetched per domain (Settings can change it) |
+| `DOMAIN_HISTORY_CAP_MAX` | 20,000 | highest cap the Settings field accepts |
+| `DOMAIN_HISTORY_SAFETY_LIMIT` | 50,000 | "All time, no cap" still stops here (500 queries), so a run cannot page forever |
 | `POPULAR_RANK_MAX` | 10,000 | Iris popularity rank up to which a domain counts as popular (lower confidence) |
 | `MONITOR_HISTORY_DAYS` | 90 | Monitor changes use case: Domain History period (days of changes fetched) |
 | `CERT_SEARCH_MAX_RECORDS` | 2,500 | certificates fetched per target by the certificate search |

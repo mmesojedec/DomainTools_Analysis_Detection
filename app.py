@@ -39,7 +39,7 @@ from views import idn_display, navigation
 from views.account_view import render_account_page
 from views.alert_tools import AlertView
 from views.anonymizer_view import render_anonymizer_summary
-from views.api_usage_view import render_run_usage, skipped_products_note
+from views.api_usage_view import skipped_products_note
 from views.campaign_view import render_campaign_lens
 from views.certsql_view import ORIGIN_KEY as CERTSQL_ORIGIN_KEY
 from views.certsql_view import render_certsql_page
@@ -86,6 +86,7 @@ from views.sidebar import (
     render_timezone_selector,
     show_pending_toast,
 )
+from views.sources_view import render_data_sources
 from views.ssl_view import render_ssl_lens
 from views.summary_view import render_summary
 from views.triage_view import render_triage_lens
@@ -246,6 +247,7 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
                 seed_hits=resolution.hits if resolution is not None else None,
                 host_focus=host_focus,
                 history_days=settings.history_days,
+                history_max=settings.history_max,
                 pdns_base=incremental_base(target_set_key(run_key_labels(targets, seed_inputs)), "DNSDB Scout",
                                            settings.dnsdb_limit) if settings.pdns_incremental else None,
                 unavailable=unavailable_stages(products),
@@ -561,8 +563,8 @@ def page_sources():
     render_origin_banner()
     render_apex_notice(st.session_state.get("apex_conversions"))
     render_idn_notice(st.session_state.get("idn_conversions"))
-    render_status_panel(CTX.collected.statuses, expanded=True)
-    render_run_usage(CTX.collected.statuses)
+    live = (st.session_state.get("data_origin") or {}).get("mode") == "live"   # timings belong to the last Analyze
+    render_data_sources(CTX.collected.statuses, st.session_state.get(PROGRESS_KEY) if live else None)
     _render_cache_details(CTX.collected, CTX.timezone)
     render_seed_provenance(CTX.collected)
 

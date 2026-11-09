@@ -1,7 +1,7 @@
 """DomainTools Domain History (SDK) lookup, payload unwrapping, and snapshot lifespan calculation."""
 import pandas as pd
 
-from config import DOMAIN_HISTORY_MAX_CHANGES
+from config import DOMAIN_HISTORY_MAX_CHANGES, DOMAIN_HISTORY_SAFETY_LIMIT
 from core.helpers import refang_domain
 from core.pdns_features import add_event_gaps, add_tempo_features
 from integrations.cache import cached_fetch
@@ -23,8 +23,10 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=N
     """
     Fetches change events via the DomainTools SDK with offset pagination. data = {"response": {"changes": [...]}}.
     The API returns the newest changes first, so with `since` (an ISO date) paging stops at the first change before
-    it, and older changes are left out.
+    it, and older changes are left out. `max_changes` caps the changes per domain (0: no cap, up to
+    DOMAIN_HISTORY_SAFETY_LIMIT); a domain that reaches the cap is `truncated`: it has more changes.
     """
+    limit = int(max_changes) if max_changes else DOMAIN_HISTORY_SAFETY_LIMIT
     clean_dom = refang_domain(domain)
     api = get_dt_api()
     if api is None:
@@ -32,7 +34,7 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=N
 
     changes, reached = [], False
     try:
-        while len(changes) < max_changes:
+        while len(changes) < limit:
             page = sdk_call(lambda: api.domain_history(clean_dom, page_size=PAGE_SIZE, offset=len(changes)).data())
             page_changes = (page or {}).get("response", {}).get("changes", []) or []
             if since:
@@ -48,8 +50,11 @@ def fetch_domain_history(domain, max_changes=DOMAIN_HISTORY_MAX_CHANGES, since=N
         return FetchResult(SOURCE, clean_dom, data={"response": {"changes": changes}}, error=describe_exception(exc),
                            record_count=len(changes))
 
-    truncated = len(changes) >= max_changes
-    note = f"Stopped at {max_changes} change events" if truncated else None
+    truncated = len(changes) >= limit
+    note = None
+    if truncated:
+        note = (f"Stopped at the cap of {limit:,} changes; more changes are available" if max_changes else
+                f"Stopped at the safety limit of {limit:,} changes; more changes are available")
     if since:
         note = "; ".join(filter(None, [note, f"Changes since {since} (Domain History period)"]))
     return FetchResult(SOURCE, clean_dom, data={"response": {"changes": changes}}, truncated=truncated,

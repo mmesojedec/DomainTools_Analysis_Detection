@@ -234,6 +234,15 @@ def _on(flag, text):
     return text if flag else "Off"
 
 
+def _history_limit(s):
+    """The Domain History period and cap a dataset's run used (older datasets: the default cap)."""
+    cap = s.get("history_max", DOMAIN_HISTORY_MAX_CHANGES)
+    period = f"Changes of the last {int(s['history_days']):,} days, " if s.get("history_days") else ""
+    if not cap:
+        return (period or "") + "no cap"
+    return (period + "up to " if period else "Up to ") + f"{int(cap):,} changes per domain"
+
+
 # What each part of a dataset holds, where it came from, and the limit its lookups ran with (`s`: the run's
 # collection settings from the manifest; older datasets fall back to the defaults)
 PARTS = {
@@ -241,8 +250,7 @@ PARTS = {
     "enrichment": ("Iris Investigate records", "Iris Investigate", "Registration, current hosting, risk score, "
                    "website and trackers per domain", lambda s: f"Batches of {IRIS_INVESTIGATE_BATCH_SIZE} domains; current data"),
     "dh": ("Domain History", "DomainTools API", "Registration, DNS and certificate changes",
-           lambda s: (f"Changes of the last {int(s['history_days']):,} days, up to " if s.get("history_days")
-                      else "Up to ") + f"{DOMAIN_HISTORY_MAX_CHANGES:,} changes per domain"),
+           lambda s: _history_limit(s)),
     "risk": ("Risk scores", "Iris Investigate", "Risk score and its components per domain (from the Iris records)",
              lambda s: "One score per domain; no extra query"),
     "pdns": ("Passive DNS", "DNSDB Scout / Iris pDNS", "Every DNS record seen for the domains and subdomains",

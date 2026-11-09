@@ -35,6 +35,7 @@ from views.alert_tools import HEATMAP_SEVERITY_COLORS, SEVERITY_ORDER
 from views.anonymizer_view import alerts_button, domain_verdict_text, ip_check_only, render_ip_check, render_networks, selectable_table
 from views.collection_progress import PROGRESS_KEY, render_last_collection
 from views.common import chart, selected_rows, selection_key
+from views.history_cap import render_history_cap_notice
 from views.hunt_actions import analyze_button, current_run_id, iris_button
 from views.idn_display import display_name, enabled
 from views.pivot_view import dataset_pivots
@@ -358,6 +359,7 @@ def _render_lifecycle_and_health(ds):
                  f":red[{health['Failed']:,} failed]" if health["Failed"] else "",
                  f":violet[{health['Cached']:,} from cache]" if health["Cached"] else ""]
         st.markdown(", ".join(p for p in parts if p))
+        render_history_cap_notice(ds.selected_domains, compact=True)
         if oldest:
             st.caption(f"Oldest cached result fetched {age_text(time.time() - oldest)} ago.")
         if health["Partial"]:

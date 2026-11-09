@@ -13,6 +13,7 @@ from core.triage import DOMAIN, STATUS_HELP, STATUSES, load_triage, set_status, 
 from integrations.enrichment import extract_iris_profile
 from views import navigation
 from views.anonymizer_view import CATEGORY_BADGES, alerts_button, selectable_table
+from views.history_cap import render_history_cap_notice
 
 LATEST_PER_TYPE = 5
 
@@ -214,6 +215,7 @@ def render_profile(ctx):
     with c_hist:
         st.subheader("Latest Domain History changes")
         history = ds.dh[ds.dh["Domain"] == domain] if not ds.dh.empty else ds.dh
+        render_history_cap_notice([domain], key="profile_history_rest")
         if history.empty:
             st.caption("No Domain History changes in the analysis window.")
         else:
