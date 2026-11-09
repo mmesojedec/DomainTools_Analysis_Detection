@@ -150,6 +150,9 @@ def other_values_table():
         ("Offline datasets kept (default; change on Offline Datasets)", f"{config.MAX_OFFLINE_DATASETS} newest"),
         ("Run snapshots kept per target set (default; change on Runs & Diffs)", f"{config.MAX_RUN_SNAPSHOTS} newest"),
         ("Rows shown in raw tables", f"{config.MAX_RAW_DISPLAY_ROWS:,}"),
+        ("Quota banner (products this app uses, DNSDB key)", f"yellow from {config.QUOTA_WARN_PERCENT}% of the quota "
+                                                             f"used or {config.EXPIRY_WARN_DAYS} days before expiry; "
+                                                             "red when used up or expired"),
     ]
     lines = ["| What | Value |", "| --- | --- |"]
     lines += [f"| {what} | {_cell(value)} |" for what, value in rows]

@@ -138,6 +138,8 @@ core/
   run_history.py               Snapshot normalization, run comparison, alert lifecycle, trends, per-domain history
   offline.py                   Offline datasets: save / load / manage collected data (gzipped JSON, no pickle)
   export.py                    IOC lists, confirmed indicators, STIX 2.1 bundles, MISP events, HTML/Markdown evidence reports
+  case_report.py               Case report: one run as a printable, self-contained HTML page (summary, top alerts, risk, infrastructure, IOCs)
+  seen.py                      Indicator Sightings: where an indicator was observed across saved runs and offline datasets
   data_export.py               Data Export page: IOCs, tables and raw records as CSV / NDJSON, zipped with a manifest
   cert_utils.py                Certificate helpers (weak keys, duration, self-signed, IP names)
   pdns_features.py             Shared pDNS / Domain History feature engineering (gaps, lifespans, tempo)
@@ -194,6 +196,8 @@ views/                         One module per page + sidebar, alert tools, certi
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards
   settings_view.py             Settings: collection options, use cases & profiles, thresholds, brand watchlist, cache, credentials
   account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry; DNSDB and VPNDB quotas
+  quota_banner.py              Red / yellow banners on every page: a product's quota used up or near it, expiry close or past
+  seen_view.py                 Indicator Sightings page (Sightings in the top menu)
   api_usage_view.py            What each service has left, skipped products
   sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
   docs_view.py                 In-app documentation (Help → Documentation, /docs)

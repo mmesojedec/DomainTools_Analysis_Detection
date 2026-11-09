@@ -726,10 +726,10 @@ bundle; the section also lists the Iris Investigate searches for the strong and 
 
 ## Pages
 
-The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Overview** (Summary, Domain profile, Alerts),
+The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Sightings**, **Overview** (Summary, Domain profile, Alerts),
 **Infrastructure** (DNS & Hosting, VPNDB, Tor network, CNAME Chains, Certificates), **Hunt** (Pivot Ranking, Hostname Inventory,
 Subdomain Triage), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
-**Data sources**, **Settings** and **Help**. With *Analyst mode* off, Hunt,
+**Data sources**, **Settings**, **Account** and **Help**. Red and yellow banners at the top of every page warn when a product this app uses has used up (or nearly) its monthly quota or expires soon. With *Analyst mode* off, Hunt,
 Raw Records and Lookup Queries are left out.
 
 | Page | Highlights |
@@ -737,6 +737,7 @@ Raw Records and Lookup Queries are left out.
 | Start | Use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting): each sets the collection options and window and gives a plan; Recent runs (the last 10 runs: run again with the same options, load their offline copy, open in Runs & Diffs) |
 | IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as CLI, curl and SDK code; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run |
 | CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as curl and Python code; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
+| Sightings | *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, tracker code or email was observed across saved runs and offline datasets (local files, no API query); open the run, load the dataset or analyze the indicator |
 | Summary | KPIs, hunt trail, every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains), analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits), top alerts, hunt status, the use-case plan with checkboxes, *What to check next* with a button to the right page (filtered where useful), leads to follow, linked domains, run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health), what's new since the last analysis and *Watch this list* |
 | Domain profile | One domain: risk and DIF, why this score, your verdict, one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons, suppressions, run diff, exports, confirmed indicators, DomainTools risk evidence |
@@ -754,7 +755,7 @@ Raw Records and Lookup Queries are left out.
 | Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
 | Runs & Diffs | Previous Runs & Comparison: run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs |
 | Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
-| Data Export | Confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
+| Data Export | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 
 ## A suggested triage workflow
 

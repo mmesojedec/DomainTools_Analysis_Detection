@@ -58,9 +58,11 @@ from views.irisql_view import render_irisql_page
 from views.pivot_view import render_pivot_lens
 from views.profile_view import render_profile
 from views.query_view import render_query_lens
+from views.quota_banner import render_quota_banners
 from views.raw_view import render_cache_panel, render_raw_lens, render_status_panel
 from views.risk_view import render_risk_lens
 from views.seed_view import render_seed_preview, render_seed_provenance, render_seed_query_step
+from views.seen_view import render_seen_page
 from views.settings_view import brand_watchlist, render_settings
 from views.sidebar import (
     DATA_MODE_KEY,
@@ -603,6 +605,7 @@ PAGE_FUNCTIONS = {
     "home": page_home,
     "irisql": render_irisql_page,
     "certsql": render_certsql_page,
+    "seen": render_seen_page,
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),
     "alerts": data_page(page_alerts),
@@ -716,6 +719,8 @@ def main():
             box.empty()
         else:
             CTX = build_context(collected, timezone, window, thresholds)
+    if nav.url_path != "account":   # the Account page shows them with its tables
+        render_quota_banners()
     nav.run()
 
 

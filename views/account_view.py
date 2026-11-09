@@ -20,6 +20,8 @@ from integrations.credentials import load_dnsdb_key, load_vpndb_key
 from integrations.dnsdb import fetch_dnsdb_rate_limit
 from integrations.vpndb import VPNDB_RATE_LIMIT, last_quota
 from views.api_usage_view import DNSDB_QUOTA_KEY
+from views.quota_banner import HELP as QUOTA_HELP
+from views.quota_banner import render_quota_banners
 
 REFRESH_KEY = "account_refresh_requested"
 FILTER_KEY = "account_filter"
@@ -144,6 +146,8 @@ def render_account_page():
                 + (f" · label: {account['label']}" if account.get("label") else ""))
     if active is False:
         st.error("The account is not active: lookups will fail.", icon=":material/block:")
+    render_quota_banners(link=False)
+    st.caption(f":material/info: {QUOTA_HELP}")
 
     _render_app_products(frame)
     missing = missing_app_products(products)
@@ -152,9 +156,9 @@ def render_account_page():
                    + "\n".join(f"- **{feature}**: {effect}" for feature, effect in missing)
                    + "\n\nTurn the matching collection options off on *Settings → Collection options*, or ask "
                      "your DomainTools account team about adding the product.", icon=":material/info:")
-    near = frame[frame["Used %"].fillna(0) >= 80]
+    near = frame[(frame["Used %"].fillna(0) >= 80) & ~frame["Used by this app"]]   # the app's own: banners above
     if not near.empty:
-        st.warning("Over 80% of the monthly limit used: " + ", ".join(
+        st.warning("Other products of the account over 80% of the monthly limit: " + ", ".join(
             f"{row['Product']} ({row['Used %']:g}%)" for row in near.to_dict("records")),
             icon=":material/warning:")
 

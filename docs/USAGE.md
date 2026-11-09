@@ -18,6 +18,8 @@ their text is shown.
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
+- [Indicator Sightings](#indicator-sightings)
+- [Account](#account)
 - [Offline datasets](#offline-datasets)
 - [Where local data is stored](#where-local-data-is-stored)
 - [Troubleshooting](#troubleshooting)
@@ -32,6 +34,7 @@ analysis window, timezone, view filters).
 | **Start** | *Start*: pick a use case (see below) |
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
+| **Sightings** | *Indicator Sightings*: every saved run and offline dataset where one indicator was observed (see [Indicator Sightings](#indicator-sightings)) |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
 | **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* |
@@ -486,6 +489,19 @@ looked up `example.com`, so the row holds both names and both curl commands. The
 by search type). **Download all lookups (CSV)** saves every tool's lookups with the full queries and commands. Paging is
 left out of the commands. Gap-fill and certificate-input searches are included; lookups run once per certificate
 (SHA-256 events, CT logs) get one row each.
+
+#### Case report
+
+The **Data Export** page starts with **Case report**: the run as one HTML page to hand to a manager, attach to a
+ticket or send with a takedown request. Give it a title, your name and a summary (what was investigated, what you
+concluded, what you recommend), choose how many of the most severe alerts to list, and click **Download case report
+(HTML)**. For a PDF, open the file in a browser and print it (*Save as PDF*).
+
+The report has the run at a glance (domains, alerts per severity, the highest unified risk, alerts marked malicious,
+the share of lookups answered), the top alerts with their evidence, risk by domain, an infrastructure snapshot per
+domain (registrar, created and expiry dates, IPs with ASN and country, name servers, MX) and the indicators (the first
+500). Like the rest of the page it follows the analysis window and the view filters and leaves out suppressed alerts.
+The file has no scripts and loads nothing from the internet.
 
 #### Data Export
 
@@ -951,6 +967,25 @@ Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs*
 the Analyze button, or click **Add to the sidebar targets**, as on the IrisQL page. Runs & Diffs notes the run as *via CertsQL: …*, and **Lookup Queries → CertsQL**
 shows the query and its curl request.
 
+## Indicator Sightings
+
+**Sightings** in the top menu shows every saved run (`dt_runs/`) and offline dataset (`dt_offline/`) where one
+indicator was observed, so you can tell which earlier investigation it came up in, when, and with which domains. Local files only: no API query.
+
+- Enter an IP, domain or hostname, name server, MX host, certificate SHA-256, web tracker code (`G-…`, `UA-…`,
+  `GTM-…`) or email address. Defanged input works (`a[.]com`, `hxxps://a[.]com/login`).
+- **Partial match** also finds values containing it (3 characters at least): `dynect.net` finds every name server
+  there. **Offline datasets** includes the saved datasets; the first search reads each one (a second or two), later
+  searches are instant.
+- The result: in how many runs, offline datasets and target lists it appears, with how many domains, and when it was
+  first and last seen. The table has one row per sighting: where (run or offline dataset), when, the target list, the
+  domain it was seen with, what kind of value it is and, for runs, how many alerts that domain had.
+- Click a row, then **Open in Runs & Diffs** (a run), **Load offline dataset** (a dataset, no API calls) or
+  **Analyze … as a new run** (IPs, domains, hostnames, name servers and MX hosts; live lookups).
+
+Runs record email addresses (registration contacts, SOA, certificates) from now on; older runs match emails through
+their offline datasets.
+
 ## Account
 
 The **Account** page asks the DomainTools Account Information API about the account of the configured API
@@ -966,7 +1001,12 @@ asks again. The query counts against the *account-information* product, not agai
 - A note lists what the app needs but the account lacks (Iris Investigate, either plan; Domain History; Certificate
   search; Certificate events) and which lookups fail or are skipped without it. **Analyze** skips those sources
   with a status row saying why, instead of failing lookup by lookup.
-- A warning names any product with 80% or more of its monthly limit used.
+- **Quota and expiry banners** (also at the top of every page): red when a product this app uses has used up its
+  monthly quota or expired (its lookups fail), yellow from 95% of the quota used or 30 days before it expires. The
+  DNSDB key gets the same banners after *Check DNSDB quota*, and a VPNDB demo account when VPNDB sends a quota
+  notice. They come from the last Account Information answer (kept for an hour, also refreshed by **Analyze**), so
+  they cost no query and show up once the app has that answer.
+- A warning names the account's other products with 80% or more of their monthly limit used.
 - **Products**: every product with today's and this month's queries, the monthly limit, what is left, the share used,
   the hour and minute rate limits and the expiry date. *Show* → *Used this month* narrows it to the products with
   queries this month. An empty monthly limit means the product only has hour or minute limits (e.g. Iris Detect).

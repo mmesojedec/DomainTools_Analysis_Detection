@@ -203,6 +203,7 @@ Values (generated from `config.py` and `core/window.py`):
 | Offline datasets kept (default; change on Offline Datasets) | 20 newest |
 | Run snapshots kept per target set (default; change on Runs & Diffs) | 10 newest |
 | Rows shown in raw tables | 50,000 |
+| Quota banner (products this app uses, DNSDB key) | yellow from 95% of the quota used or 30 days before expiry; red when used up or expired |
 
 ## Built-in lists
 

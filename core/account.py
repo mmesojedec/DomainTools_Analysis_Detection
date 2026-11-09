@@ -4,6 +4,8 @@ the Account page. The API returns numbers as strings and "" or null where a prod
 """
 import pandas as pd
 
+from config import EXPIRY_WARN_DAYS, QUOTA_WARN_PERCENT
+
 # Products this app's lookups count against (Iris Investigate may be billed to either Iris product)
 APP_PRODUCTS = {
     "iris-investigate": "IrisQL searches, enrichment and risk scores of analyzed domains",
@@ -92,6 +94,82 @@ def products_frame(products):
     frame = frame.sort_values(["Used by this app", "This month", "Product"], ascending=[False, False, True],
                               na_position="last", kind="stable")
     return frame.reset_index(drop=True)
+
+
+def _expiry_text(value, today):
+    """(level, text) for an expiration date: "error" once past, "warning" within EXPIRY_WARN_DAYS, else None."""
+    day = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(day):
+        return None, None
+    days = (day.date() - today).days
+    if days < 0:
+        return "error", f"expired on {day:%Y-%m-%d}"
+    if days <= EXPIRY_WARN_DAYS:
+        return "warning", f"expires on {day:%Y-%m-%d} ({'today' if days == 0 else f'in {days} day' + ('s' if days != 1 else '')})"
+    return None, None
+
+
+def quota_level(used, limit):
+    """"error" when `used` reaches `limit`, "warning" from QUOTA_WARN_PERCENT of it, else None (also when unknown)."""
+    if not limit or used is None:
+        return None
+    if used >= limit:
+        return "error"
+    return "warning" if 100 * used / limit >= QUOTA_WARN_PERCENT else None
+
+
+def account_alerts(products, today=None):
+    """
+    Banner lines for the products this app uses (APP_PRODUCTS): [{"level": "error" | "warning", "product", "text"}].
+    Red when the monthly quota is used up or the product expired; yellow from QUOTA_WARN_PERCENT used or within
+    EXPIRY_WARN_DAYS of expiring. Empty when the products are unknown (None).
+    """
+    today = today or pd.Timestamp.now(tz="UTC").date()
+    alerts = []
+    for product in products or []:
+        pid = product.get("id", "")
+        if pid not in APP_PRODUCTS:
+            continue
+        name = product_name(pid)
+        limit, used = _number(product.get("per_month_limit")), _number((product.get("usage") or {}).get("month"))
+        level = quota_level(used, limit)
+        if level == "error":
+            alerts.append({"level": "error", "product": name,
+                           "text": f"{name}: this month's quota is used up ({used:,} of {limit:,}); its lookups fail "
+                                   "until it resets next month"})
+        elif level == "warning":
+            alerts.append({"level": "warning", "product": name,
+                           "text": f"{name}: {100 * used / limit:.0f}% of this month's quota used ({used:,} of "
+                                   f"{limit:,}, {limit - used:,} left)"})
+        level, text = _expiry_text(product.get("expiration_date"), today)
+        if level:
+            alerts.append({"level": level, "product": name, "text": f"{name} {text}"
+                           + ("; its lookups fail" if level == "error" else "")})
+    return alerts
+
+
+def dnsdb_alerts(rate, now=None):
+    """The same banner lines for a DNSDB key from its rate-limit check (`rate`: limit, remaining, expires)."""
+    if not rate:
+        return []
+    alerts = []
+    limit, left = _number(rate.get("limit")), _number(rate.get("remaining"))
+    if limit and left is not None:
+        level = quota_level(limit - left, limit)
+        if level == "error":
+            alerts.append({"level": "error", "product": "DNSDB", "text": f"DNSDB: the key's quota is used up (0 of "
+                                                                         f"{limit:,} left); its lookups fail until it resets"})
+        elif level == "warning":
+            alerts.append({"level": "warning", "product": "DNSDB",
+                           "text": f"DNSDB: {100 * (limit - left) / limit:.0f}% of the key's quota used ({left:,} of "
+                                   f"{limit:,} left)"})
+    expires = _number(rate.get("expires"))
+    if expires:
+        today = (now or pd.Timestamp.now(tz="UTC")).date()
+        level, text = _expiry_text(pd.Timestamp(expires, unit="s", tz="UTC"), today)
+        if level:
+            alerts.append({"level": level, "product": "DNSDB", "text": f"DNSDB key {text}"})
+    return alerts
 
 
 def missing_app_products(products):

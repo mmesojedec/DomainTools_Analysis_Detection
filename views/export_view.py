@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
+from core.api_usage import run_overview
+from core.case_report import build_case_report, infrastructure_rows
 from core.data_export import EXPORT_SETS, GROUPS, ExportContext, build_zip, export_counts, export_files, manifest
 from core.export import confirmed_indicators, dataset_iocs, to_misp_event, to_stix_bundle
 from core.pivots import iris_queries
@@ -16,8 +18,45 @@ def render_export_lens(ds, collected, alerts, profiles, created=None):
                                   "collected records. No charts; every timestamp is UTC.")
     st.caption("Raw data follows the analysis window and the Global View Filters; the hostname inventory and its "
                "certificate links cover the full collected history. Detections leave out suppressed alerts.")
+    render_case_report(ds, collected, alerts, profiles, created)
     render_confirmed_export(ds, alerts, expanded=True)
     _render_export_choices(ExportContext(ds, collected, alerts, profiles, created))
+
+
+def render_case_report(ds, collected, alerts, profiles, created=None):
+    """One-click case report: the run as a printable HTML page (summary, top alerts, risk, infrastructure, IOCs)."""
+    targets = list(ds.selected_domains)
+    with st.expander("Case report: the run as a page to share (HTML, print to PDF)", expanded=True,
+                     icon=":material/description:"):
+        st.caption("A single HTML file for a manager, a ticket or a takedown request: the run at a glance, the most "
+                   "severe alerts with their evidence, risk by domain, an infrastructure snapshot and the indicators. "
+                   "It follows the analysis window and the Global View Filters and leaves out suppressed alerts. "
+                   "Open it in a browser and print it (Save as PDF) for a PDF. The full evidence report with every alert is "
+                   "on the Alerts page.")
+        default_title = "Case report: " + ", ".join(targets[:3]) + (f" (+{len(targets) - 3} more)" if len(targets) > 3
+                                                                     else "")
+        c_title, c_analyst = st.columns([3, 2])
+        title = c_title.text_input("Title", value=default_title, key="report_title", max_chars=200)
+        analyst = c_analyst.text_input("Analyst", key="report_analyst", max_chars=120, placeholder="Your name or team")
+        notes = st.text_area("Summary", key="report_notes", height=100, max_chars=5000,
+                             placeholder="What was investigated, what you concluded, and what you recommend "
+                                         "(e.g. takedown, block, keep monitoring). Shown at the top of the report.")
+        c_top, c_iocs = st.columns([2, 3], vertical_alignment="bottom")
+        top = c_top.number_input("Top alerts", min_value=5, max_value=500, value=25, step=5, key="report_top",
+                                 help="How many of the most severe alerts the report lists, with their evidence")
+        with_iocs = c_iocs.checkbox("Include the indicators (IOCs)", value=True, key="report_iocs",
+                                    help="Domains, IPs, name servers and certificate hashes of the run (the first "
+                                         "500; Data Export below has them all)")
+        origin = st.session_state.get("data_origin") or {}
+        meta = {"title": title.strip() or default_title, "analyst": analyst.strip(), "notes": notes.strip(),
+                "targets": targets, "created": created, "window": st.session_state.get("window_label"),
+                "origin": "offline dataset" if origin.get("mode") == "offline" else "live lookups"}
+        report = build_case_report(meta, alerts, profiles, infrastructure_rows(collected.enrichment, targets),
+                                   dataset_iocs(ds) if with_iocs else None, run_overview(collected.statuses),
+                                   top=int(top))
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        st.download_button("Download case report (HTML)", report.encode("utf-8"), f"{stamp}_case_report.html",
+                           "text/html", type="primary", icon=":material/download:", on_click="ignore")
 
 
 def render_confirmed_export(ds, alerts, expanded=False):

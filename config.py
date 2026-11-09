@@ -21,6 +21,8 @@ OFFLINE_DIR = BASE_DIR / "dt_offline"
 CACHE_DIR = BASE_DIR / "dt_cache"
 MAX_OFFLINE_DATASETS = 20
 MAX_RUN_SNAPSHOTS = 10
+QUOTA_WARN_PERCENT = 95     # a product (or DNSDB key) this app uses gets a yellow banner from this share of its quota used
+EXPIRY_WARN_DAYS = 30       # ... and from this many days before it expires (red once used up or expired)
 LOGO_CANDIDATES = [BASE_DIR / name for name in ("domaintools_logo.svg", "domaintools_logo.png", "domaintools_logo.jpg")]
 
 # --- CREDENTIAL FILES (environment variables take precedence; see integrations/credentials.py) ---

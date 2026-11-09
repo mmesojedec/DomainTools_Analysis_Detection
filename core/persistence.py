@@ -114,8 +114,22 @@ def target_set_key(targets):
     return hashlib.sha256("\n".join(sorted(set(targets))).encode()).hexdigest()[:16]
 
 
+EMAIL_FIELDS = ("registrant_contact", "admin_contact", "technical_contact", "billing_contact", "soa_email", "ssl_email",
+                "additional_whois_email")   # Iris fields holding email addresses (contacts: their "email" list)
+
+
+def _contact_values(obj, field):
+    """The email values of Iris field `field` ({"email": [{"value"}]} for contacts, [{"value"}] for the others)."""
+    entry = obj.get(field) if isinstance(obj, dict) else None
+    items = entry.get("email") if isinstance(entry, dict) else entry
+    return [str(item.get("value") if isinstance(item, dict) else item or "").strip() for item in items or []]
+
+
 def collect_run_artifacts(collected):
-    """Per-domain artifact sets: IPs, name servers, MX hosts, certificate hashes, web trackers, subdomain hostnames."""
+    """
+    Per-domain artifact sets: IPs, name servers, MX hosts, certificate hashes, web trackers, subdomain hostnames and
+    the email addresses of the registration, SOA and certificates.
+    """
     artifacts = {}
 
     def add(domain, kind, value):
@@ -148,6 +162,10 @@ def collect_run_artifacts(collected):
             add(domain, "Name Server", host)
         for tracker in extract_web_trackers(obj):
             add(domain, "Web Tracker", f"{tracker['Platform']}: {tracker['Code']}")
+        for field in EMAIL_FIELDS:
+            for email in _contact_values(obj, field):
+                if "@" in email:
+                    add(domain, "Email", email)
     for frame in (collected.ssl, collected.ssl_active):
         if frame is not None and not frame.empty and "Hash" in frame.columns:
             for domain, value in zip(frame["Domain"], frame["Hash"]):

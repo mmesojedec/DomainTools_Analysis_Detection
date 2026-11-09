@@ -21,6 +21,7 @@ SECTIONS = {
     "Start": (PageSpec("home", "Start", ":material/home:"),),
     "IrisQL": (PageSpec("irisql", "IrisQL", ":material/manage_search:"),),
     "CertsQL": (PageSpec("certsql", "CertsQL", ":material/badge:"),),
+    "Sightings": (PageSpec("seen", "Sightings", ":material/visibility:"),),
     "Overview": (PageSpec("summary", "Summary", ":material/dashboard:"),
                  PageSpec("profile", "Domain profile", ":material/domain:"),
                  PageSpec("alerts", "Alerts", ":material/warning:")),
@@ -43,7 +44,7 @@ SECTIONS = {
     "Account": (PageSpec("account", "Account", ":material/account_circle:"),),
     "Help": (PageSpec("docs", "Documentation", ":material/menu_book:"),),
 }
-DIRECT = ("Start", "IrisQL", "CertsQL")   # one-page groups shown as plain links in the menu, not as a dropdown
+DIRECT = ("Start", "IrisQL", "CertsQL", "Sightings")   # one-page groups shown as plain links in the menu, not as a dropdown
 SPECS = {spec.key: spec for specs in SECTIONS.values() for spec in specs}
 _PAGES = {}   # key -> StreamlitPage of this run
 SCROLL_TAB_KEY = "scroll_to_tab"   # a tab label: the next page scrolls its tab row into view once
