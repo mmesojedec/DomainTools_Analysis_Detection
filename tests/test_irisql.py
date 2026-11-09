@@ -190,3 +190,10 @@ def test_manage_data_groups_saving_exporting_and_history_after_evidence():
     assert [spec.key for spec in navigation.SECTIONS["Manage Data"]] == ["save", "offline", "export", "history"]
     assert navigation.title("history") == "Runs & Diffs" and navigation.title("offline") == "Offline Datasets"
     assert [spec.key for spec in navigation.SECTIONS["Evidence"]] == ["raw", "queries"]
+
+
+def test_tor_network_is_its_own_infrastructure_page_not_a_vpndb_tab():
+    from views import navigation, vpndb_page
+    assert [spec.key for spec in navigation.SECTIONS["Infrastructure"]][:3] == ["dns", "vpndb", "tor"]
+    assert navigation.title("tor") == "Tor network" and "Tor network" not in vpndb_page.TABS
+    assert set(vpndb_page.HOW_TO_READ) == set(vpndb_page.TABS)

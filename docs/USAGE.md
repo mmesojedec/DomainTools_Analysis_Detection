@@ -33,7 +33,7 @@ analysis window, timezone, view filters).
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
-| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *CNAME Chains* · *Certificates* |
+| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
 | **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* |
 | **Evidence** | *Raw Records* · *Lookup Queries* |
 | **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Offline Datasets* to name it · *Offline Datasets*: load, rename and delete saved datasets (see [Offline datasets](#offline-datasets)) · *Data Export* · *Runs & Diffs* (saved runs, comparisons, trends) |
@@ -582,10 +582,11 @@ page through the whole relay list (`/tor/relays`).
     owner.
   - *Neighbourhood*: the /24 ranges around the hosting IPs and the hosting networks, with their known exits.
   - *Leads*: the other domains on dedicated exits, each with *Analyze*.
-  - *Tor network*: relays, exit relays and addresses, exit networks, new exits in 30 days, how concentrated Tor exit
-    traffic is, the run's hosting networks that carry Tor exit traffic, and the largest exit networks, countries and
-    prefixes.
   - *CIDR ranges*: one grid per range (one cell per address: measured exit, interpolated, none), then the range cards.
+- **Tor network** (its own page under *Infrastructure*, provided through VPNDB's `/tor` overview): network-wide
+  statistics, not verdicts on your IPs. Relays, exit relays and addresses, exit networks, new exits in 30 days, how
+  concentrated Tor exit traffic is, the run's hosting networks that carry Tor exit traffic, and the largest exit
+  networks, countries and prefixes. Whether one of your IPs is a Tor relay or exit is on the VPNDB page and its IP card.
 - **One IP in full.** Selecting a row in any VPNDB table (VPNDB page, Summary, Domain profile, the IP check cards)
   opens a card with five tabs:
   - *Verdict*: category, provider, every provider with its share, confidence and how it was reached, Tor role,

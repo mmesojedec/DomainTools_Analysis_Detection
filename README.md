@@ -187,7 +187,8 @@ views/                         One module per page + sidebar, alert tools, certi
   history_cap.py               Domains whose Domain History stopped at Max changes: notice and Fetch the rest
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
-                               on dedicated exits, Tor network, CIDR address grids
+                               on dedicated exits, CIDR address grids
+  tor_page.py                  Tor network page (Infrastructure): network-wide Tor statistics from VPNDB's /tor overview
   ip_card.py                   One IP in full: VPNDB verdict and whole answer, weekly history, where the run saw it,
                                Iris, its /24 and network, Tor share; fetches a full verdict on demand
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards

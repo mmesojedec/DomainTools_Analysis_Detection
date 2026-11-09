@@ -831,6 +831,38 @@ def add_to_targets(lines):
 HUNT_KEY = "hunt_request"   # {"id": parent run id, "via": what led here}: the next app run analyzes the target box
 
 
+RUN_OPTION_KEYS = tuple(k for k in COLLECTION_DEFAULTS if k != "opt_force_refresh")   # what Run again restores
+
+
+def run_options():
+    """The use case, analysis window and collection options of the run being analyzed (saved with its snapshot)."""
+    state = st.session_state
+    options = {key: state[key] for key in RUN_OPTION_KEYS if key in state}
+    options["use_case"] = state.get("use_case")
+    options["analysis_window"] = state.get("analysis_window", DEFAULT_WINDOW)
+    picked = state.get("analysis_window_range")
+    if options["analysis_window"] == CUSTOM_RANGE and isinstance(picked, (list, tuple)) and len(picked) == 2:
+        options["analysis_window_range"] = [str(day) for day in picked]
+    return options
+
+
+def run_again(lines, options, via="Run again"):
+    """
+    Button callback: puts a saved run's use case, window and collection options back (`options`, see run_options;
+    a run saved without them keeps the current ones) and analyzes `lines` right away as a new run.
+    """
+    options = options or {}
+    st.session_state.update({key: options[key] for key in RUN_OPTION_KEYS if key in options})
+    if "use_case" in options:
+        st.session_state["use_case"] = options["use_case"]
+    if options.get("analysis_window") in WINDOW_PRESETS:
+        st.session_state["analysis_window"] = options["analysis_window"]
+        dates = options.get("analysis_window_range")
+        if options["analysis_window"] == CUSTOM_RANGE and dates and len(dates) == 2:
+            st.session_state["analysis_window_range"] = tuple(pd.Timestamp(day).date() for day in dates)
+    start_hunt(lines, via)
+
+
 def start_hunt(lines, via, parent_id=None):
     """
     Button callback: replaces the sidebar targets with `lines` and analyzes them right away as a new run, linked to

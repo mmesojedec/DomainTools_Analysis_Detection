@@ -200,9 +200,10 @@ def _profile_records(profiles):
 
 
 def save_snapshot(key, targets, artifacts, alerts, window_label=None, profiles=None, name="", note="", seeds=None,
-                  host_focus=None, parent=None, queries=None):
+                  host_focus=None, parent=None, queries=None, options=None):
     """
     Saves a v2 run snapshot (alerts with severity / confidence, per-domain risk and DIF) and applies retention.
+    `options` (use case, analysis window and collection options) lets the run be analyzed again the same way.
     `parent` ({"id": run id, "via": what led here}) links a run started from another run's lead (hunt tree).
     `queries` ({product or service: API queries}) is what the run cost.
     """
@@ -219,6 +220,8 @@ def save_snapshot(key, targets, artifacts, alerts, window_label=None, profiles=N
     }
     if queries is not None:
         snapshot["queries"] = {str(k): int(v) for k, v in queries.items()}
+    if options:
+        snapshot["options"] = dict(options)
     if parent:
         snapshot["parent"] = {"id": parent.get("id"), "via": str(parent.get("via") or "")[:200]}
     save_json(_run_path(key, run_id), snapshot)
@@ -301,7 +304,10 @@ def runs_before(created, domains=None):
 
 
 def list_target_sets():
-    """Target lists with saved runs, most recently analyzed first."""
+    """
+    Target lists with saved runs, most recently analyzed first. Each has its latest run's name and stored summary
+    (alerts, by_severity; empty for legacy runs), read from the one snapshot already loaded.
+    """
     if not RUNS_DIR.exists():
         return []
     sets = []
@@ -313,8 +319,30 @@ def list_target_sets():
             continue
         latest = _load_snapshot_file(files[-1]) or {}
         sets.append({"key": run_dir.name, "targets": latest.get("targets", []), "seeds": latest.get("seeds", []),
-                     "runs": len(files), "latest": latest.get("created")})
+                     "runs": len(files), "latest": latest.get("created"), "name": latest.get("name") or "",
+                     "summary": latest.get("summary") or {}})
     return sorted(sets, key=lambda s: str(s["latest"]), reverse=True)
+
+
+def recent_runs(limit=10):
+    """
+    The `limit` newest runs of every target list (newest first), with their target list `key`. Run ids are UTC
+    timestamps, so only the newest files are read.
+    """
+    if not RUNS_DIR.exists():
+        return []
+    files = [path for run_dir in RUNS_DIR.iterdir() if run_dir.is_dir() and _KEY_RE.match(run_dir.name)
+             for path in run_dir.glob("*.json")]
+    rows = []
+    for path in sorted(files, key=lambda p: p.stem, reverse=True)[:limit]:
+        snapshot = _load_snapshot_file(path)
+        if snapshot is None:
+            continue
+        rows.append({"key": path.parent.name, "id": snapshot["id"], "created": snapshot.get("created"),
+                     "name": snapshot.get("name") or "", "targets": snapshot.get("targets", []),
+                     "seeds": snapshot.get("seeds", []), "window": snapshot.get("window") or "",
+                     "summary": snapshot.get("summary") or {}, "options": snapshot.get("options") or {}})
+    return rows
 
 
 def list_runs(key):

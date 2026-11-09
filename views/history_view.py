@@ -26,7 +26,9 @@ from core.persistence import (
     load_all_runs,
     load_run,
     load_runs,
+    load_settings,
     load_watches,
+    recent_runs,
     remove_watch,
     run_retention,
     set_run_retention,
@@ -47,6 +49,7 @@ from core.run_history import (
     snapshot_domains,
     snapshot_profiles,
 )
+from core.use_cases import PROFILES_SETTING, find_case
 from views import navigation
 from views.common import chart, table
 from views.sidebar import (
@@ -54,10 +57,15 @@ from views.sidebar import (
     OFFLINE_SELECT_KEY,
     TOAST_KEY,
     request_offline_load,
+    run_again,
     start_hunt,
 )
 
 ALERT_COLUMNS = ["Domain", "Threat Type", "Severity", "Confidence", "Category", "MITRE ATT&CK", "Threat Logic"]
+TARGET_SET_KEY = "hist_target_set"   # the target list picked on Runs & Diffs
+RECENT_PICK_KEY = "_hist_open_set"   # a target list to open Runs & Diffs on (Recent runs → Open), used once
+SEEN_KEY = "_hist_seen_current"      # the current run's list when Runs & Diffs last opened
+RECENT_RUNS = 10                     # runs listed under Recent runs on the Start page
 LEGACY_NOTE = ("Saved by an earlier version: only alert keys and infrastructure were recorded, so severity, confidence, "
                "risk scores, and DIF are not available for this run.")
 
@@ -515,6 +523,90 @@ def _render_watches(timezone):
             st.rerun()
 
 
+def _severity_text(summary):
+    """ "3 alerts (1 critical, 2 high)" from a run's stored summary; "" when it has none (legacy runs)."""
+    if not summary:
+        return ""
+    alerts, sev = int(summary.get("alerts") or 0), summary.get("by_severity") or {}
+    top = ", ".join(f"{int(sev[s])} {s.lower()}" for s in ("Critical", "High") if sev.get(s))
+    return f"{alerts:,} alert{'s' if alerts != 1 else ''}" + (f" ({top})" if top else "")
+
+
+def _offline_by_run(datasets):
+    """{run id: its newest offline dataset id} for the datasets linked to a saved run."""
+    linked = {}
+    for manifest in sorted(datasets, key=lambda m: str(m.get("created") or "")):
+        if manifest.get("run_id"):
+            linked[manifest["run_id"]] = manifest["id"]
+    return linked
+
+
+def _use_case_title(key, profiles):
+    """The title of use case or profile `key`; `profiles` are the saved profile entries (dt_settings.json)."""
+    case = find_case(key, profiles) if key else None
+    return case.title if case else ""
+
+
+def _recent_row(run, timezone, offline_id, profiles):
+    options = run.get("options") or {}
+    return {"Run": format_created(run["created"], timezone),
+            "Targets": _targets_label(run["targets"], 3, run.get("seeds")) + (f" — {run['name']}" if run.get("name") else ""),
+            "Window": run.get("window") or "—",
+            "Use case": _use_case_title(options.get("use_case"), profiles) or ("—" if options else "not recorded"),
+            "Alerts": _severity_text(run.get("summary")) or "—",
+            "Offline copy": offline_id is not None}
+
+
+def _render_recent_actions(run, offline_id):
+    """Run again, Load offline copy and Open in Runs & Diffs for the run picked in the table."""
+    options = run.get("options") or {}
+    lines = list(run.get("seeds") or []) or list(run.get("targets") or [])
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.button("Run again", key="recent_again", icon=":material/replay:", type="primary",
+                  on_click=run_again, args=(lines, options, "Run again"),
+                  help=("Analyzes these targets again as a new run with the same use case, analysis window and "
+                        "collection options as this run. Makes live API queries." if options else
+                        "Analyzes these targets again as a new run. This run was saved before its options were "
+                        "recorded, so the current use case and collection options are used. Makes live API "
+                        "queries."))
+        st.button("Load offline copy", key="recent_offline", icon=":material/upload_file:",
+                  disabled=offline_id is None, on_click=request_offline_load, args=(offline_id,),
+                  help="Loads the offline copy saved from this run and re-analyzes it with no API calls."
+                  if offline_id else "No offline copy was saved from this run (*Save offline copy*).")
+        navigation.jump_button("history", "Open in Runs & Diffs", button_key="recent_open", icon=":material/history:",
+                               state={RECENT_PICK_KEY: run["key"], f"hist_detail_{run['key']}": run["id"]},
+                               help="Opens this run in Runs & Diffs: its details, and comparisons and trends with "
+                                    "the other runs of the same targets.")
+
+
+def render_recent_runs(timezone="UTC", limit=RECENT_RUNS):
+    """Start page: the newest saved runs in a table; the picked one gets Run again, Load offline copy and Open."""
+    st.subheader("Recent runs", help="Runs are saved automatically after each live Analyze (dt_runs/).")
+    st.caption("Pick up a previous analysis: run it again with the same use case and options, load the offline copy "
+               "saved from it (no API calls), or open it in Runs & Diffs to compare it with earlier runs.")
+    runs = recent_runs(limit)
+    if not runs:
+        st.caption("No saved runs yet. Each live Analyze is saved automatically and shows here next time.")
+        return
+    with st.expander(f"Show the last {len(runs)} runs", icon=":material/history:"):
+        offline, profiles = _offline_by_run(list_offline_datasets()), load_settings().get(PROFILES_SETTING)
+        frame = pd.DataFrame([_recent_row(run, timezone, offline.get(run["id"]), profiles) for run in runs])
+        picked = st.dataframe(
+            frame, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+            key="recent_runs_table",
+            column_config={"Run": st.column_config.TextColumn(width="medium"),
+                           "Targets": st.column_config.TextColumn(width="medium"),
+                           "Offline copy": st.column_config.CheckboxColumn(
+                               width="small", help="An offline copy was saved from this run")})
+        rows = picked.selection.rows if picked and picked.selection else []
+        run = runs[rows[0]] if rows else runs[0]
+        st.caption(f"Picked: **{md_escape(_targets_label(run['targets'], 3, run.get('seeds')))}** "
+                   f"({format_created(run['created'], timezone)})"
+                   + ("" if rows else ", the newest. Click a row to pick another."))
+        _render_recent_actions(run, offline.get(run["id"]))
+        navigation.link("history", label="See every run on Runs & Diffs")
+
+
 def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
     st.subheader("Previous Runs & Comparison",
                  help="Every analysis run is saved locally (dt_runs/). Browse past runs of a target list, compare any two, follow "
@@ -526,9 +618,16 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         return
     keys = [s["key"] for s in target_sets]
     meta = {s["key"]: s for s in target_sets}
-    default = keys.index(current_key) if current_key in keys else 0
+    pick = st.session_state.pop(RECENT_PICK_KEY, None)   # Open on the Start page's Recent runs
+    if pick in keys:
+        st.session_state[TARGET_SET_KEY] = pick
+    elif current_key in keys and st.session_state.get(SEEN_KEY) != current_key:   # a new run: show its list
+        st.session_state[TARGET_SET_KEY] = current_key
+    elif st.session_state.get(TARGET_SET_KEY) not in keys:   # never picked, or a list deleted since
+        st.session_state[TARGET_SET_KEY] = current_key if current_key in keys else keys[0]
+    st.session_state[SEEN_KEY] = current_key
     key = st.selectbox(
-        "Target list", keys, index=default, key="hist_target_set",
+        "Target list", keys, key=TARGET_SET_KEY,
         format_func=lambda k: f"{_targets_label(meta[k]['targets'], seeds=meta[k].get('seeds'))} · {meta[k]['runs']} run(s) · last {format_created(meta[k]['latest'], timezone)}"
                               + ("  (current)" if k == current_key else ""),
     )

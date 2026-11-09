@@ -17,7 +17,6 @@ from core.anonymizers import (
     dedicated_exit,
     exit_during_use,
     shared_exit,
-    tor_tables,
     use_intervals,
 )
 from core.intel_data import ISO2_TO_ISO3
@@ -40,7 +39,7 @@ from views.hunt_actions import analyze_button
 
 PAGE_TAB_KEY = "vpndb_tab"
 VPNDB_TAGLINE = "Which VPN or proxy provider operates behind an IP, prefix or ASN."
-TABS = ["Overview", "Exposure timeline", "Iris cross-check", "Neighbourhood", "Leads", "Tor network", "CIDR ranges"]
+TABS = ["Overview", "Exposure timeline", "Iris cross-check", "Neighbourhood", "Leads", "CIDR ranges"]
 # "How to read this" per tab: plain-language points, shown collapsed above each tab
 HOW_TO_READ = {
     "Overview": (
@@ -84,11 +83,6 @@ HOW_TO_READ = {
         "customer, so they are leads: click **Analyze** to look into one.",
         "Shared exits are skipped on purpose: their other domains belong to unrelated people.",
     ),
-    "Tor network": (
-        "A picture of the whole Tor network today: which networks and countries carry Tor exit traffic.",
-        "A warning appears if one of **your** domains is hosted on a network that also carries Tor exit traffic.",
-        "This overview is one free call per run; it does not look up anything extra for your IPs.",
-    ),
     "CIDR ranges": (
         "Only for IP ranges you entered as targets (e.g. `104.21.59.0/24`).",
         "Each square is one address: **red** = measured exit, **gold** = VPNDB expects an exit there (interpolated), "
@@ -102,10 +96,12 @@ CATEGORY_COLORS = {"Tor": "#d62728", "Residential proxy": "#ff7f0e", "VPN": "#94
 
 def render_vpndb_page(ds):
     st.header("VPNDB", help="The run's hosting IPs checked in VPNDB (VPN, residential proxy and Tor exits), how the "
-                            "domains use them, what Iris Investigate and passive DNS add, the Tor network, and the CIDR "
-                            "targets. Not observed is not an all-clear: VPNDB only knows the exits it measured or that "
+                            "domains use them, what Iris Investigate and passive DNS add, and the CIDR targets. "
+                            "The Tor network overview has its own page: Infrastructure → Tor network. Not observed is not an all-clear: VPNDB only knows the exits it measured or that "
                             "public lists name.")
     st.caption(VPNDB_TAGLINE)
+    navigation.link("tor", label="Tor network statistics (also from VPNDB) are on their own page",
+                    icon=":material/travel_explore:")
     table = ds.anonymizers
     if _empty(table) and _empty(ds.prefixes):
         st.info("No VPNDB verdicts in this run. Add a VPNDB key under Settings → API credentials and keep *Check "
@@ -114,8 +110,7 @@ def render_vpndb_page(ds):
         return
     tabs = st.tabs(TABS, key=PAGE_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
-    for tab, name, render in zip(tabs, TABS, (_overview, _timeline, _crosscheck, _neighbourhood, _leads,
-                                              _tor_network, _cidr)):
+    for tab, name, render in zip(tabs, TABS, (_overview, _timeline, _crosscheck, _neighbourhood, _leads, _cidr)):
         with tab:
             how_to_read(name)
             render(ds)
@@ -394,69 +389,6 @@ def _leads(ds):
     with st.expander(f"Every name ({len(names):,})"):
         st.dataframe(names, hide_index=True, width="stretch", column_config={
             "Analyzed": st.column_config.CheckboxColumn("Analyzed", help="Already one of this run's domains")})
-
-
-# ---- Tor network -------------------------------------------------------------------------------------------------------
-
-def run_tor_networks(ds, networks):
-    """The run's hosting networks (VPNDB and Iris ASNs) among the Tor exit networks, with the domains on them."""
-    if networks.empty or "asn" not in networks:
-        return pd.DataFrame()
-    used = {}
-    table = ds.anonymizers
-    for row in (table.to_dict("records") if not _empty(table) else []):
-        if pd.notna(row["ASN"]):
-            used.setdefault(int(row["ASN"]), set()).update(d.strip() for d in str(row["Domains"]).split(",") if d.strip())
-    for intel in (ds.ip_intel or {}).values():
-        if intel.get("asn"):
-            used.setdefault(int(intel["asn"]), set()).update(intel.get("domains") or ())
-    hits = networks[networks["asn"].isin(set(used))].copy()
-    hits["Run domains"] = hits["asn"].map(lambda a: ", ".join(sorted(used[a])[:10]))
-    return hits
-
-
-def _tor_network(ds):
-    overview = ds.tor_overview
-    st.markdown("**The Tor network at a glance** (VPNDB /tor)",
-                help="The Tor Project's relay list placed with VPNDB's routing and country tables: where Tor traffic "
-                     "leaves the internet and who runs it. One call per run, not counted against the VPNDB quota. "
-                     "A domain hosted on a network that carries a large share of Tor exit traffic shares it with "
-                     "anonymized traffic.")
-    if not overview:
-        st.caption("No Tor overview in this run: it is fetched with the VPNDB check (VPNDB key needed).")
-        return
-    counts = overview.get("counts") or {}
-    columns = st.columns(5)
-    for column, (label, key) in zip(columns, (("Relays", "relays"), ("Exit relays", "exitRelays"),
-                                              ("Exit addresses", "exitAddresses"), ("Exit networks", "exitNetworks"),
-                                              ("New exits (30 d)", "newExitRelays30d"))):
-        column.metric(label, f"{counts.get(key, 0):,}")
-    concentration = overview.get("concentration") or {}
-    if concentration:
-        st.caption(f"The 5 largest networks carry {concentration.get('top5Networks', 0):.0%} of all Tor exit traffic, "
-                   f"the 10 largest {concentration.get('top10Networks', 0):.0%}. Relay list published "
-                   f"{overview.get('relaysPublished', '?')}.")
-    tables = tor_tables(overview)
-    hits = run_tor_networks(ds, tables["Networks"])
-    if not hits.empty:
-        st.warning(f"{len(hits)} of the run's hosting network(s) carry Tor exit traffic.")
-        st.dataframe(hits, hide_index=True, width="stretch")
-    c_net, c_country = st.columns(2)
-    for column, name, label in ((c_net, "Networks", "organization"), (c_country, "Countries", "country")):
-        frame = tables[name]
-        with column:
-            st.markdown(f"**Exit traffic by {name.lower()[:-1] if name != 'Countries' else 'country'}**")
-            if frame.empty:
-                st.caption("No data.")
-                continue
-            top = frame.head(15).copy()
-            top["Label"] = (("AS" + top["asn"].astype(str) + " ") if "asn" in top else "") + top[label].astype(str)
-            fig = px.bar(top.iloc[::-1], x="Exit share %", y="Label", orientation="h",
-                         hover_data=[c for c in ("exitAddresses", "exitRelays") if c in top])
-            fig.update_layout(margin=dict(t=10, l=10, r=10, b=10), yaxis_title="", xaxis_title="% of Tor exit traffic")
-            chart(fig, key=f"vpndb_tor_{name}", height=420)
-    with st.expander(f"Exit prefixes ({len(tables['Prefixes']):,})"):
-        st.dataframe(tables["Prefixes"].astype(str), hide_index=True, width="stretch")
 
 
 # ---- CIDR ranges --------------------------------------------------------------------------------------------------------

@@ -49,7 +49,7 @@ from views.collection_progress import summary as collection_summary
 from views.common import install_copy_fallback, render_window_banner
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
-from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_run_history
+from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_recent_runs, render_run_history
 from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
 from views.infra_view import render_infra_lens
@@ -82,11 +82,13 @@ from views.sidebar import (
     render_logo,
     render_lookup_controls,
     render_timezone_selector,
+    run_options,
     show_pending_toast,
 )
 from views.sources_view import render_data_sources
 from views.ssl_view import render_ssl_lens
 from views.summary_view import render_summary
+from views.tor_page import render_tor_page
 from views.triage_view import render_triage_lens
 from views.vpndb_page import render_vpndb_page
 
@@ -96,6 +98,7 @@ OFFLINE_SAVE_ERROR = "offline_save_error"   # why the last "Save offline copy" c
 LAST_SETTINGS_KEY = "last_live_settings"   # LookupSettings of the last live run (Cached details re-runs it)
 RERUN_KEY = "queued_rerun"                 # LookupSettings of a re-run asked for in Cached details
 ANALYZING_KEY = "analysis_pending"         # a run was just loaded: its first build_context shows its steps
+RUN_OPTIONS_KEY = "run_options"            # use case, window and collection options of the last Analyze
 HUNT_PARENT_KEY = "hunt_parent"            # {"id", "via"} of a run started from a lead, saved with its snapshot
 
 
@@ -183,6 +186,7 @@ def run_collection(settings):
         st.sidebar.warning("Enter at least one domain, IP address, or certificate.")
         return
     st.session_state[LAST_SETTINGS_KEY] = settings
+    st.session_state[RUN_OPTIONS_KEY] = run_options()   # saved with the run: Recent runs → Run again
     if settings.force_refresh:
         clear_all_caches()
         clear_credential_cache()
@@ -358,7 +362,8 @@ def save_pending_snapshot(view, profiles, host_focus=None):
                              window_label=st.session_state.get("window_label"), profiles=profiles,
                              seeds=getattr(collected, "seed_inputs", None), host_focus=host_focus,
                              parent=st.session_state.pop(HUNT_PARENT_KEY, None),
-                             queries=queries_by_product(collected.statuses))
+                             queries=queries_by_product(collected.statuses),
+                             options=st.session_state.get(RUN_OPTIONS_KEY))
     st.session_state.current_run_id = snapshot["id"]
     offline_id = st.session_state.pop("offline_pending_id", None)
     if offline_id:
@@ -542,7 +547,7 @@ def data_page(render):
 
 
 def page_home():
-    render_home(CTX.ds is not None, lambda: render_run_history(None, CTX.timezone))
+    render_home(CTX.ds is not None, lambda: render_recent_runs(CTX.timezone))
 
 
 def page_alerts():
@@ -603,6 +608,7 @@ PAGE_FUNCTIONS = {
     "alerts": data_page(page_alerts),
     "dns": data_page(page_dns),
     "vpndb": data_page(lambda: render_vpndb_page(CTX.ds)),
+    "tor": data_page(lambda: render_tor_page(CTX.ds)),
     "cname": data_page(lambda: render_cname_lens(CTX.ds, CTX.collected)),
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
     "pivots": data_page(lambda: render_pivot_lens(CTX.ds)),

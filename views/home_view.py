@@ -58,7 +58,7 @@ def _grid(cases, overrides, active):
                 _card(case, overrides, active)
 
 
-def render_home(has_data, render_history):
+def render_home(has_data, render_recent):
     st.title("DomainTools Analytics and Detection",
              help="Unified digital risk and infrastructure intelligence combining Domain History, Passive DNS (Iris & "
                   "DNSDB Scout), SSL/TLS telemetry, and web analytics attribution.")
@@ -68,6 +68,7 @@ def render_home(has_data, render_history):
     with st.container(horizontal=True):
         navigation.link("irisql", label="Or find the domains first with IrisQL", icon=":material/manage_search:")
         navigation.link("certsql", label="… or from their certificates with CertsQL", icon=":material/badge:")
+    render_recent()
     saved = load_settings()
     overrides, active = saved.get(OVERRIDES_SETTING) or {}, st.session_state.get("use_case")
     _grid(list(USE_CASES), overrides, active)
@@ -89,5 +90,3 @@ def render_home(has_data, render_history):
     elif not has_data:
         st.info("Enter target domains, IPs, or certificates in the sidebar and click **Analyze** to begin, or load an "
                 "offline dataset.")
-    with st.expander("Browse saved run history", expanded=False):
-        render_history()

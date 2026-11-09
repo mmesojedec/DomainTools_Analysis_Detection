@@ -87,6 +87,7 @@ def test_store_save_list_meta_export_delete(store):
 
     sets = persistence.list_target_sets()
     assert sets[0]["key"] == key and sets[0]["runs"] == 2 and sets[0]["targets"] == ["a.com", "b.com"]
+    assert sets[0]["summary"]["alerts"] == 0 and sets[0]["name"] == ""   # the latest run (no alerts)
     runs = persistence.list_runs(key)
     assert [r["alerts"] for r in runs] == [0, 1]  # newest first
 
@@ -116,3 +117,96 @@ def test_invalid_identifiers_are_rejected(store):
         persistence.load_run("../../etc", "20261019T000000Z")
     with pytest.raises(ValueError):
         persistence.delete_run(persistence.target_set_key(["a.com"]), "../settings")
+
+
+def test_recent_runs_alert_text():
+    from views.history_view import _severity_text
+    assert _severity_text({"alerts": 3, "by_severity": {"Critical": 1, "High": 2, "Low": 0}}) == \
+        "3 alerts (1 critical, 2 high)"
+    assert _severity_text({"alerts": 1, "by_severity": {"Medium": 1}}) == "1 alert"
+    assert _severity_text({}) == ""   # legacy runs keep no summary
+
+
+def test_recent_runs_are_the_newest_across_target_lists_with_their_options(store):
+    empty = pd.DataFrame(columns=["Domain", "Threat Type", "Severity"])
+    a, b = persistence.target_set_key(["a.com"]), persistence.target_set_key(["b.com"])
+    first = persistence.save_snapshot(a, ["a.com"], {}, empty, "Last 30 days")
+    second = persistence.save_snapshot(b, ["b.com"], {}, empty, "All time",
+                                       options={"use_case": "triage", "opt_dnsdb_limit": 500})
+    third = persistence.save_snapshot(a, ["a.com"], {}, empty, "Last 7 days", name="again")
+    runs = persistence.recent_runs(2)
+    assert [r["id"] for r in runs] == [third["id"], second["id"]] and runs[0]["key"] == a and runs[0]["name"] == "again"
+    assert runs[1]["options"] == {"use_case": "triage", "opt_dnsdb_limit": 500} and runs[0]["options"] == {}
+    assert [r["id"] for r in persistence.recent_runs(10)][-1] == first["id"]
+
+
+def test_offline_copy_of_a_run_is_its_newest_linked_dataset():
+    from views.history_view import _offline_by_run
+    datasets = [{"id": "old", "run_id": "r1", "created": "2026-11-01T00:00:00Z"},
+                {"id": "new", "run_id": "r1", "created": "2026-11-02T00:00:00Z"},
+                {"id": "loose", "run_id": None, "created": "2026-11-03T00:00:00Z"}]
+    assert _offline_by_run(datasets) == {"r1": "new"}
+
+
+def test_run_again_restores_the_runs_options_and_starts_a_run(monkeypatch):
+    from views import sidebar
+    state = {"opt_dnsdb_limit": 5000, "use_case": "triage", "analysis_window": "Last 30 days"}
+    monkeypatch.setattr(sidebar.st, "session_state", state)
+    options = {"opt_dnsdb_limit": 500, "opt_force_refresh": True, "use_case": "monitoring",
+               "analysis_window": "Custom range", "analysis_window_range": ["2026-10-01", "2026-10-31"]}
+    sidebar.run_again(["a.com", "b.com"], options)
+    assert state["opt_dnsdb_limit"] == 500 and state["use_case"] == "monitoring" and "opt_force_refresh" not in state
+    assert state["analysis_window"] == "Custom range" and str(state["analysis_window_range"][1]) == "2026-10-31"
+    assert state[sidebar.TARGETS_KEY] == "a.com\nb.com" and state[sidebar.DATA_MODE_KEY] == sidebar.LIVE_MODE
+    sidebar.run_again(["c.com"], {})   # a run saved before options were recorded: the current ones stay
+    assert state["opt_dnsdb_limit"] == 500 and state[sidebar.TARGETS_KEY] == "c.com"
+
+
+def test_run_options_records_the_window_range_only_for_a_custom_range(monkeypatch):
+    import datetime as dt
+
+    from views import sidebar
+    state = {"opt_dnsdb_limit": 700, "opt_force_refresh": True, "use_case": None, "analysis_window": "Last 7 days",
+             "analysis_window_range": (dt.date(2026, 1, 1), dt.date(2026, 1, 2))}
+    monkeypatch.setattr(sidebar.st, "session_state", state)
+    options = sidebar.run_options()
+    assert options["opt_dnsdb_limit"] == 700 and "opt_force_refresh" not in options
+    assert "analysis_window_range" not in options and options["analysis_window"] == "Last 7 days"
+    state["analysis_window"] = "Custom range"
+    assert sidebar.run_options()["analysis_window_range"] == ["2026-01-01", "2026-01-02"]
+
+
+def test_recent_run_row_names_a_built_in_use_case_or_a_saved_profile():
+    from core.use_cases import USE_CASES, profile_key
+    from views.history_view import _recent_row
+    profiles = [{"name": "My hunt", "description": "", "settings": {}}]
+    base = {"created": "2026-11-09T10:00:00Z", "targets": ["a.com"], "seeds": [], "window": "Last 30 days",
+            "summary": {"alerts": 0, "by_severity": {}}}
+    case = USE_CASES[0]
+    assert _recent_row({**base, "options": {"use_case": case.key}}, "UTC", None, profiles)["Use case"] == case.title
+    assert _recent_row({**base, "options": {"use_case": profile_key("My hunt")}}, "UTC", "d1", profiles)["Use case"] \
+        == "My hunt"
+    assert _recent_row({**base, "options": {"use_case": None}}, "UTC", None, None)["Use case"] == "—"
+    assert _recent_row({**base, "options": {}}, "UTC", None, profiles)["Use case"] == "not recorded"
+
+
+def test_recent_runs_section_renders_runs_with_a_use_case_and_a_profile(store, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    from core.use_cases import PROFILES_SETTING, profile_key
+    from views import history_view
+    empty = pd.DataFrame(columns=["Domain", "Threat Type", "Severity"])
+    persistence.save_setting(PROFILES_SETTING, [{"name": "My hunt", "description": "", "settings": {}}])
+    persistence.save_snapshot(persistence.target_set_key(["a.com"]), ["a.com"], {}, empty, "Last 30 days",
+                              options={"use_case": "triage"})
+    persistence.save_snapshot(persistence.target_set_key(["b.com"]), ["b.com"], {}, empty, "All time",
+                              options={"use_case": profile_key("My hunt")})
+    monkeypatch.setattr(history_view, "list_offline_datasets", lambda: [])
+
+    def page():
+        from views import history_view
+        history_view.render_recent_runs("UTC")
+
+    at = AppTest.from_function(page).run(timeout=30)
+    assert not at.exception
+    assert list(at.dataframe[0].value["Use case"]) == ["My hunt", "Triage a suspicious domain"]
