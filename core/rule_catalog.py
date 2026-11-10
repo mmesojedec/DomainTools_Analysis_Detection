@@ -111,7 +111,7 @@ RULE_CATALOG = {
         "scripts on the organization's own subdomain."),
     "Unverified CNAME to Takeover-Prone Service": (
         "Medium", "T1584.001 (Compromise Infrastructure: Domains)",
-        "A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the cap, or the "
+        "A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the per-domain chase budget, or the "
         "lookup failed).",
         "Same takeover exposure as a dangling CNAME, but unconfirmed: chase it in the CNAME Chains lens."),
     "CNAME to Dynamic DNS / Tunnel Service": (

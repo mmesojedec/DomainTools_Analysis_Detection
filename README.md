@@ -53,14 +53,18 @@ threat engine over the combined telemetry.
 - **Inventories hostnames** from certificates, passive DNS and certificate events, with lifecycle flags and each
   hostname's certificate hashes; a hostname focus narrows every view to chosen hostnames.
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
-  offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records.
-- **Watches API usage**: the sidebar estimates each run's queries per product against what the account has left,
-  every lookup records the queries it made (Data sources, Runs & Diffs), sources missing from the account are
+  offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records. The
+  Start page's *Recent runs* runs one again with the same use case and options, or loads its offline copy.
+- **Finds earlier sightings** of an indicator (*Sightings* in the menu): every saved run and offline dataset where an
+  IP, domain, name server, MX host, certificate hash, tracker code or email was observed, with no API query.
+- **Watches API usage**: red and yellow banners on every page when a product the app uses has used up 95% or all of
+  its monthly quota, or expires within 30 days or has expired; every lookup records the queries it made (Data sources, Runs & Diffs), sources missing from the account are
   skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
   same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
 - **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
   tools, and keeps every VPNDB answer as received.
-- **Exports** detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, and hands IOCs,
+- **Exports** detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, a printable case
+  report for managers or takedown requests (summary, top alerts, risk, infrastructure, IOCs), and hands IOCs,
   tables and raw records to other teams as CSV / NDJSON.
 
 ## Quick start
@@ -94,7 +98,8 @@ over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
 `san:`, `spki:`, ... lines) in the sidebar and click **Analyze**: the **Summary** opens with what to check next. The
-top menu groups every page (Overview, Infrastructure, Hunt, Evidence, Settings, Account, Help); see
+top menu groups every page (Start, IrisQL, CertsQL, Sightings, Overview, Infrastructure, Hunt, Evidence, Manage Data,
+Data sources, Settings, Account, Help); see
 [The app at a glance](docs/USAGE.md#the-app-at-a-glance) and [Certificate inputs](docs/USAGE.md#certificate-inputs).
 
 ## Project structure
@@ -110,6 +115,7 @@ core/
   caa.py                       CAA (RFC 8659) policy parsing and issuer authorization
   intel_data.py                Reference data: CDN ranges, parking/large DNS providers, hosting watchlist, impersonated brands, shared platforms, takeover-prone and dynamic DNS CNAME services, ATT&CK tactics, rule metadata
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
+  irisql.py                    IrisQL page logic: field checks, examples, result tables, the curl command (JSON body)
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
   account.py                   Account Information rows: product names, usage, limits and what is left, expiry; the products each collection stage needs
   api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, what is left, Data sources statistics
@@ -171,13 +177,14 @@ integrations/
   domain_history.py            Domain History (SDK) parsing and lifespans
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
-  estimate.py                  Cost estimate of the next Analyze (no query; cached lookups left out)
   enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches (JSON POST) and web tracker extraction
   iris.py                      Iris pDNS via an authenticated Playwright session: one session check, then parallel workers, cached
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
-  home_view.py                 Start page (use cases)
+  sidebar.py                   Sidebar: targets, data source, Analyze, window, filters; run options and Run again
+  home_view.py                 Start page (use cases, Recent runs)
+  collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
   certsql_view.py              CertsQL page (menu, or Data source CertsQL): Certificate Search query, pick certificates / domains / IPs, analyze them
   irisql_view.py               IrisQL page (menu, or Data source IrisQL): query Iris Investigate, pick domains / IPs, analyze them with a use case
@@ -200,6 +207,8 @@ views/                         One module per page + sidebar, alert tools, certi
   seen_view.py                 Indicator Sightings page (Sightings in the top menu)
   api_usage_view.py            What each service has left, skipped products
   sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
+  history_view.py              Runs & Diffs (previous runs, comparison, trends, watched lists), Offline Datasets, Recent runs
+  export_view.py               Data Export: case report, confirmed indicators, IOCs, tables and raw records
   docs_view.py                 In-app documentation (Help → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)

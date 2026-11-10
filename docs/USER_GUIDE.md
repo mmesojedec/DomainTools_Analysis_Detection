@@ -398,7 +398,7 @@ current run.
 | --- | --- | --- | --- | --- | --- |
 | Suspicious / Offshore Name Server | Medium-High | Medium | T1583.001 (Acquire Infrastructure) | Name server at a dynamic, free, or bulletproof DNS provider. | These providers ignore abuse reports and are favored for malicious domains. |
 | Dangling CNAME (Subdomain Takeover Risk) | Critical (High when no target is on a takeover-prone service) | Medium | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME whose chain (collected passive DNS, then the DNSDB chase) ends at a name with no A, AAAA or CNAME record. Critical and High confidence when the target is on a takeover-prone service (S3, Azure, Heroku, GitHub Pages, Shopify, ...). | A dangling CNAME lets anyone who claims the target resource serve content, phishing pages or cookies-stealing scripts on the organization's own subdomain. |
-| Unverified CNAME to Takeover-Prone Service | Medium | Low | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the cap, or the lookup failed). | Same takeover exposure as a dangling CNAME, but unconfirmed: chase it in the CNAME Chains lens. |
+| Unverified CNAME to Takeover-Prone Service | Medium | Low | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the per-domain chase budget, or the lookup failed). | Same takeover exposure as a dangling CNAME, but unconfirmed: chase it in the CNAME Chains lens. |
 | CNAME to Dynamic DNS / Tunnel Service | High | Medium | T1568 (Dynamic Resolution) | Any CNAME in the analysis window to a dynamic DNS or tunnel service (Duck DNS, No-IP, ngrok, Cloudflare quick tunnels, localtunnel, ...). | These names follow a home or attacker machine or expose a local service; legitimate organizations rarely point their subdomains there, attackers use them for C2 and short-lived phishing. |
 | CNAME to Free Hosting Platform | Medium (High when the hostname has a phishing word, brand or embedded domain) | Low | T1583.006 (Acquire Infrastructure: Web Services) | A current CNAME from the domain to a free hosting platform it does not belong to (pages.dev, workers.dev, Vercel, Netlify, Firebase, ...). High when the hostname also shows a Subdomain Triage name signal. | Free platforms give attackers disposable, reputable-looking hosting behind a trusted name. |
 | High-Abuse / Offshore Hosting Provider | Medium-High | Medium | T1583.003 (Acquire Infrastructure: Virtual Private Server) | Currently resolves to a provider on the high-abuse / offshore watchlist. | Bulletproof and offshore hosts are preferred for malicious services. |
@@ -668,6 +668,11 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
   | STIX 2.1 Bundle | The indicators and detections as STIX 2.1 objects |
   | Evidence Report (HTML / Markdown) | Risk overview with DIF, detections by severity, infrastructure clusters, indicators, and each detection's evidence |
 
+  For a manager or a takedown request, the **Case report** at the top of *Data Export* is the short version: one
+  printable HTML page (print it to PDF) with your summary, the run at a glance, the most severe alerts with their
+  evidence, risk by domain, an infrastructure snapshot (registrar, dates, IPs with ASN and country, name servers,
+  MX) and the indicators. It contains no scripts and loads nothing from the internet.
+
 ## Hunting: triage status, leads and the hunt tree
 
 ### Triage status
@@ -770,7 +775,8 @@ Raw Records and Lookup Queries are left out.
    In **CNAME Chains**, filter on *Dead end* and the takeover-prone, dynamic DNS and free hosting service types,
    and chase the chains that are still *Not chased*.
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
-   **Leads to follow** with *Analyze*, then export the confirmed indicators, a STIX bundle or an evidence report.
+   **Leads to follow** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
+   Check a new indicator against earlier investigations on **Sightings**.
 8. Re-run later and use **Only first detected in this run** and **Changes Since Last Run** to focus on what changed.
 
 ## Limitations

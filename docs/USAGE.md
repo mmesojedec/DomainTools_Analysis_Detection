@@ -62,6 +62,11 @@ is in [Pages](USER_GUIDE.md#pages).
   **Use this** only changes settings (the collection options and the window); enter the targets and click
   **Analyze**. Your own saved profiles are listed below the use cases. See [Use cases and
   profiles](#use-cases-and-profiles).
+
+  **Recent runs** (under the IrisQL / CertsQL links): expand *Show the last 10 runs* for a compact table of the
+  newest saved runs (time, targets, window, use case, alerts, offline copy). Click a row, then **Run again** (a new
+  live run with the same use case, analysis window and collection options), **Load offline copy** (the newest
+  offline dataset saved from that run, no API calls) or **Open in Runs & Diffs**.
 - **IrisQL** (next to Start in the menu) finds the targets for you: an IrisQL query lists the matching domains from
   Iris Investigate, and the ones you tick (and their IPs) are analyzed with the use case you pick. See [IrisQL](#irisql).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
@@ -171,7 +176,7 @@ earlier runs and the risk profiles. Domain History is usually the slowest lookup
 change events (1,000 by default), 100 per request, and the API allows a limited number of Domain History requests per minute (20 on
 a standard service level, about one every 3 s), so a domain with 1,000 changes takes about 30 s. Asking for pages
 in parallel does not help: requests over the limit fail with HTTP 503. A *Domain History period* stops the paging
-at the first older change, a lower cap stops it sooner, and a cached run costs nothing. The DomainTools SDK spaces its requests to each
+at the first older change, a lower *Max changes* stops it sooner, and a cached run costs nothing. The DomainTools SDK spaces its requests to each
 product's per-minute limit, and a request that still gets HTTP 429 or a server error is tried again after 2 s and
 4 s.
 
@@ -1077,7 +1082,7 @@ Credentials are not stored in the project folder: keys entered in the app go to
 | Symptom | Check |
 | --- | --- |
 | A data source returns nothing | Open **Data Source Status** (collapsed under the analysis window banner). Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. *Skipped: the DomainTools account has no … product* means the account lacks it (see the Account page). Once the cause is fixed, **Retry N failed lookup(s)** under *Cached details* on the Data sources page queries only those again. |
-| A run would use more queries than are left | Open **API cost of the next Analyze** in the sidebar: a 🔴 or 🟡 product shows where. Fewer targets, a shorter *Domain History period*, fewer CT certificates or VPNDB verdicts, or turning a source off lower it; lookups still in the lookup cache cost nothing. |
+| A red or yellow quota banner at the top of the page | A product this app uses has used up (red) or 95% of (yellow) its monthly quota, or expires within 30 days or has expired. Open the **Account** page for the numbers. To use less: fewer targets, a shorter *Domain History period* or lower *Max changes*, fewer CT certificates or VPNDB verdicts, or turning a source off; lookups still in the lookup cache cost nothing. |
 | "Credentials not found" errors | Open *Settings → API credentials* and **All options**: every option shows whether it is set and used, and why not. Missing keys can be entered there under **Enter API keys**. |
 | Environment variable changes are ignored | Restart the app; variables are read at start. |
 | A domain has no alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**. Lower the threshold to evaluate it. |

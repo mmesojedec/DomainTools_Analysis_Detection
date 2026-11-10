@@ -105,7 +105,8 @@ stopped at a limit or failed part-way.
 
 Before the first wave, the app checks the DomainTools account's products (the Account Information answer, at most one
 query an hour). A stage whose product the account does not have is skipped with a status row saying so, instead of
-failing lookup by lookup.
+failing lookup by lookup. The same answer drives the quota banners on every page: yellow when a product the app uses
+has used 95% of its monthly quota or expires within 30 days, red when it is used up or expired.
 
 ```mermaid
 flowchart TD
@@ -280,7 +281,7 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Detection | Every rule runs per domain / IP, then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping). A domain among the 10,000 most popular in Iris has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
-| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (sidebar, before Analyze; or after it on the status line or under *Manage Data*) also stores the raw data (`dt_offline/`) | - |
+| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (sidebar, before Analyze; or after it on the status line or under *Manage Data*) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the Start page's *Recent runs* lists and *Sightings* searches | - |
 
 ## What each source feeds
 
