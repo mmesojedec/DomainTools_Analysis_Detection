@@ -5,6 +5,11 @@ Domain History, passive DNS from DNSDB Scout, and the Certificate API with searc
 SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
 threat engine over the combined telemetry.
 
+![Start page: pick a use case, enter targets in the sidebar and click Analyze](docs/images/start-page.png)
+
+*The Start page: choose a use case (it sets the lookups, limits and analysis window), enter domains, IPs or
+certificates in the sidebar and click **Analyze**. Recent runs can be re-run or loaded offline.*
+
 ## Documentation
 
 | Guide | Covers |
