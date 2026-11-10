@@ -91,8 +91,7 @@ def test_per_certificate_summaries_expand_to_each_hash():
 def test_domaintools_api_and_iris_rows():
     q = build_lookup_queries(collected([
         status("Domain History", "example.com"), status("Risk Evidence", "example.com"),
-        status("Iris Investigate", "example.com, other.org"), status("Iris pDNS", "example.com"),
-        status("Iris pDNS TXT Lookup", "example.com"),
+        status("Iris Investigate", "example.com, other.org"),
     ]), CREATED)
     creds = '-u "$DT_API_USERNAME" -k "$DT_API_KEY"'
     assert by_source(q, "Domain History").loc[0, "Command"] == \
@@ -101,9 +100,6 @@ def test_domaintools_api_and_iris_rows():
     iris = by_source(q, "Iris Investigate").loc[0]
     assert (iris["Query"], iris["Tool"]) == ("example.com\nother.org", "Iris Investigate")
     assert iris["Command"] == f"domaintools iris_investigate --domains example.com,other.org {creds}"
-    pdns = by_source(q, "Iris pDNS").loc[0]
-    assert (pdns["Search"], pdns["Query"]) == ("RRName", "*.example.com")
-    assert by_source(q, "Iris pDNS TXT Lookup").loc[0, "Search"] == "RRName, type TXT"
 
 
 def test_tool_bundle_groups_by_search_type():
@@ -118,14 +114,13 @@ def test_tool_bundle_groups_by_search_type():
 def test_one_line_flattens_queries_for_tables():
     q = build_lookup_queries(collected([
         status("Certificate Search", "example.com"), status("Cert Events (Hostname)", "example.com"),
-        status("DNSDB Scout", "example.com", "Partial"), status("Iris pDNS", "example.com"),
+        status("DNSDB Scout", "example.com", "Partial"),
     ]), CREATED)
     flat = dict(zip(q["Source"], q["Query"].map(one_line)))
     assert flat["Certificate Search"] == 'san_dns equals "example.com" · san_dns ends_with ".example.com"'
     assert flat["Cert Events (Hostname)"] == ("hostname=example.com, include_subdomains=true, "
                                               f"start_time={events_start_time(now=CREATED)}")
     assert flat["DNSDB Scout"] == "*.example.com · example.com"
-    assert flat["Iris pDNS"] == "*.example.com"
     assert "\n" not in "".join(flat.values())
 
 

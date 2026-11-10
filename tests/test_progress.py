@@ -37,7 +37,7 @@ def test_supplements_count_only_the_capped_domains_and_skip_when_none_were_cappe
     drawn = []
     progress = CollectionProgress(PLAN, render=lambda p: drawn.append(1))
     with tracking(progress):
-        collector.collect_pdns(["big.com", "small.com"], "DNSDB Scout", 10, StatusLog(), txt_records=5, caa_lookup=True)
+        collector.collect_pdns(["big.com", "small.com"], 10, StatusLog(), txt_records=5, caa_lookup=True)
     found = rows(progress)
     assert (found["pdns"].state, found["pdns"].done, found["pdns"].total, found["pdns"].cached) == (DONE, 2, 2, 1)
     assert (found["TXT"].state, found["TXT"].done, found["TXT"].total) == (DONE, 1, 1)
@@ -48,7 +48,7 @@ def test_supplements_count_only_the_capped_domains_and_skip_when_none_were_cappe
                         lambda t, limit=5000, rrtype="ANY", include_wildcard=True: FetchResult("DNSDB Scout", t, data=[]))
     progress = CollectionProgress(PLAN)
     with tracking(progress):
-        collector.collect_pdns(["small.com"], "DNSDB Scout", 10, StatusLog(), txt_records=5, caa_lookup=True)
+        collector.collect_pdns(["small.com"], 10, StatusLog(), txt_records=5, caa_lookup=True)
     assert rows(progress)["CAA"].state == SKIPPED and rows(progress)["CAA"].note.startswith("Not needed")
 
 
@@ -128,32 +128,3 @@ def test_a_row_started_again_later_counts_only_its_running_time(monkeypatch):
     assert rows(progress)["certs"].took() == 8.0
 
 
-def test_iris_pdns_redraws_while_a_lookup_runs_and_relays_the_login_prompt_to_this_thread(monkeypatch):
-    import threading
-    import time
-
-    drawing_thread, calls = threading.current_thread(), []
-
-    def slow_fetch(targets, on_auth_required=None, on_auth_done=None, extra_rrtypes=(), if_capped_rrtypes=(),
-                   on_result=None):
-        assert threading.current_thread() is not drawing_thread   # the lookups run in a worker thread
-        on_auth_required(targets[0])
-        time.sleep(1.3)   # longer than CLOCK_SECONDS, so the clock must be redrawn while it runs
-        on_auth_done()
-        results = {t: FetchResult("Iris pDNS", t, data=[], record_count=0) for t in targets}
-        for target, result in results.items():
-            on_result(target, result)
-        return results
-
-    monkeypatch.setattr(collector, "fetch_iris_pdns_many", slow_fetch)
-    drawn = []
-    progress = CollectionProgress(PLAN, render=lambda p: drawn.append(
-        next(row.state for row in p.snapshot() if row.key == "pdns")))
-    with tracking(progress):
-        collector.collect_pdns(["slow.com"], "Iris pDNS", 10, StatusLog(),
-                               on_auth_required=lambda t: calls.append(("required", t, threading.current_thread())),
-                               on_auth_done=lambda: calls.append(("done", None, threading.current_thread())))
-    assert drawn.count(RUNNING) >= 2   # redrawn during the lookup, not only before and after it
-    assert [(name, target) for name, target, _ in calls] == [("required", "slow.com"), ("done", None)]
-    assert all(thread is drawing_thread for _, _, thread in calls)   # the UI callbacks ran on the drawing thread
-    assert rows(progress)["pdns"].done == 1

@@ -60,8 +60,7 @@ def test_query_plan_lists_only_the_lookups_the_options_turn_on():
     lookups = " ".join(row["Lookup"] for row in plan)
     assert "TXT" not in lookups and "CT log" not in lookups
     assert any(row["Limit"].startswith("7 IPs") for row in plan)
-    iris = query_plan({"opt_pdns_provider": "Iris pDNS", "opt_pivot": True})
-    assert not any("hosting IPs" in row["Lookup"] for row in iris) and any(r["Source"] == "Iris pDNS" for r in iris)
+    assert {row["Source"] for row in plan if row["Key"] == "pdns"} == {"DNSDB Scout"}
 
 
 def test_plan_lines_note_the_default_of_each_changed_lookup():

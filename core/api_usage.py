@@ -5,11 +5,10 @@ and overall statistics of the Data sources page. Pure functions.
 """
 import pandas as pd
 
-DOMAINTOOLS, DNSDB, VPNDB, IRIS_WEB = "DomainTools API", "DNSDB", "VPNDB", "Iris pDNS (web session)"
+DOMAINTOOLS, DNSDB, VPNDB = "DomainTools API", "DNSDB", "VPNDB"
 IRIS_PRODUCTS = ("iris-investigate", "iris-investigate-(api-only)")
 # status row Source prefix -> (service, DomainTools product ID or None); the first matching prefix wins
 SOURCE_PRODUCTS = (
-    ("Iris pDNS", IRIS_WEB, None),
     ("Iris Investigate", DOMAINTOOLS, "iris-investigate"),
     ("IrisQL", DOMAINTOOLS, "iris-investigate"),
     ("Domain History", DOMAINTOOLS, "domain-history"),
@@ -22,7 +21,7 @@ SOURCE_PRODUCTS = (
     ("VPNDB", VPNDB, None),
 )
 # status row Source prefix -> lookup cache group (config.CACHE_GROUPS)
-CACHE_GROUP_PREFIXES = (("Iris pDNS", "pdns"), ("DNSDB", "pdns"), ("Iris Investigate", "iris"), ("IrisQL", "iris"),
+CACHE_GROUP_PREFIXES = (("DNSDB", "pdns"), ("Iris Investigate", "iris"), ("IrisQL", "iris"),
                         ("Domain History", "history"), ("Certificate Search", "certs"), ("CertsQL", "certs"),
                         ("Cert Events", "certs"), ("CT Log", "certs"), ("VPNDB", "vpndb"))
 USAGE_COLUMNS = ["Service", "Product", "Lookups", "From cache", "Queries"]

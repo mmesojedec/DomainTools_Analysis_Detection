@@ -34,7 +34,7 @@ def queries_made():
 def metered(func):
     """
     Wraps a fetcher so its FetchResult carries `queries`: the API queries the call made in this thread (requests
-    through get_session or a VPNDB session, SDK calls through sdk_call, Iris pDNS requests), unless it set them itself.
+    through get_session or a VPNDB session, SDK calls through sdk_call), unless it set them itself.
     """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):

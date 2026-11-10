@@ -19,12 +19,11 @@ TOOL_HELP = {
     "DNSDB Scout": "Names to search in DNSDB Scout with the record type shown: `*.domain` covers the domain and its "
                    "subdomains, and the domain itself is listed too when that lookup hit its limit; the curl commands "
                    "are the DNSDB API requests the app sent, with the key from $DNSDB_API_KEY",
-    "Iris pDNS": "Query to enter in Iris passive DNS with the search type shown; the command is the request body sent",
     "VPNDB": "Each VPNDB request the run made: the endpoint, the path to call (or, for a bulk request, the IPs it sent, "
              "one per line) and the curl command, with the key from $VPNDB_API_KEY. The answers are on Raw Records → "
              "VPNDB Responses",
 }
-LANGUAGE = {"DomainTools Certificates": "sql", "Iris pDNS": "json", "IrisQL": "text", "CertsQL": "text"}
+LANGUAGE = {"DomainTools Certificates": "sql", "IrisQL": "text", "CertsQL": "text"}
 TABLE_COLUMNS = ["Search", "Target", "Query", "Requests", "Cached", "Cached At", "Status", "Records"]
 COLUMN_HELP = {
     "Search": "Search type or endpoint to pick in that tool",
@@ -52,7 +51,7 @@ def render_query_lens(collected, created=None):
 @st.fragment
 def _render_query_tables(queries, tools):
     """A fragment: picking a tool, filtering or selecting rows reruns only this part, not the whole app."""
-    st.subheader("Lookups by tool", help="IrisQL, CertsQL, DomainTools Iris, API, Certificates, DNSDB Scout, Iris pDNS and VPNDB. Pick a "
+    st.subheader("Lookups by tool", help="IrisQL, CertsQL, DomainTools Iris, API, Certificates, DNSDB Scout and VPNDB. Pick a "
                                          "tool, then select rows to copy only their queries and commands.")
     queries = queries.assign(Requests=request_counts(queries))
     counts = queries.groupby("Tool")["Requests"].sum()
@@ -93,7 +92,7 @@ def _render_query_tables(queries, tools):
     with st.expander(f"Queries to copy: {total:,} ({scope})", expanded=bool(rows)):
         st.code(tool_bundle(picked, tool), language=LANGUAGE.get(tool))
     with st.expander(f"Commands: {total:,} ({scope})", expanded=bool(rows)):
-        st.code("\n".join(dict.fromkeys(picked["Command"])), language="json" if tool == "Iris pDNS" else "bash")
+        st.code("\n".join(dict.fromkeys(picked["Command"])), language="bash")
 
     st.download_button("Download all lookups (CSV)", queries.drop(columns=["Requests", "Pages"]).to_csv(index=False), file_name="lookup_queries.csv",
                        mime="text/csv", key="queries_download", help="Every tool, with the full queries and commands")

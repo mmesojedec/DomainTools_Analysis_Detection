@@ -339,11 +339,11 @@ def test_apex_is_looked_up_in_full_and_gaps_filled_only_when_capped(monkeypatch)
     monkeypatch.setattr(collector, "fetch_dnsdb_history", fake_dnsdb)
     focus = {"domaintools.com": ["api.domaintools.com"]}
     capped = False
-    pdns, coverage = collector.collect_pdns(["domaintools.com"], "DNSDB Scout", 10, collector.StatusLog())
+    pdns, coverage = collector.collect_pdns(["domaintools.com"], 10, collector.StatusLog())
     assert collector.fill_pdns_gaps(pdns, coverage, focus, 10, collector.StatusLog()) is pdns   # complete: no extra lookup
     assert calls == [("domaintools.com", True)]
     capped, log = True, collector.StatusLog()
-    pdns, coverage = collector.collect_pdns(["domaintools.com"], "DNSDB Scout", 10, log)
+    pdns, coverage = collector.collect_pdns(["domaintools.com"], 10, log)
     merged = collector.fill_pdns_gaps(pdns, coverage, focus, 10, log)
     assert ("api.domaintools.com", False) in calls and set(merged["Domain"]) == {"domaintools.com"}
     assert set(merged["RRName"]) == {"www.domaintools.com", "api.domaintools.com"}
@@ -384,7 +384,7 @@ def test_collect_all_keeps_focus_for_analyzed_domains_only(monkeypatch):
     monkeypatch.setattr(collector, "collect_enrichment", lambda *a: {})
     monkeypatch.setattr(collector, "collect_pdns", lambda *a: (pd.DataFrame(), {}))
     monkeypatch.setattr(collector, "collect_cert_events", lambda *a: pd.DataFrame())
-    data = collector.collect_all(["a.com"], "DNSDB Scout", 10, include_ct=False,
+    data = collector.collect_all(["a.com"], 10, include_ct=False,
                                  host_focus={"a.com": ["x.a.com"], "b.com": ["y.b.com"], "c.com": []})
     assert data.host_focus == {"a.com": ["x.a.com"]}
 

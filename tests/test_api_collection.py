@@ -23,7 +23,7 @@ from core.api_usage import (
 from core.threat_detection.context import DomainContext
 from core.threat_detection.enrichment_rules import apply_popularity, rule_iris_mail
 from core.use_cases import query_plan
-from integrations import cache, domain_history, iris
+from integrations import cache, domain_history
 from integrations.enrichment import extract_iris_profile
 from integrations.http import FetchResult, StatusLog, count_query, metered, sdk_call
 from integrations.progress import CollectionProgress, tracking
@@ -140,7 +140,7 @@ def test_incremental_passive_dns_looks_up_only_known_targets_since_the_earlier_d
     from core.pdns_features import build_pdns_frame
     base = {"frame": build_pdns_frame(base_rows), "created": "2026-11-01T10:00:00Z", "name": "monday"}
     log = StatusLog()
-    pdns, _ = collector.collect_pdns(["a.com", "b.com"], "DNSDB Scout", 100, log, base=base)
+    pdns, _ = collector.collect_pdns(["a.com", "b.com"], 100, log, base=base)
     since = collector.incremental_since("2026-11-01T10:00:00Z")
     assert since == int(pd.Timestamp("2026-10-31", tz="UTC").timestamp())
     assert sorted(calls) == [("a.com", since), ("b.com", None)]
@@ -174,7 +174,7 @@ def test_stages_run_at_the_same_time_and_missing_products_are_skipped(monkeypatc
         return pd.DataFrame(), {}
 
     monkeypatch.setattr(collector, "collect_pdns", pdns)
-    data = collector.collect_all(["a.com"], "DNSDB Scout", 100, include_ct=False, unavailable={"iris"})
+    data = collector.collect_all(["a.com"], 100, include_ct=False, unavailable={"iris"})
     assert sorted(started[:2]) == ["certs", "history"] and started[2] == "pdns"   # Iris skipped, the rest in parallel
     assert any(row["Source"] == "Iris Investigate" and "Skipped" in row["Detail"] for row in data.statuses)
     assert unavailable_stages([{"id": "iris-investigate-(api-only)"}, {"id": "domain-history"}]) == {"certs", "events"}
@@ -204,26 +204,12 @@ def test_run_usage_and_what_is_left():
     assert queries_by_product(statuses) == {"domain-history": 3, "iris-investigate": 1, "DNSDB": 1, "VPNDB": 2}
     assert failed_lookups(statuses) == 1
     assert source_product("CT Log Events") == ("DomainTools API", "certificate-events")
-    assert cache_group("Iris pDNS TXT Lookup") == "pdns" and cache_group("Cert Events (IP)") == "certs"
+    assert cache_group("DNSDB TXT Lookup") == "pdns" and cache_group("Cert Events (IP)") == "certs"
 
     products = [{"id": "iris-investigate-(api-only)", "rest": {"month": "5"}},
                 {"id": "domain-history", "per_month_limit": "100", "usage": {"month": "95"}, "rest": {"month": ""}}]
     assert remaining(products, "iris-investigate") == 5 and remaining(products, "domain-history") == 5
 
-
-
-def test_iris_pdns_uses_the_cache_without_opening_a_browser(monkeypatch):
-    seen = []
-
-    def lookup(target, extra=(), capped=()):
-        return FetchResult("Iris pDNS", target, data=[], cached_at=1.0)
-
-    lookup.is_cached = lambda *a: True
-    monkeypatch.setattr(iris, "iris_pdns_lookup", lookup)
-    results = iris.fetch_iris_pdns_many(["a.com", "1.2.3.4"], extra_rrtypes=("TXT",),
-                                        on_result=lambda t, r: seen.append(t))
-    assert set(results) == {"a.com", "1.2.3.4"} and sorted(seen) == ["1.2.3.4", "a.com"]
-    assert iris.lookup_args("1.2.3.4", ("TXT",), ("CNAME",)) == ("1.2.3.4", (), ())
 
 
 def test_iris_mail_spf_and_popularity_feed_the_rules():

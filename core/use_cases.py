@@ -25,8 +25,6 @@ from config import (
     DOMAIN_HISTORY_SAFETY_LIMIT,
     IP_CHECK_MAX_IPS,
     IRIS_INVESTIGATE_BATCH_SIZE,
-    IRIS_PDNS_LIMIT,
-    IRIS_SUPPLEMENT_FETCH_LIMIT,
     MONITOR_HISTORY_DAYS,
     PIVOT_DEFAULT_MAX_IPS,
     PIVOT_IP_RECORD_LIMIT,
@@ -43,7 +41,6 @@ from core.window import CUSTOM_RANGE, DEFAULT_WINDOW, WINDOW_PRESETS
 
 # Collection options (session state key -> global default), edited on Settings → Collection options
 COLLECTION_DEFAULTS = {
-    "opt_pdns_provider": "DNSDB Scout",
     "opt_dnsdb_limit": DNSDB_DEFAULT_LIMIT,
     "opt_txt": True,
     "opt_txt_records": TXT_SUPPLEMENT_DEFAULT_RECORDS,
@@ -67,7 +64,7 @@ COLLECTION_DEFAULTS = {
 }
 WINDOW_KEY = "analysis_window"
 OPTION_LABELS = {
-    "opt_pdns_provider": "Passive DNS provider", "opt_dnsdb_limit": "DNSDB result limit per domain",
+    "opt_dnsdb_limit": "DNSDB result limit per domain",
     "opt_txt": "TXT lookup", "opt_txt_records": "Latest TXT records per domain",
     "opt_caa": "CAA lookup", "opt_cname": "CNAME lookup",
     "opt_pivot": "Pivot on hosting IPs", "opt_pivot_max": "Max IPs to pivot on",
@@ -309,7 +306,6 @@ def query_plan(settings):
                  "Limit": f"one bulk request, full verdict of up to {int(s['opt_vpndb_details'])} IPs; per CIDR range one "
                           f"prefix query and up to {CIDR_ADDRESSES_PER_RANGE} addresses ({CIDR_MAX_RANGES} ranges)",
                  "Always": True}]
-    dnsdb = s["opt_pdns_provider"] == "DNSDB Scout"
     rows = [
         {"Key": "iris", "Source": "Iris Investigate", "Lookup": "Registration, current hosting, risk score, website and trackers",
          "Limit": f"batches of {IRIS_INVESTIGATE_BATCH_SIZE} domains"},
@@ -320,35 +316,23 @@ def query_plan(settings):
     ]
     for row in rows:
         row["Always"] = True
-    if dnsdb:
-        rows.append({"Key": "pdns", "Source": "DNSDB Scout", "Lookup": "Passive DNS of the domain and every subdomain (all types)"
-                     + ("; incremental: only records seen since the last offline copy of these targets"
-                        if s["opt_pdns_incremental"] else ""),
-                     "Limit": f"{int(s['opt_dnsdb_limit']):,} records"})
-        capped = " (only when the main lookup hit its limit)"
-        if s["opt_txt"]:
-            rows.append({"Key": "TXT", "Source": "DNSDB Scout", "Lookup": "TXT records" + capped,
-                         "Limit": f"{TXT_SUPPLEMENT_FETCH_LIMIT:,} fetched, latest {int(s['opt_txt_records'])} kept"})
-        if s["opt_caa"]:
-            rows.append({"Key": "CAA", "Source": "DNSDB Scout", "Lookup": "CAA record of the domain" + capped,
-                         "Limit": f"{CAA_SUPPLEMENT_FETCH_LIMIT:,} records"})
-        if s["opt_cname"]:
-            rows.append({"Key": "CNAME", "Source": "DNSDB Scout", "Lookup": "CNAME records of the domain and subdomains" + capped,
-                         "Limit": f"{CNAME_SUPPLEMENT_FETCH_LIMIT:,} records"})
-        if s["opt_pivot"]:
-            rows.append({"Key": "pivot", "Source": "DNSDB Scout", "Lookup": "Other domains on the current hosting IPs (one lookup per IP)",
-                         "Limit": f"{int(s['opt_pivot_max'])} IPs per run, {PIVOT_IP_RECORD_LIMIT:,} records each"})
-    else:
-        rows.append({"Key": "pdns", "Source": "Iris pDNS", "Lookup": "Passive DNS of the domain and every subdomain",
-                     "Limit": f"{IRIS_PDNS_LIMIT:,} records"})
-        extra = [name for key, name in (("opt_txt", "TXT"), ("opt_caa", "CAA")) if s[key]]
-        if extra:
-            rows.append({"Key": "extra", "Source": "Iris pDNS", "Lookup": f"{' and '.join(extra)} records",
-                         "Limit": f"{IRIS_SUPPLEMENT_FETCH_LIMIT:,} records each"
-                                  + (f", latest {int(s['opt_txt_records'])} TXT kept" if s["opt_txt"] else "")})
-        if s["opt_cname"]:
-            rows.append({"Key": "CNAME", "Source": "Iris pDNS", "Lookup": "CNAME records (only when the main lookup hit its limit)",
-                         "Limit": f"{IRIS_SUPPLEMENT_FETCH_LIMIT:,} records"})
+    rows.append({"Key": "pdns", "Source": "DNSDB Scout", "Lookup": "Passive DNS of the domain and every subdomain (all types)"
+                 + ("; incremental: only records seen since the last offline copy of these targets"
+                    if s["opt_pdns_incremental"] else ""),
+                 "Limit": f"{int(s['opt_dnsdb_limit']):,} records"})
+    capped = " (only when the main lookup hit its limit)"
+    if s["opt_txt"]:
+        rows.append({"Key": "TXT", "Source": "DNSDB Scout", "Lookup": "TXT records" + capped,
+                     "Limit": f"{TXT_SUPPLEMENT_FETCH_LIMIT:,} fetched, latest {int(s['opt_txt_records'])} kept"})
+    if s["opt_caa"]:
+        rows.append({"Key": "CAA", "Source": "DNSDB Scout", "Lookup": "CAA record of the domain" + capped,
+                     "Limit": f"{CAA_SUPPLEMENT_FETCH_LIMIT:,} records"})
+    if s["opt_cname"]:
+        rows.append({"Key": "CNAME", "Source": "DNSDB Scout", "Lookup": "CNAME records of the domain and subdomains" + capped,
+                     "Limit": f"{CNAME_SUPPLEMENT_FETCH_LIMIT:,} records"})
+    if s["opt_pivot"]:
+        rows.append({"Key": "pivot", "Source": "DNSDB Scout", "Lookup": "Other domains on the current hosting IPs (one lookup per IP)",
+                     "Limit": f"{int(s['opt_pivot_max'])} IPs per run, {PIVOT_IP_RECORD_LIMIT:,} records each"})
     if s["opt_vpndb"]:
         context = bool(s["opt_vpndb_context"])
         rows.append({"Key": "vpndb", "Source": "VPNDB", "Lookup": "VPN, residential proxy and Tor verdict of the IPs the "

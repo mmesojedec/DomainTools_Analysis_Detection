@@ -32,7 +32,6 @@ from config import (
     DNSDB_DEFAULT_LIMIT,
     DOMAIN_HISTORY_MAX_CHANGES,
     IRIS_INVESTIGATE_BATCH_SIZE,
-    IRIS_PDNS_LIMIT,
     MAX_OFFLINE_DATASETS,
     OFFLINE_DIR,
     PIVOT_IP_RECORD_LIMIT,
@@ -265,14 +264,12 @@ PARTS = {
            lambda s: _history_limit(s)),
     "risk": ("Risk scores", "Iris Investigate", "Risk score and its components per domain (from the Iris records)",
              lambda s: "One score per domain; no extra query"),
-    "pdns": ("Passive DNS", "DNSDB Scout / Iris pDNS", "Every DNS record seen for the domains and subdomains",
-             lambda s: (f"Up to {int(s.get('dnsdb_limit') or DNSDB_DEFAULT_LIMIT):,} records per domain"
-                        if s.get("pdns_provider", "DNSDB Scout") == "DNSDB Scout" else
-                        f"Up to {IRIS_PDNS_LIMIT:,} records per domain")
+    "pdns": ("Passive DNS", "DNSDB Scout", "Every DNS record seen for the domains and subdomains",
+             lambda s: f"Up to {int(s.get('dnsdb_limit') or DNSDB_DEFAULT_LIMIT):,} records per domain"
              + (f"; TXT lookup: latest {s['txt_records']} per domain" if s.get("txt_records") else "")
              + ("; CAA lookup" if s.get("caa_lookup") else "")
              + ("; CNAME lookup" if s.get("cname_lookup") else "")),
-    "pdns_coverage": ("Passive DNS coverage", "DNSDB Scout / Iris pDNS", "How much of each domain the lookups "
+    "pdns_coverage": ("Passive DNS coverage", "DNSDB Scout", "How much of each domain the lookups "
                       "returned (complete or cut off at the limit)", lambda s: "–"),
     "ssl": ("Certificates", "Certificate API", "Certificates naming the domains (search)",
             lambda s: f"Up to {CERT_SEARCH_MAX_RECORDS:,} certificates per target"),
@@ -349,8 +346,6 @@ def dataset_breakdown(dataset_id):
             records, size = _records(other[name], name), len(gzip.compress(json.dumps(other[name], default=str).encode(), 6))
         else:
             continue
-        if source == "DNSDB Scout / Iris pDNS":   # the run's passive DNS provider
-            source = settings.get("pdns_provider") or manifest.get("provider") or source
         rows.append({"Data": label, "Source": source, "Holds": holds, "Records": int(records),
                      "Size": format_size(size), "Bytes": size, "Limit applied": limit(settings)})
     statuses = pd.DataFrame(other.get("statuses") or [])

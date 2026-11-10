@@ -116,7 +116,7 @@ def test_ip_check_runs_only_vpndb_and_alerts_on_the_ip_targets(monkeypatch):
     bulk = {"results": [BULK["results"][0], {"ip": "2001:db8::1", "anonymous": False, "note": "IPv6 not collected"}]}
     monkeypatch.setattr(collector, "bulk_lookup", lambda ips: calls.append(ips) or FetchResult("VPNDB", "2", data=bulk))
     monkeypatch.setattr(collector, "lookup_ip", lambda ip: calls.append(ip) or FetchResult("VPNDB", ip, data=DETAILS[ip]))
-    data = collector.collect_all(["45.248.77.91", "2001:db8::1", "example.com"], "DNSDB Scout", 5000, vpndb_only=True)
+    data = collector.collect_all(["45.248.77.91", "2001:db8::1", "example.com"], 5000, vpndb_only=True)
     assert calls == [("45.248.77.91", "2001:db8::1"), "45.248.77.91"]   # no other source; IPv6 only in the bulk
     assert data.has_data and list(data.anonymizers["Domains"]) == ["45.248.77.91", "2001:db8::1"]
     assert tuple(data.anonymizers.iloc[1][["Category", "Note"]]) == ("Not checked", "IPv6 not collected")
@@ -164,7 +164,7 @@ def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
     monkeypatch.setattr(collector, "bulk_lookup", lambda ips: record("bulk", ips, FetchResult("VPNDB", "256", data={
         "results": [{"ip": "104.21.59.3", "anonymous": True, "provider": "nordvpn", "types": ["VPN"], "method": "probe",
                      "confidence": 2}] + [{"ip": f"104.21.59.{n}", "anonymous": False} for n in (0, 1, 2)]})))
-    data = collector.collect_all(["a.com", "8.8.8.8", "104.21.59.0/24"], "DNSDB Scout", 5000, include_ct=False,
+    data = collector.collect_all(["a.com", "8.8.8.8", "104.21.59.0/24"], 5000, include_ct=False,
                                  vpndb_check=True)
     assert seen["certs"] == seen["pdns"] == ["a.com", "8.8.8.8"] and seen["ips"] == ["8.8.8.8"]
     assert seen["addresses"] == ("104.21.59.0/24", {"method": "observed", "size": 200, "max_pages": 1})

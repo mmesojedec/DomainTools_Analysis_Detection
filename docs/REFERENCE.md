@@ -44,12 +44,12 @@ tabs for the options being edited):
 | *(always)* | Domain History: registration, DNS and certificate changes | 1,000 changes (Max changes) |
 | Domain History period, Max changes | Domain History: the latest changes (default), only those of the analysis window, or of a custom number of days, each up to *Max changes*; or all time with no limit. Paging stops at the first older change or at *Max changes*; a domain that reaches it is reported as having more changes | 100 changes per query; Max changes 100–20,000; no limit stops at 50,000 |
 | *(always)* | Certificate API: certificates naming the domain, and certificate events | 2,500 each |
-| Passive DNS provider, DNSDB result limit | DNSDB Scout: the domain and every subdomain, all record types (Iris pDNS: 500 records) | the limit you pick |
+| DNSDB result limit | DNSDB Scout: the domain and every subdomain, all record types | the limit you pick |
 | TXT lookup | DNSDB TXT records, only when the main lookup hit its limit | 500 fetched, latest N kept |
 | CAA lookup | DNSDB CAA record of the domain, only when the main lookup hit its limit | 100 records |
 | CNAME lookup | DNSDB CNAME records of the domain and its subdomains, only when the main lookup hit its limit | 5,000 records |
-| Pivot on hosting IPs | DNSDB: other domains seen on each current hosting IP (DNSDB Scout only) | the max IPs per run, 2,000 records each |
-| Incremental passive DNS | DNSDB: only records seen since a day before the last offline copy of the same targets, plus that copy's older records (DNSDB Scout only; a full lookup without a copy) | the limit you pick |
+| Pivot on hosting IPs | DNSDB: other domains seen on each current hosting IP | the max IPs per run, 2,000 records each |
+| Incremental passive DNS | DNSDB: only records seen since a day before the last offline copy of the same targets, plus that copy's older records (a full lookup without a copy) | the limit you pick |
 | VPN / proxy / Tor check (VPNDB) | VPNDB: verdict of the run's public IPv4 hosting addresses and of CIDR targets (only with a VPNDB key); full verdict and weekly history of the exits | *Hosting IPs per run* in one bulk request (500 by default), *Full verdicts per run* exits (50), two queries each |
 | VPNDB: neighbourhood and leads | VPNDB: the /24 around each non-exit hosting IP and the Iris hosting ASNs; DNSDB: other names on dedicated exits | 30 ranges, 20 networks, 10 DNSDB lookups of 1,000 records |
 | Only the VPNDB IP check | VPNDB only: IP targets and CIDR ranges; no other source, domain targets skipped | one bulk request, full verdict of up to *Full verdicts per run* IPv4 targets (100 in *Check IP addresses*), 20 ranges |
@@ -62,7 +62,6 @@ Options per use case (generated from `core/use_cases.py`):
 
 | Option | Global default | Triage a suspicious domain | Map related infrastructure | Hunt C2 infrastructure | Subdomain takeover check | Phishing & lookalikes | Monitor changes | Check IP addresses (VPN, proxy, Tor) | Report & export evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Passive DNS provider | DNSDB Scout | · | · | · | · | · | · | · | · |
 | DNSDB result limit per domain | 5,000 | · | · | · | · | · | · | · | · |
 | TXT lookup | on | · | · | · | off | · | · | · | · |
 | Latest TXT records per domain | 10 | · | · | · | · | · | · | · | · |
@@ -125,11 +124,9 @@ Limits (generated from `config.py`):
 | --- | --- | --- |
 | `DNSDB_LIMIT_OPTIONS` | 10, 50, 100, 500, 1,000, 2,000, 5,000, 10,000, 25,000, 50,000, 100,000, 1,000,000 | choices of the DNSDB result limit (Settings) |
 | `DNSDB_DEFAULT_LIMIT` | 5,000 | DNSDB records fetched per target by the main passive DNS lookup (Settings) |
-| `IRIS_PDNS_LIMIT` | 500 | Iris pDNS records fetched per target by the main lookup |
 | `TXT_SUPPLEMENT_DEFAULT_RECORDS` | 10 | latest TXT records kept per domain by the TXT lookup |
 | `TXT_SUPPLEMENT_FETCH_LIMIT` | 500 | DNSDB TXT records fetched per name before trimming to the latest N |
 | `CAA_SUPPLEMENT_FETCH_LIMIT` | 100 | DNSDB CAA records fetched for the apex name (all are kept) |
-| `IRIS_SUPPLEMENT_FETCH_LIMIT` | 100 | Iris pDNS records requested per record-type lookup query |
 | `CNAME_SUPPLEMENT_FETCH_LIMIT` | 5,000 | DNSDB CNAME records fetched (name and subdomains) when the main query was cut off |
 | `CNAME_CHASE_MAX_STEPS` | 10 | names followed per CNAME chase (DNSDB Scout's CNAME chasing limit) |
 | `CNAME_CHASE_RECORD_LIMIT` | 500 | DNSDB records fetched per chased name and record type |
@@ -179,11 +176,10 @@ Limits (generated from `config.py`):
 | `CIDR_IP_CHECK_TOTAL` | 4,096 | addresses of all CIDR ranges bulk-checked per run |
 | `CIDR_ADDRESSES_PER_RANGE` | 200 | addresses VPNDB probing exited through in each range (last 30 days); a query a row |
 | `MAX_WORKERS` | 8 | lookups run in parallel |
-| `IRIS_PDNS_WORKERS` | 3 | Iris pDNS targets looked up at the same time (after the session check) |
 | `CERT_API_MAX_WORKERS` | 4 | SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s |
 | `CERT_RETRY_PAUSE_SECONDS` | 5 | pause before failed certificate lookups are retried once, one at a time |
 | `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Lookup cache) |
-| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB, Iris pDNS), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB | Source groups that can keep cached results for their own lifetime (Settings → Lookup cache) |
+| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB | Source groups that can keep cached results for their own lifetime (Settings → Lookup cache) |
 | `CACHE_GROUP_DEFAULTS` | history: 604,800, vpndb: 21,600 | changes rarely: 7 days; changes often: 6 hours |
 | `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Lookup cache: label -> seconds (0: no cache) |
 
@@ -352,7 +348,6 @@ All in the project folder, local and git-ignored.
 | `dt_offline/` | Offline datasets saved with *Save offline copy* |
 | `dt_suppressions.json` | Suppressed alerts |
 | `dt_triage.json` | Triage status of alerts and verdicts on domains (New, Investigating, Benign, Malicious) with notes |
-| `dt_token.json`, `dt_session_data/` | The Iris pDNS browser session (during a run also `run_state.json`, its cookies for the parallel lookups, deleted when the run ends) |
 
 API credentials are read from environment variables, `~/.config/dt-analytics/credentials.toml` (where keys entered
 in the app are saved) or the `~/.dt*` files, all outside the project; see [Credentials](INSTALLATION.md#credentials).

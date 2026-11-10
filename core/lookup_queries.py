@@ -1,6 +1,6 @@
 """
 The lookups a run made, rebuilt as queries an analyst can paste into the DomainTools and DNSDB tools: CertsQL for
-certificate search, names and record types for DNSDB Scout / Iris pDNS, domain lists for Iris Investigate, the IrisQL
+certificate search, names and record types for DNSDB Scout, domain lists for Iris Investigate, the IrisQL
 search a run's targets were picked from, plus the
 matching `domaintools` CLI command (installed with the DomainTools Python SDK) or curl command. Built from the run's
 Data Source Status rows with the same query builders the lookups use, so saved and offline runs get the same list.
@@ -35,13 +35,12 @@ from integrations.collector import ct_hashes
 from integrations.credentials import vpndb_base_url
 from integrations.dnsdb import CHASE_SOURCE, MAX_BATCH_SIZE, RDATA_SOURCE, _lookup_urls, client_params, rdata_url
 from integrations.enrichment import iris_batches
-from integrations.iris import build_pdns_payload
 
 LOOKUP_SUFFIXES = (" Lookup", " Supplement")   # record-type lookups (" Supplement": saved before the rename)
 
 QUERY_COLUMNS = ["Source", "Target", "Tool", "Search", "Query", "Command", "Status", "Records", "Cached", "Cached At",
                  "Pages"]
-TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "Iris pDNS", "VPNDB"]
+TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "VPNDB"]
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 COUNT = re.compile(r"^(\d+) certificates$")
 COUNT_IPS = re.compile(r"^\d+ IP\(s\)$")
@@ -71,12 +70,6 @@ def _dnsdb(target, rrtype="ANY", include_wildcard=True, limit=DNSDB_DEFAULT_LIMI
         return "Rdata IP", target, curl
     names = [unquote(url.split("/lookup/", 1)[1].split("/")[2]) for url in urls]
     return f"RRset, type {rrtype}", "\n".join(names), curl
-
-
-def _iris_pdns(target, rrtype=""):
-    payload = build_pdns_payload(target, rrtype)
-    search = ("RData" if payload["search_type"] == "rdata" else "RRName") + (f", type {rrtype}" if rrtype else "")
-    return search, payload["query"], json.dumps(payload, indent=2)
 
 
 def _events(kind, payload, start):
@@ -214,11 +207,6 @@ def build_lookup_queries(collected, created=None):
             curl = (f'curl -s -H "X-API-Key: $DNSDB_API_KEY" -H \'Accept: application/x-ndjson\' '
                     f'{shlex.quote(f"{rdata_url(target)}?{query}")}')
             rows.append(_row(status, "DNSDB Scout", "Rdata name, type CNAME", target, curl))
-        elif source == "Iris pDNS" or (source.startswith("Iris pDNS ") and source.endswith(LOOKUP_SUFFIXES)):
-            if " " in target:   # "N domain(s)" summary rows of lookups that were not needed
-                continue
-            rrtype = source.split()[2] if source.endswith(LOOKUP_SUFFIXES) else ""
-            rows.append(_row(status, "Iris pDNS", *_iris_pdns(target, rrtype)))
         elif source == "IrisQL":
             request = status.get("Request") or {}
             if request.get("query"):

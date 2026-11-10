@@ -22,9 +22,7 @@ ATT&CK mapping), see the [User Guide](USER_GUIDE.md).
   to install, and no internet access needed for it.
 - **DomainTools API access**, for Iris Investigate (which also gives the risk scores) and Domain History; the same
   API key is used for the Certificate API.
-- **DNSDB Scout API key**, for passive DNS through DNSDB, CNAME chasing and IP pivots. With Iris pDNS as the
-  passive DNS provider it is optional; without it, CNAME chains stop where the collected data ends.
-- **Chromium through Playwright**, only for the Iris pDNS provider.
+- **DNSDB Scout API key**, for passive DNS through DNSDB, CNAME chasing and IP pivots.
 
 ## Install
 
@@ -32,12 +30,6 @@ ATT&CK mapping), see the [User Guide](USER_GUIDE.md).
 python3 -m venv ~/.venv/dt_analytics_detection
 source ~/.venv/dt_analytics_detection/bin/activate
 pip install -r requirements.txt
-```
-
-Playwright and Chromium are only needed for the **Iris pDNS** provider:
-
-```bash
-playwright install chromium
 ```
 
 ## Credentials
@@ -180,12 +172,6 @@ the `~/.dt*` files are used only when the file has no key.
   be parsed is never overwritten: fix or remove it first.
 - **Remove** next to a service deletes its table from the file.
 - If an environment variable already supplies the service, the confirmation says the variable still wins.
-
-### Iris pDNS session
-
-The Iris pDNS provider signs in through a Playwright browser window. The first time, log in to Iris in that window
-and close it once Iris has loaded. The session token (`dt_token.json`, saved with `0600` permissions) and the
-browser profile (`dt_session_data/`) are stored in the project folder and are git-ignored.
 
 ## Run the app
 

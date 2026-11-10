@@ -96,10 +96,9 @@ flowchart TD
 ## Collection order
 
 Stages that do not need each other run at the same time. In the first wave, Domain History, Iris Investigate and
-the certificates (search, then events) run in the background while passive DNS runs in front, where the Iris pDNS
-login window can appear. In the second wave, the CT telemetry (it needs the certificates) runs while the IP pivots
+the certificates (search, then events) run in the background while passive DNS (DNSDB Scout) runs in front. In the second wave, the CT telemetry (it needs the certificates) runs while the IP pivots
 and the VPNDB check run (they need passive DNS and Iris). Within a stage, lookups run in parallel (up to 8 at a time,
-4 for the Certificate API, 3 for Iris pDNS). The Certificate API stages stay one after another, because that API
+4 for the Certificate API). The Certificate API stages stay one after another, because that API
 answers too many parallel calls with HTTP 503. Every lookup adds a row to **Data Source Status**; *Partial* means it
 stopped at a limit or failed part-way.
 
@@ -115,7 +114,7 @@ flowchart TD
         S1["1. Domain History: change events per domain"]
         S4["4. Iris Investigate: current profile and risk score, 100 domains per call"]
         S2["2. Certificate Search, then 8. Certificate Events"]
-        S5["5. Passive DNS: DNSDB Scout or Iris pDNS, with TXT / CAA / CNAME lookups"]
+        S5["5. Passive DNS: DNSDB Scout, with TXT / CAA / CNAME lookups"]
     end
     W1 --> W2
     subgraph W2["Wave 2, at the same time"]
@@ -131,7 +130,7 @@ flowchart TD
 | 1 | Domain History | DomainTools API (SDK) | Each domain | Every recorded change: IPs, name servers, registrar, MX, SSL, ... | Max changes: 1,000 change events per domain by default, 100 to 20,000, or no limit (100 per query, newest first) | Always. Also provides historical SSL certificates. With a *Domain History period* (the analysis window or a number of days; Monitor changes: 90 days), paging stops at the first older change. A domain that reaches Max changes is listed as having more changes. |
 | 2 | Certificate Search | Certificate API | Each domain and IP | CertsQL: certificates naming the domain or any subdomain (`san_dns equals` / `ends_with`), or naming the IP | 2,500 certificates per target | Always. Certificates found through certificate inputs are merged in. [Hostname gap-fill](#certificate-logic) if capped. |
 | 4 | Iris Investigate | DomainTools API (SDK) | All domains, 100 per call | Current registration, IPs and ASNs, name servers, MX, SPF, SSL, web trackers, website response, redirects, popularity rank, and the DomainTools risk score with its components (proximity, threat profile, ...) | 100 domains per call | Always. The risk score feeds the score gate; no separate Risk Evidence query is made. |
-| 5 | Passive DNS | DNSDB Scout or Iris pDNS | Each domain and IP | DNS records ever seen for the domain and its subdomains, or names seen on the IP | DNSDB: your limit (default 5,000) per name. Iris: 500 per query | Always. TXT / CAA / CNAME lookups and hostname gap-fill as described in [Passive DNS logic](#passive-dns-logic). With *Incremental passive DNS* (DNSDB), only records seen since the last offline copy of the same targets. |
+| 5 | Passive DNS | DNSDB Scout | Each domain and IP | DNS records ever seen for the domain and its subdomains, or names seen on the IP | Your DNSDB limit (default 5,000) per name | Always. TXT / CAA / CNAME lookups and hostname gap-fill as described in [Passive DNS logic](#passive-dns-logic). With *Incremental passive DNS*, only records seen since the last offline copy of the same targets. |
 | 7 | IP pivots | DNSDB Scout | Up to 3 hosting IPs per domain, 10 in total (Settings) | Other names that resolved to the domain's IPs, and when | 2,000 records per IP | Only when *Pivot on hosting IPs* is on and the provider is DNSDB Scout. IPs come from Iris (current) first, then the latest passive DNS; CDN and private IPs are skipped. |
 | 7b | VPN / proxy / Tor | VPNDB | Public IPv4 hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); up to the use case's *Hosting IPs per run* (500 by default, 100 per domain at most); CIDR targets | Which VPN, residential proxy or Tor operator is behind each IP, with confidence, sharing and IOC value; per range its providers and every address | One bulk request; full verdict of up to *Full verdicts per run* exits (50 by default); per range one prefix query, up to 200 addresses and a bulk request for up to 1,024 addresses | Only with a VPNDB key and *Check hosting IPs for VPN, residential proxy and Tor* on (on in every use case). CDN, private and IPv6 addresses are skipped. |
 | 7c | VPNDB context | VPNDB, DNSDB | The exits (weekly history, as many as the full verdicts), and with *Neighbourhood and leads*: the /24s around the other hosting IPs (30), current Iris ASNs (20), dedicated exits (DNSDB reverse IP, 10) | Was the IP an exit while the domain used it; hosted among exits; other domains on dedicated exits | 1 query each | Only with a VPNDB key and the VPNDB check on; the neighbourhood is off in the takeover, phishing and monitoring use cases; the DNSDB lookups need a DNSDB key. Feeds the exit rules, *Hosted Among Anonymizer Exits* and the VPNDB page. |
@@ -145,17 +144,12 @@ calls (Iris Investigate, Domain History, Account): after 2 s and 4 s on HTTP 429
 also spaces its calls to each product's per-minute limit. Successful lookups are cached on disk, so re-running the
 same targets, or a new run that repeats a domain, costs no API query for them: for the *Cache lifetime* (default
 1 day), or a source's own lifetime (Domain History 7 days, VPNDB 6 hours by default; Settings → Lookup cache).
-Iris pDNS results are cached like the others.
 
 ## Passive DNS logic
 
 ```mermaid
 flowchart TD
-    A{"Provider"} -- "DNSDB Scout" --> B["Lookup *.domain, type ANY: the domain's own records and every subdomain"]
-    A -- "Iris pDNS" --> I["Saved session checked once (login window when it no longer works), then 3 targets at a time: query *.domain, up to 500 records"]
-    I --> I2["TXT and CAA queries in the same session when enabled"]
-    I2 --> I3{"500 records (capped)?"}
-    I3 -- "Yes, CNAME lookup on" --> I4["CNAME query in the same session"]
+    A["Domain target (DNSDB Scout)"] --> B["Lookup *.domain, type ANY: the domain's own records and every subdomain"]
     B --> C{"Hit the result limit?"}
     C -- "No" --> D["Complete: TXT, CAA and CNAME are already included, no extra lookups needed"]
     C -- "Yes" --> E["Also look up the domain itself, type ANY, so its own records are complete"]

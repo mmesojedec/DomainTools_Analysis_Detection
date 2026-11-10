@@ -20,7 +20,6 @@ from core.threat_detection import detect_threat_flags
 from integrations import collector, dnsdb
 from integrations.collector import CollectedData
 from integrations.http import FetchResult, StatusLog
-from integrations.iris import after_limit
 
 
 def pdns(rows):
@@ -184,7 +183,7 @@ def test_cname_supplement_runs_wherever_the_main_lookup_was_capped(monkeypatch):
 
     monkeypatch.setattr(collector, "fetch_dnsdb_history", fake_fetch)
     log = StatusLog()
-    collector.collect_pdns(["big.com", "has-cname.com", "small.com"], "DNSDB Scout", 10, log, cname_lookup=True)
+    collector.collect_pdns(["big.com", "has-cname.com", "small.com"], 10, log, cname_lookup=True)
     # a capped result holding some CNAMEs holds only some of them (nytimes.com: 10 names of thousands)
     assert sorted(c for c in calls if c[1] == "CNAME") == [("big.com", "CNAME"), ("has-cname.com", "CNAME")]
 
@@ -195,13 +194,6 @@ def test_cname_lookups_are_aggregated():
     queries = build_lookup_queries(CollectedData(statuses=[
         {"Source": "DNSDB CNAME Lookup", "Target": "nytimes.com", "Status": "OK", "Records": 1}]))
     assert "aggr=t" in queries.loc[0, "Command"] and "limit=5000" in queries.loc[0, "Command"]
-
-
-def test_iris_cname_query_only_after_a_capped_result():
-    capped = [{"rrtype": "A"}] * 500
-    assert after_limit(capped, ("CNAME",)) == ("CNAME",)
-    assert after_limit(capped[:-1] + [{"rrtype": "CNAME"}], ("CNAME",)) == ("CNAME",)
-    assert after_limit(capped[:10], ("CNAME",)) == ()
 
 
 def test_cname_detections():
@@ -233,7 +225,7 @@ def test_lookup_queries_rebuild_chase_and_supplement_requests():
     data = CollectedData(targets=["a.com"], domain_targets=["a.com"])
     data.statuses = [{"Source": src, "Target": target, "Status": "OK", "Records": 1, "Detail": ""} for src, target in [
         ("DNSDB CNAME Chase (CNAME)", "x.example"), ("DNSDB CNAME Chase (A)", "x.example"),
-        ("DNSDB CNAME Lookup", "a.com"), ("Iris pDNS CNAME Lookup", "2 domain(s)")]]
+        ("DNSDB CNAME Lookup", "a.com")]]
     queries = build_lookup_queries(data)
     assert list(queries["Search"]) == ["RRset, type CNAME", "RRset, type A", "RRset, type CNAME"]
     assert "/rrset/name/x.example/A?limit=500" in queries.loc[1, "Command"]

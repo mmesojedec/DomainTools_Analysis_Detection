@@ -178,8 +178,7 @@ def rule_spf_policy(ctx):
         val_str = str(row["Value"]).strip().lower()
         if "spf1" not in val_str:
             continue
-        # Iris pDNS source "A" strips the "v" prefix from rdata, so it is not evidence of a malformed record
-        if not malformed_reported and "v=spf1" not in val_str and "=spf1" in val_str and str(row.get("Source", "")) != "A":
+        if not malformed_reported and "v=spf1" not in val_str and "=spf1" in val_str:
             ctx.add(
                 "Invalid/Malformed SPF", "Low", "T1583.001 (Acquire Infrastructure)",
                 "SPF record missing required 'v=' prefix.", event_line(row), evidence=[event_record(row)],

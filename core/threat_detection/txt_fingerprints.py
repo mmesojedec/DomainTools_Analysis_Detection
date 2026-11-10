@@ -1,6 +1,5 @@
 """TXT record application fingerprinting and encoded-payload detection."""
 import re
-import string
 
 import pandas as pd
 
@@ -89,32 +88,13 @@ APP_SIGNATURES = {
 _COMPILED_SIGNATURES = [(app, re.compile(pattern, re.IGNORECASE)) for app, pattern in APP_SIGNATURES.items()]
 _B64_PATTERN = re.compile(r"^[A-Za-z0-9+/]{30,}={0,2}$")
 _B32_PATTERN = re.compile(r"^[A-Z2-7]{30,}={0,6}$")
-# Iris pDNS source "A" returns TXT rdata without quotes and without its first character ("oogle-site-verification=",
-# "=spf1", "=DKIM1"); the candidates for that character, most likely first
-LOST_FIRST_SOURCE = "A"
-_LOST_FIRST = "v" + string.ascii_lowercase.replace("v", "") + string.digits + "_" + string.ascii_uppercase
 
 KNOWN_CATEGORY = "Known SaaS / Infrastructure"
 TUNNEL_CATEGORY = "Potential Tunneling / C2"
 
 
-def restore_first_char(entry):
-    """
-    `entry` with the first character Iris pDNS source A dropped put back, when exactly that character makes it a known
-    signature (one that matches from the start, so the restored character is part of it); None when none does.
-    """
-    for char in _LOST_FIRST:
-        candidate = char + entry
-        if any(match.start() == 0 for _, pattern in _COMPILED_SIGNATURES for match in [pattern.search(candidate)]
-               if match):
-            return candidate
-    return None
-
-
 def classify_txt_entry(entry, source=""):
-    """Returns (application, category) for one TXT string; a source A string is read with its first character back."""
-    if source == LOST_FIRST_SOURCE:
-        entry = restore_first_char(entry) or entry
+    """Returns (application, category) for one TXT string."""
     for app, pattern in _COMPILED_SIGNATURES:
         if pattern.search(entry):
             return app, KNOWN_CATEGORY
@@ -152,7 +132,6 @@ def analyze_txt_fingerprints(pdns_df):
             if not entry:
                 continue
             app, category = classify_txt_entry(entry, source_val)
-            restored = restore_first_char(entry) if source_val == LOST_FIRST_SOURCE else None
             results.append({
                 "Domain": row["Domain"],
                 "Source": source_val or "Unknown",
@@ -163,7 +142,6 @@ def analyze_txt_fingerprints(pdns_df):
                 "Query Count": row.get("Count", 1),
                 "Lifespan (Days)": row.get("Lifespan Days", 0),
                 "Original Payload": entry,
-                "Note": f"Iris source A dropped the first character; read as {restored[:60]}" if restored else "",
             })
 
     return pd.DataFrame(results)

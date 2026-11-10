@@ -37,7 +37,7 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
 1. **Collect.** Certificate inputs (fingerprints, `cn:`, `san:`, ...) are first resolved to the domains and IPs
    their certificates cover, and you choose which to analyze (see [Certificate inputs](USAGE.md#certificate-inputs)).
    For each target the app then queries Domain History and Iris Investigate (DomainTools SDK; Iris also returns
-   the DomainTools risk score and its components, so no separate Risk Evidence query is made), passive DNS (DNSDB Scout or Iris pDNS), and the Certificate API: Certificate Search for certificates naming the
+   the DomainTools risk score and its components, so no separate Risk Evidence query is made), passive DNS (DNSDB Scout), and the Certificate API: Certificate Search for certificates naming the
    domain or any subdomain, Certificate Events for the hostname / IP over the last 365 days (the API default is 30),
    and SHA-256 / CT log events per certificate. With a VPNDB key, the hosting IPs are checked in
    [VPNDB](USAGE.md#vpn-residential-proxy-and-tor-vpndb) for VPN, residential proxy and Tor exits (with the weekly
@@ -103,7 +103,7 @@ Each lookup has one of these statuses:
 | Status | Meaning |
 | --- | --- |
 | OK | Data returned |
-| Partial | Data returned but truncated by a result limit (Iris pDNS: 500 records; DNSDB: your limit) |
+| Partial | Data returned but truncated by a result limit (DNSDB: your limit) |
 | No data | The source had nothing for this target |
 | Error | Authentication failure, rate limit, timeout or other error; the reason is shown |
 

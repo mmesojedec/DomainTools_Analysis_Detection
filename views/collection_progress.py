@@ -19,7 +19,7 @@ STATE_HELP = ("Each lookup shows how much of it is done and how long it took. **
 
 def plan_settings(settings):
     """The query-plan options of a run's LookupSettings."""
-    return {"opt_pdns_provider": settings.pdns_provider, "opt_dnsdb_limit": settings.dnsdb_limit,
+    return {"opt_dnsdb_limit": settings.dnsdb_limit,
             "opt_txt": settings.txt_records > 0, "opt_txt_records": settings.txt_records or 1,
             "opt_caa": settings.caa_lookup, "opt_cname": settings.cname_lookup, "opt_pivot": settings.pivot_ips,
             "opt_pivot_max": settings.pivot_max_ips, "opt_ct": settings.include_ct, "opt_ct_max": settings.ct_max_hashes,

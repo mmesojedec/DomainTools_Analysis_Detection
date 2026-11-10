@@ -1,7 +1,3 @@
-# Iris session secrets (CSRF token and browser profile)
-dt_token.json
-dt_session_data/
-
 # Local analyst state (run snapshots, offline datasets, suppressions, saved settings)
 dt_runs/
 dt_offline/

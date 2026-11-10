@@ -11,8 +11,6 @@ DT_SLATE = "#748590"
 
 # --- FILESYSTEM PATHS (anchored to the project, independent of the launch directory) ---
 BASE_DIR = Path(__file__).resolve().parent
-TOKEN_FILE = BASE_DIR / "dt_token.json"
-SESSION_DIR = BASE_DIR / "dt_session_data"
 RUNS_DIR = BASE_DIR / "dt_runs"
 SUPPRESSIONS_FILE = BASE_DIR / "dt_suppressions.json"
 TRIAGE_FILE = BASE_DIR / "dt_triage.json"          # analyst decisions on alerts and domains (New ... Malicious)
@@ -35,11 +33,9 @@ VPNDB_KEY_FILE = Path.home() / ".dtvpndb"          # VPNDB API key (vpndb_...); 
 # --- COLLECTION LIMITS ---
 DNSDB_LIMIT_OPTIONS = [10, 50, 100, 500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 1000000]  # choices of the DNSDB result limit (Settings)
 DNSDB_DEFAULT_LIMIT = 5000           # DNSDB records fetched per target by the main passive DNS lookup (Settings)
-IRIS_PDNS_LIMIT = 500                # Iris pDNS records fetched per target by the main lookup
 TXT_SUPPLEMENT_DEFAULT_RECORDS = 10   # latest TXT records kept per domain by the TXT lookup
 TXT_SUPPLEMENT_FETCH_LIMIT = 500      # DNSDB TXT records fetched per name before trimming to the latest N
 CAA_SUPPLEMENT_FETCH_LIMIT = 100      # DNSDB CAA records fetched for the apex name (all are kept)
-IRIS_SUPPLEMENT_FETCH_LIMIT = 100     # Iris pDNS records requested per record-type lookup query
 CNAME_SUPPLEMENT_FETCH_LIMIT = 5000   # DNSDB CNAME records fetched (name and subdomains) when the main query was cut off
 CNAME_CHASE_MAX_STEPS = 10           # names followed per CNAME chase (DNSDB Scout's CNAME chasing limit)
 CNAME_CHASE_RECORD_LIMIT = 500       # DNSDB records fetched per chased name and record type
@@ -89,12 +85,11 @@ CIDR_IP_CHECK_MAX = 1024             # addresses of one CIDR range bulk-checked 
 CIDR_IP_CHECK_TOTAL = 4096           # addresses of all CIDR ranges bulk-checked per run
 CIDR_ADDRESSES_PER_RANGE = 200       # addresses VPNDB probing exited through in each range (last 30 days); a query a row
 MAX_WORKERS = 8                      # lookups run in parallel
-IRIS_PDNS_WORKERS = 3                # Iris pDNS targets looked up at the same time (after the session check)
 CERT_API_MAX_WORKERS = 4         # SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s
 CERT_RETRY_PAUSE_SECONDS = 5     # pause before failed certificate lookups are retried once, one at a time
 FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups (Settings → Lookup cache)
 # Source groups that can keep cached results for their own lifetime (Settings → Lookup cache)
-CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB, Iris pDNS)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
+CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
                 "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB"}
 CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600}   # changes rarely: 7 days; changes often: 6 hours
 # cache lifetime choices on Settings → Lookup cache: label -> seconds (0: no cache)

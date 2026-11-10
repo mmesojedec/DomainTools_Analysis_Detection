@@ -71,7 +71,6 @@ from views.idn_display import UNICODE_KEY, display_name
 @dataclass
 class LookupSettings:
     raw_input: str
-    pdns_provider: str
     dnsdb_limit: int
     include_ct: bool
     ct_max_hashes: int
@@ -98,7 +97,7 @@ class LookupSettings:
 
     def collection_summary(self):
         """Collection settings recorded in an offline dataset's manifest."""
-        return {"pdns_provider": self.pdns_provider, "dnsdb_limit": self.dnsdb_limit, "include_ct": self.include_ct,
+        return {"pdns_provider": "DNSDB Scout", "dnsdb_limit": self.dnsdb_limit, "include_ct": self.include_ct,
                 "ct_max_hashes": self.ct_max_hashes, "pivot_ips": self.pivot_ips, "pivot_max_ips": self.pivot_max_ips,
                 "txt_records": self.txt_records, "caa_lookup": self.caa_lookup, "seed_preselect": self.seed_preselect,
                 "cname_lookup": self.cname_lookup, "vpndb_check": self.vpndb_check, "vpndb_only": self.vpndb_only,
@@ -150,17 +149,16 @@ def apply_cache_settings(settings):
 def lookup_settings(raw_input, run, save_offline=False):
     """LookupSettings of a live run from the collection options in session state."""
     opt = st.session_state
-    dnsdb = opt["opt_pdns_provider"] == "DNSDB Scout"
-    return LookupSettings(raw_input, opt["opt_pdns_provider"], int(opt["opt_dnsdb_limit"]) if dnsdb else DNSDB_DEFAULT_LIMIT,
+    return LookupSettings(raw_input, int(opt["opt_dnsdb_limit"]),
                           bool(opt["opt_ct"]), int(opt["opt_ct_max"]), bool(opt["opt_force_refresh"]),
-                          bool(opt["opt_pivot"] and dnsdb), int(opt["opt_pivot_max"]),
+                          bool(opt["opt_pivot"]), int(opt["opt_pivot_max"]),
                           int(opt["opt_txt_records"]) if opt["opt_txt"] else 0, bool(opt["opt_caa"]), run,
                           mode="live", save_offline=bool(save_offline), seed_preselect=int(opt["opt_seed_preselect"]),
                           cname_lookup=bool(opt["opt_cname"]), vpndb_check=bool(opt["opt_vpndb"]),
                           vpndb_only=bool(opt["opt_vpndb_only"]), vpndb_max_ips=int(opt["opt_vpndb_max_ips"]),
                           vpndb_details=int(opt["opt_vpndb_details"]), vpndb_context=bool(opt["opt_vpndb_context"]),
                           history_days=next_history_days(), history_max=next_history_cap(),
-                          pdns_incremental=bool(opt["opt_pdns_incremental"] and dnsdb))
+                          pdns_incremental=bool(opt["opt_pdns_incremental"]))
 
 
 def next_history_days():
@@ -191,17 +189,16 @@ def options_summary():
     opt = st.session_state
     if opt["opt_vpndb_only"]:
         return "VPNDB IP check only (IP targets)" + (" · force refresh" if opt["opt_force_refresh"] else "")
-    parts = [opt["opt_pdns_provider"] + (f" {int(opt['opt_dnsdb_limit']):,}" if opt["opt_pdns_provider"] == "DNSDB Scout"
-                                         else "")]
+    parts = [f"DNSDB Scout {int(opt['opt_dnsdb_limit']):,}"]
     parts += [label for key, label in (("opt_txt", f"TXT {opt['opt_txt_records']}"), ("opt_caa", "CAA"),
                                        ("opt_cname", "CNAME")) if opt[key]]
     parts.append(f"CT {opt['opt_ct_max']}" if opt["opt_ct"] else "no CT")
     if opt["opt_vpndb"]:
         parts.append(f"VPNDB {int(opt['opt_vpndb_max_ips'])}/{int(opt['opt_vpndb_details'])}"
                      + ("" if opt["opt_vpndb_context"] else " (no neighbourhood)"))
-    if opt["opt_pivot"] and opt["opt_pdns_provider"] == "DNSDB Scout":
+    if opt["opt_pivot"]:
         parts.append(f"IP pivots {opt['opt_pivot_max']}")
-    if opt["opt_pdns_incremental"] and opt["opt_pdns_provider"] == "DNSDB Scout":
+    if opt["opt_pdns_incremental"]:
         parts.append("incremental pDNS")
     days, cap = next_history_days(), next_history_cap()
     if days or cap != DOMAIN_HISTORY_MAX_CHANGES:
@@ -271,7 +268,7 @@ def render_offline_controls():
     st.sidebar.button("Open Offline Datasets", icon=":material/folder_open:", key="offline_open",
                       on_click=open_offline_datasets, width="stretch")
     render_unicode_toggle()
-    return LookupSettings("", (manifest or {}).get("provider") or "", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0,
+    return LookupSettings("", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0,
                           False, manifest is not None, mode="offline", offline_id=dataset_id if manifest else None)
 
 
@@ -335,7 +332,7 @@ def render_lookup_controls(settings_page=None):
                            "lookups.")
         navigation.link(page, label=f"Open the {mode} page", container=st.sidebar)
         render_credential_chip(settings_page)
-        return LookupSettings("", "", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0, False, False, mode=page)
+        return LookupSettings("", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0, False, False, mode=page)
     if st.session_state.pop(LIVE_JUMP_KEY, False):   # Live lookups just chosen: start from the Start page
         navigation.go("home")
     prefixes = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
@@ -374,42 +371,37 @@ def render_collection_options(prefix="", force_refresh=True):
     Settings page: every collection option (session state, so it holds for the next Analyze). With a `prefix` the same
     widgets edit a use case's saved options (keys `prefix + option`) instead.
     """
-    st.markdown("**Passive DNS**")
+    st.markdown("**Passive DNS (DNSDB Scout)**")
     c1, c2 = st.columns(2)
-    c1.radio("pDNS provider", ["DNSDB Scout", "Iris pDNS"], key=prefix + "opt_pdns_provider", horizontal=True,
-             help="DNSDB Scout queries the DNSDB v2 REST API with your DNSDB key (see API credentials). "
-                  "Iris pDNS uses a browser-authenticated Iris session.")
-    c2.selectbox("DNSDB result limit per domain", DNSDB_LIMIT_OPTIONS, key=prefix + "opt_dnsdb_limit", format_func=lambda v: f"{v:,}",
-                 disabled=st.session_state[prefix + "opt_pdns_provider"] != "DNSDB Scout",
-                 help="Maximum passive DNS records fetched per queried name. Very large limits slow down charts and tables.")
+    c1.selectbox("DNSDB result limit per domain", DNSDB_LIMIT_OPTIONS, key=prefix + "opt_dnsdb_limit", format_func=lambda v: f"{v:,}",
+                 help="Maximum passive DNS records fetched per queried name, from the DNSDB v2 REST API with your DNSDB "
+                      "key (see API credentials). Very large limits slow down charts and tables.")
     c1, c2 = st.columns(2)
     c1.checkbox("TXT lookup", key=prefix + "opt_txt",
-                help="Runs an extra TXT-only passive DNS query per domain (DNSDB: name/TXT and *.name/TXT; Iris pDNS: rrtype "
-                     "TXT in the same browser session) and merges the latest records. Large result limits are often filled "
+                help="Runs an extra TXT-only passive DNS query per domain (name/TXT and *.name/TXT) "
+                     "and merges the latest records. Large result limits are often filled "
                      "by A/NS/CNAME records before any TXT record appears, leaving TXT fingerprinting and SPF/tunneling "
                      "detections empty.")
     c2.number_input("Latest TXT records per domain", min_value=1, max_value=500, step=1, key=prefix + "opt_txt_records",
                     disabled=not st.session_state[prefix + "opt_txt"])
     c1.checkbox("CAA lookup", key=prefix + "opt_caa",
-                help="Queries the CAA record of each domain name directly (DNSDB: name/CAA; Iris pDNS: rrtype CAA in the same "
-                     "session). Without it, a CAA record can fall outside a truncated pDNS result and the domain looks "
+                help="Queries the CAA record of each domain name directly (name/CAA). "
+                     "Without it, a CAA record can fall outside a truncated pDNS result and the domain looks "
                      "unprotected.")
     c2.checkbox("CNAME lookup", key=prefix + "opt_cname",
-                help="Queries CNAME records of each domain and its subdomains (DNSDB: *.name/CNAME and name/CNAME; Iris "
-                     "pDNS: rrtype CNAME in the same session), up to 5,000 records, where the main lookup stopped at its "
+                help="Queries CNAME records of each domain and its subdomains (*.name/CNAME and "
+                     "name/CNAME), up to 5,000 records, where the main lookup stopped at its "
                      "limit (it then holds only some of the CNAMEs). DNSDB returns them aggregated, one record per "
                      "hostname and target. Needed for CNAME chains and the CNAME detections on busy domains.")
     c1.checkbox("Pivot on hosting IPs (domain hopping)", key=prefix + "opt_pivot",
-                disabled=st.session_state[prefix + "opt_pdns_provider"] != "DNSDB Scout",
                 help="DNSDB reverse lookups on each domain's current non-CDN IPs (from Iris Investigate and passive DNS) to "
-                     "find other domains that used them over time. One extra DNSDB query per IP. DNSDB Scout only.")
+                     "find other domains that used them over time. One extra DNSDB query per IP.")
     c2.number_input("Max IPs to pivot on", min_value=1, max_value=200, step=1, key=prefix + "opt_pivot_max",
                     disabled=not st.session_state[prefix + "opt_pivot"])
     st.checkbox("Incremental passive DNS (only records seen since the last offline copy)",
                 key=prefix + "opt_pdns_incremental",
-                disabled=st.session_state[prefix + "opt_pdns_provider"] != "DNSDB Scout",
                 help="For target lists you analyze again and again (Monitor changes). When an offline copy of the same "
-                     "targets exists (same provider and DNSDB limit), DNSDB returns only the records seen since a day "
+                     "targets exists (same DNSDB limit), DNSDB returns only the records seen since a day "
                      "before that copy, and the copy's older records are added. Each target is still one DNSDB query, "
                      "but the result limit holds new records instead of old ones, and the lookup is faster. Without an "
                      "offline copy the lookup is complete, as usual. Save an offline copy of each run (sidebar) so the "

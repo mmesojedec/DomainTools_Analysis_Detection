@@ -1,7 +1,7 @@
 # DomainTools Analytics and Detection
 
 An unofficial Streamlit tool that combines several DomainTools data sources (Iris Investigate with its risk scores,
-Domain History, passive DNS from DNSDB Scout or Iris pDNS, and the Certificate API with search, hostname / IP /
+Domain History, passive DNS from DNSDB Scout, and the Certificate API with search, hostname / IP /
 SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
 threat engine over the combined telemetry.
 
@@ -75,7 +75,7 @@ source ~/.venv/dt_analytics_detection/bin/activate
 pip install -r requirements.txt
 ```
 
-For the optional Iris pDNS provider, also run `playwright install chromium`. Then start the app:
+Then start the app:
 
 ```bash
 streamlit run app.py
@@ -87,7 +87,7 @@ while a key is missing; the form opens by itself), enter the keys and click **Sa
 | Key | Needed for |
 | --- | --- |
 | DomainTools API username and key | Iris Investigate (with the risk scores), Domain History, IrisQL, the Account page; also the Certificate API |
-| DNSDB API key | Passive DNS through DNSDB Scout, CNAME chasing and IP pivots (optional with Iris pDNS) |
+| DNSDB API key | Passive DNS through DNSDB Scout, CNAME chasing and IP pivots |
 | Certificate API key | Optional: only if it differs from the DomainTools API key |
 | VPNDB API key | Optional: the VPN, residential proxy and Tor check of hosting IPs |
 
@@ -178,7 +178,6 @@ integrations/
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
   enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches (JSON POST) and web tracker extraction
-  iris.py                      Iris pDNS via an authenticated Playwright session: one session check, then parallel workers, cached
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages

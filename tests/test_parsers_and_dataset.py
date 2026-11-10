@@ -12,7 +12,6 @@ from integrations.certificates import build_search_queries, match_target_against
 from integrations.dnsdb import parse_dnsdb_to_dataframe, parse_saf_lines
 from integrations.domain_history import calculate_lifespans_for_dh, parse_history_to_dataframe
 from integrations.http import FetchResult, StatusLog
-from integrations.iris import build_pdns_payload, parse_iris_json_to_dataframe
 
 
 def test_parse_saf_lines_reports_limited_condition():
@@ -31,16 +30,6 @@ def test_parse_dnsdb_frame():
     a_row = df[df["Field"] == "A"].iloc[0]
     assert a_row["Value"] == "1.1.1.1\n2.2.2.2" and a_row["Lifespan Days"] == 1.0
     assert df["Days Since Previous Event"].max() == 31.0
-
-
-def test_parse_iris_frame_handles_missing_last_seen():
-    df = parse_iris_json_to_dataframe([{"rrname": "a.com", "rrtype": "a", "rdata": "1.1.1.1", "first_seen": "2024-01-01T00:00:00Z"}], "a.com")
-    assert df.iloc[0]["Lifespan Days"] == 0.1 and df.iloc[0]["Field"] == "A"
-
-
-def test_iris_payload_shapes():
-    assert build_pdns_payload("1.2.3.4")["search_type"] == "rdata"
-    assert build_pdns_payload("a.com")["query"] == "*.a.com"
 
 
 def test_domain_history_parsing_and_lifespans():
@@ -154,7 +143,7 @@ def test_collector_records_errors(monkeypatch):
 
     monkeypatch.setattr(collector, "fetch_dnsdb_history", lambda t, limit, *args: FetchResult("DNSDB Scout", t, data=[], error="HTTP 401"))
     log = StatusLog()
-    frame, _ = collector.collect_pdns(["a.com"], "DNSDB Scout", 10, log)
+    frame, _ = collector.collect_pdns(["a.com"], 10, log)
     assert frame.empty and log.rows[0]["Status"] == "Error"
 
 

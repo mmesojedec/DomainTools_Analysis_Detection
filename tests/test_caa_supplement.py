@@ -79,10 +79,10 @@ def test_caa_supplement_recovers_record_missing_from_truncated_main_query(monkey
 
     monkeypatch.setattr(collector, "fetch_dnsdb_history", fake_fetch)
     log = StatusLog()
-    pdns, coverage = collector.collect_pdns(["nytimes.com"], "DNSDB Scout", 2000, log, caa_lookup=True)
+    pdns, coverage = collector.collect_pdns(["nytimes.com"], 2000, log, caa_lookup=True)
     assert ("CAA", False) in calls
     assert (pdns["Field"] == "CAA").sum() == 1 and set(pdns.loc[pdns["Field"] == "CAA", "Collection"]) == {"CAA lookup"}
     assert coverage == {"nytimes.com": {"truncated": True, "caa_checked": True}}
 
-    _, coverage_without = collector.collect_pdns(["nytimes.com"], "DNSDB Scout", 2000, StatusLog(), caa_lookup=False)
+    _, coverage_without = collector.collect_pdns(["nytimes.com"], 2000, StatusLog(), caa_lookup=False)
     assert caa_coverage_status(coverage_without, "nytimes.com") == "incomplete"

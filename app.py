@@ -223,21 +223,14 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
         skipped = skipped_products_note(products)
         if skipped:
             st.warning(skipped + ". See the Account page.", icon=":material/block:")
-        auth_box = st.empty()
         tracker = live_progress(settings)
         with refreshing() if settings.fresh else nullcontext(), tracking(tracker):   # fresh: refresh cached results
             collected = collect_all(
                 targets,
-                settings.pdns_provider,
                 settings.dnsdb_limit,
                 include_ct=settings.include_ct,
                 ct_max_hashes=settings.ct_max_hashes,
                 progress=lambda label: status.update(label=label, expanded=True),   # keeps the checklist in view
-                on_auth_required=lambda target: auth_box.info(
-                    f"Iris authentication required for {md_escape(target)}. Log in via the browser window that opened, "
-                    "then **close the window manually once Iris has loaded.**"
-                ),
-                on_auth_done=auth_box.empty,
                 pivot_ips=settings.pivot_ips,
                 pivot_max_ips=settings.pivot_max_ips,
                 txt_records=settings.txt_records,

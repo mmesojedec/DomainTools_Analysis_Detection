@@ -5,7 +5,6 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 140
 target-version = "py311"
-extend-exclude = ["dt_session_data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]

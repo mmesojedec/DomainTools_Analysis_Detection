@@ -23,5 +23,3 @@ idna>=3.4
 urllib3>=2.0.0
 domaintools_api>=2.10.0
 
-# Browser Automation (only needed for the Iris pDNS provider)
-playwright>=1.40.0

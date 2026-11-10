@@ -37,7 +37,7 @@ def _render_txt(ds):
     if ds.txt_apps.empty:
         return
     st.subheader("Raw TXT Records")
-    cols = ["Domain", "Source", "Application / Tag", "Category", "First Seen", "Last Seen", "Query Count", "Lifespan (Days)", "Original Payload", "Note"]
+    cols = ["Domain", "Source", "Application / Tag", "Category", "First Seen", "Last Seen", "Query Count", "Lifespan (Days)", "Original Payload"]
     view = ds.txt_apps[[c for c in cols if c in ds.txt_apps.columns]].rename(columns={
         "Domain": "Domain / IP",
         "First Seen": f"First Seen ({ds.timezone})",

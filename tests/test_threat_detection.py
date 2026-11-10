@@ -267,27 +267,6 @@ def test_txt_fingerprint_bimi():
     assert analyze_txt_fingerprints(df)["Application / Tag"].tolist() == ["BIMI (Brand Logo)"]
 
 
-def test_txt_fingerprints_of_iris_source_a_get_their_lost_first_character_back():
-    values = {"oogle-site-verification=NSmi94k0": "Google Workspace / Gemini",
-              "arallels-domain-verification=df31": "Parallels",
-              "erval-domain-verification-bew4y4=VA1q": "Serval (AI Search)",
-              "hade-domain-verification-wys4jv=w07F": "Shade (AI Assets)",
-              "password-site-verification=5XOU": "1Password",
-              "pf2.0/pra include:cust-senderid.exacttarget.com -all": "Sender ID (SPF 2.0)",
-              "=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC": "DKIM / Crypto Key",
-              "=spf1 mx include:aspmx.sailthru.com -all": "SPF"}
-    df = pd.DataFrame([{"Domain": "a.com", "Field": "TXT", "Source": "A", "Value": value, "Date": ts("2024-01-01")}
-                       for value in values])
-    apps = analyze_txt_fingerprints(df)
-    assert apps["Application / Tag"].tolist() == list(values.values())
-    assert apps["Note"].iloc[0] == "Iris source A dropped the first character; read as google-site-verification=NSmi94k0"
-    assert apps["Original Payload"].iloc[0] == "oogle-site-verification=NSmi94k0"   # the record as Iris returned it
-
-    other = pd.DataFrame([{"Domain": "a.com", "Field": "TXT", "Source": "B", "Value": '"oogle-site-verification=x"',
-                           "Date": ts("2024-01-01")}])
-    assert analyze_txt_fingerprints(other)["Note"].tolist() == [""]   # only source A loses a character
-
-
 def test_new_txt_fingerprints():
     values = {"globalsign-domain-verification=31A4E2C60CF20D90F4A4D4681EA87DC3": "GlobalSign SSL",
               "_globalsign-domain-verification=nPcGMc5MexVHi5gaiJ3TNZjT3fI_seEOQWXPUSMmWm": "GlobalSign SSL",
