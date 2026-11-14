@@ -194,19 +194,28 @@ def test_recent_runs_section_renders_runs_with_a_use_case_and_a_profile(store, m
     from streamlit.testing.v1 import AppTest
 
     from core.use_cases import PROFILES_SETTING, profile_key
-    from views import history_view
+    from views import recent_view
     empty = pd.DataFrame(columns=["Domain", "Threat Type", "Severity"])
     persistence.save_setting(PROFILES_SETTING, [{"name": "My hunt", "description": "", "settings": {}}])
     persistence.save_snapshot(persistence.target_set_key(["a.com"]), ["a.com"], {}, empty, "Last 30 days",
                               options={"use_case": "triage"})
     persistence.save_snapshot(persistence.target_set_key(["b.com"]), ["b.com"], {}, empty, "All time",
                               options={"use_case": profile_key("My hunt")})
-    monkeypatch.setattr(history_view, "list_offline_datasets", lambda: [])
+    monkeypatch.setattr(recent_view, "list_offline_datasets", lambda: [])
 
     def page():
-        from views import history_view
-        history_view.render_recent_runs("UTC")
+        from views import recent_view
+        recent_view.render_recent_page("UTC")
 
-    at = AppTest.from_function(page).run(timeout=30)
+    at = AppTest.from_function(page).run(timeout=30)   # Timeline is the default view
+    assert not at.exception and len(at.get("plotly_chart")) == 2   # timeline + runs per day
+    at.session_state["recent_view"] = "Cards"
+    at.run(timeout=30)
+    assert not at.exception and [b.label for b in at.button][:2] == ["Select", "Select"]
+    assert any("first run" in m.value for m in at.markdown)
+    at.session_state["recent_view"] = "Table"
+    at.run(timeout=30)
     assert not at.exception
     assert list(at.dataframe[0].value["Use case"]) == ["My hunt", "Triage a suspicious domain"]
+    at.text_input(key="recent_filter").input("a.com").run(timeout=30)
+    assert list(at.dataframe[0].value["Targets"]) == ["a.com"]

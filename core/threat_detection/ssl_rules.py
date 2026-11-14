@@ -13,6 +13,7 @@ from core.cert_utils import (
     publicly_trusted,
 )
 from core.helpers import hostname_matches, is_ip_address, registrable_domain
+from core.ja4x import cert_ja4x, known_ja4x, layout_note
 from core.threat_detection.context import evidence_record, fmt_ts
 
 CABF_VALIDITY_CUTOFF = pd.Timestamp("2020-09-01")
@@ -327,8 +328,31 @@ def rule_weak_key(ctx, cert, info):
         )
 
 
+def rule_known_ja4x(ctx, cert, info):
+    """The certificate's JA4X is a known C2 / malware or dual-use tool fingerprint (built-in lists in intel_data)."""
+    value = cert_ja4x(cert)
+    match = known_ja4x(value)
+    if not match:
+        return
+    name, kind = match
+    note = layout_note(value)
+    iocs = (f"JA4X: {value} ({name})\nCommon Name: {info['cn'] or 'N/A'}\nIssuer: {info['issuer'] or 'N/A'}\n"
+            f"Self-signed: {'yes' if info['self_signed'] else 'no'}\nCert Hash: {cert.get('Hash', 'N/A')}")
+    if kind == "c2":
+        ctx.add("Known C2 Certificate Fingerprint (JA4X)", "High", "T1588.002 (Obtain Capabilities: Tool)",
+                f"The certificate's JA4X matches {name}: it was generated the way that tool generates its own"
+                + (f" ({note})" if note else "") + ". Other certificates built with the same fields match too, so "
+                "confirm with the certificate itself.", iocs,
+                confidence="High" if info["self_signed"] else None)
+    else:
+        ctx.add("Dual-Use Tool Certificate Fingerprint (JA4X)", "Medium", "T1572 (Protocol Tunneling)",
+                f"The certificate's JA4X matches {name}, legitimate software that attackers also run for tunnels "
+                "and remote access.", iocs)
+
+
 PER_CERT_RULES = (
     rule_self_signed,
+    rule_known_ja4x,
     rule_short_lived,
     rule_mega_san,
     rule_bare_ip_certificate,

@@ -1,9 +1,12 @@
 """Lens 3: SSL/TLS certificate intelligence."""
+import copy
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from config import DT_BLUE, DT_GREEN, DT_ORANGE, DT_SLATE
+from core import certsql, ja4x
 from core.caa import (
     CAA_COVERAGE_LABELS,
     caa_coverage_status,
@@ -13,10 +16,13 @@ from core.caa import (
 )
 from core.cert_utils import cert_alt_names, cert_flag, cert_ip_names, cert_is_self_signed, publicly_trusted, weak_key_mask
 from core.helpers import is_ip_address, md_escape
+from core.intel_data import DUAL_USE_JA4X, KNOWN_JA4X
 from core.self_signed import SEVERITIES, self_signed_certificates
+from integrations.certificates import fetch_certsql
 from views import navigation
 from views.common import chart, explainer, table
 from views.hunt_actions import certificate_actions
+from views.query_editor import set_query
 from visualizations.sankey import render_hostname_sankey_flow
 
 CAA_BREACH_TYPES = {"Unauthorized CA Certificate Issuance (CAA Breach)", "Wildcard Issuance Forbidden by CAA Policy"}
@@ -59,10 +65,12 @@ PIVOT_OPTIONS = {
 }
 
 
+CERT_FOCUS_KEY = "cert_focus"   # a certificate or JA4X the page is narrowed to (set by an indicator's details)
 CERT_TAB_KEY = "cert_tab"   # the selected tab; other pages open one with navigation.open_tab
 SELF_SIGNED_TAB = "Self-Signed"
+JA4X_TAB = "JA4X"
 CERT_TABS = ["Executive Health", SELF_SIGNED_TAB, "Validity & Lifelines", "Cipher & Keys", "Key Reuse Matrix",
-             "Geo & Org Profiling", "EKU & Capabilities", "Policies & OIDs", "CAA Record", "CT Log Telemetry", "IP & C2"]
+             JA4X_TAB, "Geo & Org Profiling", "EKU & Capabilities", "Policies & OIDs", "CAA Record", "CT Log Telemetry", "IP & C2"]
 
 
 TREEMAP_CERTS = 15   # certificates drawn per target domain in the SAN treemap; the rest are one box
@@ -319,6 +327,88 @@ def _render_key_reuse(unique_certs):
     fig.update_layout(xaxis_title=label)
     chart(fig, height=380)
     table(shared.drop(columns=["Display_ID"]))
+
+
+JA4X_RARITY_KEY = "ja4x_rarity"   # {ja4x: (total, relation)} from Certificate Search counts, kept for the session
+JA4X_CHECK_MAX = 10              # values counted per click (the Certificates API allows 20 requests a minute)
+
+
+def _open_ja4x_search(value):
+    set_query("certsql_query", f"{certsql.HEADER}\n{ja4x.search_query(value)}")
+    navigation.go("certsql")
+
+
+def _check_rarity(values):
+    counts = st.session_state.setdefault(JA4X_RARITY_KEY, {})
+    errors = []
+    for value in values:
+        result = fetch_certsql(certsql.normalize(ja4x.search_query(value)), 1)
+        if result.error:
+            errors.append(result.error)
+            break
+        counts[value] = (int(result.extras.get("total") or 0), result.extras.get("relation", "eq"))
+    return errors
+
+
+def _render_ja4x(unique_certs):
+    st.markdown("#### JA4X: how the certificates were generated",
+                help="JA4X fingerprints the layout of a certificate (issuer and subject attribute types, extensions), "
+                     "not its names or key. The same JA4X means the same tool or template made the certificates.")
+    explainer("Reading JA4X", f"""
+* **Three parts `a_b_c`:** a hash of the issuer's attribute types, of the subject's, and of the extensions. `000000000000` means that part is empty.
+* **Known tools:** {len(KNOWN_JA4X)} C2 and malware fingerprints and {len(DUAL_USE_JA4X)} dual-use tool fingerprint(s) are built in (Reference → Built-in lists); a match raises an alert.
+* **Common vs rare:** certificates from public CAs share a few very common values, so a JA4X shared by two domains only links them when it is **rare**. *Check how common* counts each value in the Certificates API ({ja4x.RARE_MAX} certificates or fewer is rare).
+* **Pivot:** *Find certificates with this JA4X* opens CertsQL with `ja4x equals "…"`.
+""")
+    frame = ja4x.summary(unique_certs)
+    if frame.empty:
+        st.info("No JA4X in this run's certificates. The Certificates API adds `ja4x` with the latest CertsQL release; "
+                "certificates collected once it is live carry it, and this tab and the JA4X alerts use it then.",
+                icon=":material/info:")
+    else:
+        known = frame[frame["Known As"] != ""]
+        if not known.empty:
+            st.error(f"**{len(known)} JA4X value(s) match a known tool:** "
+                     + "; ".join(f"{name} on {domains}" for name, domains in zip(known["Known As"], known["Domains"])))
+        counts = st.session_state.get(JA4X_RARITY_KEY, {})
+        frame["In Certificates API"] = frame["JA4X"].map(lambda v: counts[v][0] if v in counts else None)
+        frame["Rarity"] = frame["JA4X"].map(lambda v: ja4x.rarity(*counts[v]) if v in counts else "")
+        shared_rare = frame[(frame["Domain Count"] > 1) & (frame["Rarity"].isin(["Rare", "Uncommon"]))]
+        if not shared_rare.empty:
+            st.warning(f"**{len(shared_rare)} rare or uncommon JA4X value(s) shared across domains:** the same "
+                       "tool or template made their certificates. " + "; ".join(shared_rare["Domains"]))
+        table(frame, column_config={
+            "In Certificates API": st.column_config.NumberColumn(
+                "In Certificates API", format="%d", help="Certificates with this JA4X in the Certificates API "
+                                                          "(exact up to 10,000), after Check how common"),
+            "Self-signed": st.column_config.CheckboxColumn("Self-signed")})
+        unchecked = [v for v in frame["JA4X"] if v not in counts][:JA4X_CHECK_MAX]
+        c_check, c_pick, c_find = st.columns([1.2, 2, 1.2], vertical_alignment="bottom")
+        if unchecked and c_check.button(
+                f"Check how common ({len(unchecked)})", icon=":material/query_stats:", key="ja4x_check",
+                help=f"One Certificate Search request (1 result) per value not checked yet, at most "
+                     f"{JA4X_CHECK_MAX} per click; repeats within the cache lifetime cost none."):
+            with st.spinner("Counting certificates per JA4X..."):
+                errors = _check_rarity(unchecked)
+            if errors:
+                st.error(f"Certificate Search: {errors[0]}")
+                if hint := certsql.error_hint(errors[0], ja4x.search_query(unchecked[0])):
+                    st.info(hint, icon=":material/tips_and_updates:")
+            else:
+                st.rerun()
+        value = c_pick.selectbox("JA4X to pivot on", list(frame["JA4X"]), key="ja4x_pivot",
+                                 format_func=lambda v: v + (f" ({ja4x.known_ja4x(v)[0]})" if ja4x.known_ja4x(v) else ""))
+        if c_find.button("Find certificates with this JA4X", icon=":material/badge:", key="ja4x_find",
+                         width="stretch", help="Opens CertsQL with `ja4x equals` and this value; search from there."):
+            _open_ja4x_search(value)
+    with st.expander("Hunt for a known tool's certificates", icon=":material/travel_explore:"):
+        st.caption("Opens CertsQL with the tool's JA4X, to find its certificates anywhere, not only in this run.")
+        listed = {**{v: n for v, n in KNOWN_JA4X.items()}, **{v: f"{n} (dual-use)" for v, n in DUAL_USE_JA4X.items()}}
+        c_tool, c_go = st.columns([3, 1.2], vertical_alignment="bottom")
+        tool = c_tool.selectbox("Known fingerprint", list(listed), key="ja4x_known",
+                                format_func=lambda v: f"{listed[v]}: {v}")
+        if c_go.button("Find certificates", icon=":material/badge:", key="ja4x_known_find", width="stretch"):
+            _open_ja4x_search(tool)
 
 
 def _render_geo(unique_certs):
@@ -581,6 +671,38 @@ Each certificate also raises the *Self-Signed Certificate Detected* alert (High)
             "Validity (days)": st.column_config.NumberColumn(format="%d")})
 
 
+def _clear_focus():
+    st.session_state.pop(CERT_FOCUS_KEY, None)
+
+
+def _focused(ds):
+    """
+    The dataset narrowed to the certificate (SHA-256 / SHA-1) or JA4X a suggestion opened the page on, with a banner
+    to show every certificate again; `ds` itself when there is no focus or nothing matches it.
+    """
+    focus = str(st.session_state.get(CERT_FOCUS_KEY) or "").lower()
+    if not focus:
+        return ds
+    mask = pd.Series(False, index=ds.ssl.index)
+    for column in ("Hash", "SHA1", "JA4X"):
+        if column in ds.ssl.columns:
+            mask |= ds.ssl[column].astype(str).str.lower() == focus
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if mask.any():
+            domains = sorted(ds.ssl.loc[mask, "Domain"].astype(str).unique())
+            st.info(f"Showing only `{focus}`: {int(mask.sum())} record(s) on {', '.join(domains[:5])}"
+                    + (f" +{len(domains) - 5}" if len(domains) > 5 else ""), icon=":material/filter_alt:")
+        else:
+            st.warning(f"`{focus}` is not among this run's certificates; showing them all.")
+        st.button("Show every certificate", key="cert_focus_clear", on_click=_clear_focus, icon=":material/close:")
+    if not mask.any():
+        return ds
+    focused = copy.copy(ds)
+    focused.ssl = ds.ssl[mask]
+    focused.derived = {}   # tables built from the full certificates must not be reused for the narrowed ones
+    return focused
+
+
 def render_ssl_lens(ds, threats, thresholds):
     if ds.ssl.empty:
         st.info("No certificate data available for the selected domains.")
@@ -588,6 +710,7 @@ def render_ssl_lens(ds, threats, thresholds):
         return
     st.subheader("SSL/TLS Certificate Intelligence",
                  help="Cryptographic and X.509 telemetry across active and historical certificates.")
+    ds = _focused(ds)
     unique_certs = ds.ssl.drop_duplicates(subset=["Domain", "Hash", "Source"]).copy()
     _render_overview(ds, unique_certs)
 
@@ -606,15 +729,17 @@ def render_ssl_lens(ds, threats, thresholds):
     with tabs[4]:
         _render_key_reuse(unique_certs)
     with tabs[5]:
-        _render_geo(unique_certs)
+        _render_ja4x(unique_certs)
     with tabs[6]:
-        _render_eku(unique_certs)
+        _render_geo(unique_certs)
     with tabs[7]:
-        _render_policies(unique_certs)
+        _render_eku(unique_certs)
     with tabs[8]:
-        _render_caa(ds, unique_certs)
+        _render_policies(unique_certs)
     with tabs[9]:
-        _render_ct_logs(ds, unique_certs)
+        _render_caa(ds, unique_certs)
     with tabs[10]:
+        _render_ct_logs(ds, unique_certs)
+    with tabs[11]:
         _render_bare_ip(unique_certs)
     st.divider()

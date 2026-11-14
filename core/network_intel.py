@@ -24,6 +24,28 @@ def _cdn_networks():
     return [(name, ipaddress.ip_network(cidr)) for name, cidrs in CDN_IP_RANGES.items() for cidr in cidrs]
 
 
+@functools.lru_cache(maxsize=1)
+def _cdn_index():
+    """{IP version: [(prefix length, {network address as int: CDN name}), ...]}: a lookup per prefix length instead of
+    a scan of every range (hundreds of them) for each IP. The first provider listed wins where ranges overlap."""
+    index = {4: {}, 6: {}}
+    for name, network in _cdn_networks():
+        index[network.version].setdefault(network.prefixlen, {}).setdefault(int(network.network_address), name)
+    return {version: sorted(by_length.items()) for version, by_length in index.items()}
+
+
+@functools.lru_cache(maxsize=65536)
+def _cdn_range(ip):
+    """The CDN whose published (or announced) ranges contain `ip`, or None."""
+    bits = ip.max_prefixlen
+    value = int(ip)
+    for length, networks in _cdn_index()[ip.version]:
+        name = networks.get(value >> (bits - length) << (bits - length))
+        if name:
+            return name
+    return None
+
+
 @functools.lru_cache(maxsize=65536)
 def _parse_ip(ip_str):
     try:
@@ -62,9 +84,9 @@ def cdn_for_ip(ip_str, ip_intel=None):
     ip = _parse_ip(ip_str)
     if ip is None:
         return None
-    for name, network in _cdn_networks():
-        if ip.version == network.version and ip in network:
-            return name
+    name = _cdn_range(ip)
+    if name:
+        return name
     isp = str(((ip_intel or {}).get(str(ip)) or {}).get("isp", "")).lower()
     for marker, name in CDN_ISP_MARKERS.items():
         if marker in isp:

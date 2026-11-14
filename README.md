@@ -8,7 +8,7 @@ threat engine over the combined telemetry.
 ![Start page: pick a use case, enter targets in the sidebar and click Analyze](docs/images/start-page.png)
 
 *The Start page: choose a use case (it sets the lookups, limits and analysis window), enter domains, IPs or
-certificates in the sidebar and click **Analyze**. Recent runs can be re-run or loaded offline.*
+certificates in the sidebar and click **Analyze**. The last run links to the Recent runs page.*
 
 ## Documentation
 
@@ -59,9 +59,12 @@ certificates in the sidebar and click **Analyze**. Recent runs can be re-run or 
   hostname's certificate hashes; a hostname focus narrows every view to chosen hostnames.
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
   offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records. The
-  Start page's *Recent runs* runs one again with the same use case and options, or loads its offline copy.
-- **Finds earlier sightings** of an indicator (*Sightings* in the menu): every saved run and offline dataset where an
-  IP, domain, name server, MX host, certificate hash, tracker code or email was observed, with no API query.
+  *Recent runs* page shows the last runs as a timeline, cards (what changed, risk trend, shared indicators) or a
+  table, and runs one again or loads its offline copy. The *Hunting graph* (Hunt menu) shows how
+  runs connect: leads followed, and infrastructure different investigations share.
+- **Finds earlier sightings** of an indicator (*Recent runs → Indicator Sightings*): every saved run and offline
+  dataset where an IP, domain, name server, MX host, certificate hash, JA4X, tracker code or email was observed, with
+  no API query. An indicator a run shares with other investigations opens its sightings in one click.
 - **Watches API usage**: red and yellow banners on every page when a product the app uses has used up 95% or all of
   its monthly quota, or expires within 30 days or has expired; every lookup records the queries it made (Data sources, Runs & Diffs), sources missing from the account are
   skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
@@ -103,7 +106,7 @@ over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
 `san:`, `spki:`, ... lines) in the sidebar and click **Analyze**: the **Summary** opens with what to check next. The
-top menu groups every page (Start, IrisQL, CertsQL, Sightings, Overview, Infrastructure, Hunt, Evidence, Manage Data,
+top menu groups every page (Start, IrisQL, CertsQL, Recent runs, Overview, Infrastructure, Hunt, Evidence, Manage Data,
 Data sources, Settings, Account, Help); see
 [The app at a glance](docs/USAGE.md#the-app-at-a-glance) and [Certificate inputs](docs/USAGE.md#certificate-inputs).
 
@@ -131,8 +134,11 @@ core/
   cname.py                     CNAME chains: target service types, chains through collected data and DNSDB chases, per-domain chase plan, cross-domain links
   use_cases.py                 Use cases and custom profiles: collection options, window, plan, lookups and limits
   next_steps.py                Summary's "What to check next": findings turned into steps that point at a page
+  hunt_plan.py                 Suggested hunt: leads scored, stop rules, look-ahead and the start order from alerts
   hunt_stats.py                Summary statistics: analysis details, alerts by category, shared infrastructure, weekly activity, lifecycle, data health, cluster callouts
   hunt_tree.py                 Hunt tree: which run a run was started from, the trail to any run and every hunt as a tree
+  run_views.py                 Recent runs and Hunting graph data: change since the previous run, risk trend, shared artifacts, links
+  ja4x.py                      JA4X: known C2 fingerprints, layout notes, rarity, per-run summary
   triage.py                    Triage status of alerts and domain verdicts (New, Investigating, Benign, Malicious), kept in dt_triage.json
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
   lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
@@ -187,7 +193,7 @@ integrations/
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
   sidebar.py                   Sidebar: targets, data source, Analyze, window, filters; run options and Run again
-  home_view.py                 Start page (use cases, Recent runs)
+  home_view.py                 Start page (use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
   certsql_view.py              CertsQL page (menu, or Data source CertsQL): Certificate Search query, pick certificates / domains / IPs, analyze them
@@ -208,10 +214,15 @@ views/                         One module per page + sidebar, alert tools, certi
   settings_view.py             Settings: collection options, use cases & profiles, thresholds, brand watchlist, cache, credentials
   account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry; DNSDB and VPNDB quotas
   quota_banner.py              Red / yellow banners on every page: a product's quota used up or near it, expiry close or past
-  seen_view.py                 Indicator Sightings page (Sightings in the top menu)
+  recent_view.py               Recent runs page: runs (timeline, cards, table, filters, shared indicators) and Sightings tab
+  seen_view.py                 Indicator Sightings tab (search, sightings over time, shared indicators to start from)
   api_usage_view.py            What each service has left, skipped products
   sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
-  history_view.py              Runs & Diffs (previous runs, comparison, trends, watched lists), Offline Datasets, Recent runs
+  history_view.py              Runs & Diffs (previous runs, comparison, trends, watched lists), Offline Datasets, run actions
+  run_visuals.py               Recent runs timeline, run cards and runs-per-day calendar; the Hunting graph figure
+  hunting_graph_view.py        Hunting graph page (Hunt menu): runs linked by leads and shared artifacts
+  hunt_tree_view.py            Hunt tree page (Hunt menu): every hunt as a tree of runs started from leads
+  hunt_plan_view.py            Summary's Suggested hunt: where to start, ranked branches, leads set aside
   export_view.py               Data Export: case report, confirmed indicators, IOCs, tables and raw records
   docs_view.py                 In-app documentation (Help → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation

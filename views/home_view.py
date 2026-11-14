@@ -66,8 +66,9 @@ def render_home(has_data, render_recent):
                 "their limits) and the analysis window that suit it, and gives you a short plan. Then enter the "
                 "targets in the sidebar and click **Analyze**. You can also go straight to any page in the menu above.")
     with st.container(horizontal=True):
-        navigation.link("irisql", label="Or find the domains first with IrisQL", icon=":material/manage_search:")
-        navigation.link("certsql", label="… or from their certificates with CertsQL", icon=":material/badge:")
+        navigation.link("irisql", label="Run lookups with IrisQL", icon=":material/manage_search:")
+        navigation.link("certsql", label="Run lookups with CertsQL", icon=":material/badge:")
+        navigation.link("recent", label="Recent runs & Sightings", icon=":material/schedule:")
     render_recent()
     saved = load_settings()
     overrides, active = saved.get(OVERRIDES_SETTING) or {}, st.session_state.get("use_case")

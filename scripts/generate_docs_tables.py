@@ -183,6 +183,10 @@ LISTS = [
      "Campaign correlation: shared name servers here do not link domains"),
     ("core.cert_inputs", "SHARED_SAN_SUFFIXES", "Shared certificate names",
      "Certificate inputs: their SANs are never turned into targets"),
+    ("core.intel_data", "KNOWN_JA4X", "Known C2 and malware JA4X fingerprints",
+     "Known C2 Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS"),
+    ("core.intel_data", "DUAL_USE_JA4X", "Dual-use tool JA4X fingerprints",
+     "Dual-Use Tool Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS"),
     ("core.intel_data", "HOMOGLYPHS", "Homoglyphs", "Lookalike rules"),
     ("core.intel_data", "MULTI_CHAR_HOMOGLYPHS", "Multi-letter homoglyphs", "Lookalike rules"),
 ]

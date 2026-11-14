@@ -49,9 +49,11 @@ from views.collection_progress import summary as collection_summary
 from views.common import install_copy_fallback, render_window_banner
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
-from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_recent_runs, render_run_history
+from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_run_history
 from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
+from views.hunt_tree_view import render_hunt_tree
+from views.hunting_graph_view import render_hunting_graph
 from views.infra_view import render_infra_lens
 from views.irisql_view import ORIGIN_KEY as IRISQL_ORIGIN_KEY
 from views.irisql_view import render_irisql_page
@@ -60,9 +62,9 @@ from views.profile_view import render_profile
 from views.query_view import render_query_lens
 from views.quota_banner import render_quota_banners
 from views.raw_view import render_cache_panel, render_raw_lens, render_status_panel
+from views.recent_view import render_recent_page, render_recent_teaser
 from views.risk_view import render_risk_lens
 from views.seed_view import render_seed_preview, render_seed_provenance, render_seed_query_step
-from views.seen_view import render_seen_page
 from views.settings_view import brand_watchlist, render_settings
 from views.sidebar import (
     DATA_MODE_KEY,
@@ -542,7 +544,7 @@ def data_page(render):
 
 
 def page_home():
-    render_home(CTX.ds is not None, lambda: render_recent_runs(CTX.timezone))
+    render_home(CTX.ds is not None, lambda: render_recent_teaser(CTX.timezone))
 
 
 def page_alerts():
@@ -598,7 +600,7 @@ PAGE_FUNCTIONS = {
     "home": page_home,
     "irisql": render_irisql_page,
     "certsql": render_certsql_page,
-    "seen": render_seen_page,
+    "recent": lambda: render_recent_page(CTX.timezone),
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),
     "alerts": data_page(page_alerts),
@@ -610,6 +612,8 @@ PAGE_FUNCTIONS = {
     "pivots": data_page(lambda: render_pivot_lens(CTX.ds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
+    "hunt_graph": lambda: render_hunting_graph(CTX.timezone),
+    "hunt_tree": lambda: render_hunt_tree(CTX.timezone, st.session_state.get("current_run_id"), CTX),
     "sources": data_page(page_sources),
     "raw": data_page(lambda: render_raw_lens(CTX.ds)),
     "queries": data_page(lambda: render_query_lens(CTX.collected, st.session_state.get("run_created"))),

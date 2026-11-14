@@ -71,7 +71,7 @@ class RunComparison:
     legacy: bool = False
 
 
-LATER_KINDS = {"Hostname"}   # artifact kinds snapshots only record since a later version
+LATER_KINDS = {"Hostname", "JA4X"}   # artifact kinds snapshots only record since a later version
 
 
 def diff_artifacts(previous, current):

@@ -24,6 +24,7 @@ def _template(text="", cursor=None):
 
 QUOTED, LIST, PAIR, NUMBERS, BARE = _template('""', 1), _template('[""]', 2), _template('["", ""]', 2), \
     _template("[]", 1), _template()
+ELEMENT_BLOCK = _template("(\n  \n)", 4)   # CertsQL `matches_element`: the cursor on the indented line inside
 
 
 def _iris_kind(field):
@@ -78,6 +79,8 @@ def certs_template(field, operator):
     kind = certsql.FIELDS[field][0]
     if operator in certsql.PRESENCE:
         return _template("true")
+    if operator in certsql.ELEMENT:   # a block: the subfield predicates go on the lines between ( and )
+        return ELEMENT_BLOCK
     if certs_choices(field, operator):
         return BARE
     if kind == "integer":

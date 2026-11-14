@@ -50,7 +50,7 @@ VECTOR_RULES = {
     "DNS Volatility": ("T1568|Flux|Rotation|Parked|Sinkhole", "many IPs in passive DNS"),
     "Certificate Trust": ("T1588.004|T1573|Certificate|Weak", "self-signed or weak-key certificates"),
     "Email/Phish Posture": ("T1583.002|T1585.002|Phish|SPF|Mail", "many mail and TXT records"),
-    "App & C2 Footprint": ("T1071|T1008|T1048|T1090.003|Proxy Exit|Anonymizer Exit|Bare-IP|Payload", "C2-style findings, VPN / proxy / Tor hosting"),
+    "App & C2 Footprint": ("T1071|T1008|T1048|T1090.003|T1572|Proxy Exit|Anonymizer Exit|Bare-IP|Payload|JA4X", "C2-style findings, VPN / proxy / Tor hosting"),
     "Infra Sprawl": ("T1584.001|Sprawl|Nested|Wildcard", "certificates with many names"),
 }
 BASE_WEIGHT, VECTOR_WEIGHT = 0.4, 1.5 / len(VECTOR_RULES)   # Unified Risk = 0.4 x base + 1.5 x the vectors' mean

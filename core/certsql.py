@@ -2,10 +2,14 @@
 CertsQL search: a Certificate Search query written in CertsQL (one predicate per line, AND on its own line between
 clauses) finds certificates; the domains and IPs they name become tables to pick the targets of an analysis run from.
 
-The field and operator rules follow the Certificates API (technology preview) user guide: an invalid field-and-operator
-combination, a wrong operand type or a query over the limits is answered with HTTP 400, so they are caught here first.
+The field and operator rules follow the Certificates API (technology preview) user guide and its latest release notes
+(ja4x; part fields `.local_part` / `.domain` / `.host` / `.scheme`; `within`, `contains_ip` and `overlaps_range` on IP
+range fields, which no longer take equals / in; `arc_begins_with` on OIDs; `matches_element` blocks; at least one
+predicate that is not negated): an invalid field-and-operator combination, a wrong operand type or a query over the
+limits is answered with HTTP 400, so they are caught here first.
 """
 import difflib
+import ipaddress
 import json
 import re
 from datetime import date, timedelta
@@ -25,20 +29,21 @@ PRESENCE = ("exists", "does_not_exist")
 TEXT = ("begins_with", "does_not_begin_with", "ends_with", "does_not_end_with", "contains", "does_not_contain")
 AFFIX = TEXT[:4]
 RANGE = ("greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal", "between")
-OPERATORS = EQUALITY + MEMBERSHIP + PRESENCE + TEXT + RANGE
+IP_RANGE = ("within", "contains_ip", "overlaps_range")   # IP range fields: the range lies in / holds / overlaps
+OID_PREFIX = ("arc_begins_with",)                      # OID fields: whole arcs, "1.3.6.1" matches 1.3.6.1.x, not 1.3.6.10
+ELEMENT = ("matches_element", "does_not_match_element")   # `field matches_element (` … `)`: one element matches all
+OPERATORS = EQUALITY + MEMBERSHIP + PRESENCE + TEXT + RANGE + IP_RANGE + OID_PREFIX + ELEMENT
 BASE = EQUALITY + MEMBERSHIP + PRESENCE   # every top-level field (booleans: no membership)
-NOT_IN_API = {   # written in CertsQL material, answered "UNKNOWN_KEYWORD" by the API
-    "within": "`within` is not supported by the Certificates API yet: use `between [\"YYYY-MM-DD\", \"YYYY-MM-DD\"]` "
-              "or `greater_than` / `less_than` with a date.",
-    "matches_element": "`matches_element ( … )` is not supported by the Certificates API yet: query the subfields "
-                       "with dotted names (e.g. `certificate_policy.policy_oid equals \"2.23.140.1.2.1\"`), each on "
-                       "its own clause.",
-}
+NEGATED = frozenset(("does_not_equal", "not_in", "does_not_exist", "does_not_begin_with", "does_not_end_with",
+                     "does_not_contain", "does_not_match_element"))
+JA4X = re.compile(r"^[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$")
+_OID = re.compile(r"^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*$")
 
 # --- field catalog: field -> value type ----------------------------------------------------------------------------
 _TYPES = {
     "keyword": ("sha256", "sha1", "md5", "serial_number", "public_key_sha256", "authority_key_id", "subject_key_id",
                 "san_fascn"),
+    "ja4x": ("ja4x",),   # JA4X: how the certificate was generated (issuer RDN, subject RDN and extension OID hashes)
     "text": ("issuer_common_name", "subject_common_name", "issuer_organization", "subject_organization",
              "issuer_locality", "subject_locality", "issuer_state_or_province", "subject_state_or_province",
              "issuer_organizational_unit", "subject_organizational_unit", "issuer_dc", "subject_dc",
@@ -71,7 +76,7 @@ _RANGED = {"validity_not_before", "validity_not_after", "validity_duration_days"
 def _top_level_operators(field):
     kind = FIELD_TYPES[field]
     if kind == "nested":
-        return PRESENCE
+        return PRESENCE + ELEMENT
     allowed = EQUALITY + PRESENCE if kind == "boolean" else BASE
     if field in _FULL_TEXT:
         allowed += TEXT
@@ -79,6 +84,10 @@ def _top_level_operators(field):
         allowed += AFFIX
     if field in _RANGED:
         allowed += RANGE
+    if kind == "oid":
+        allowed += OID_PREFIX
+    if kind in ("email", "uri"):   # multi-value with part fields: bind parts to the same address
+        allowed += ELEMENT
     return allowed
 
 
@@ -88,11 +97,12 @@ SUBFIELDS = {   # nested-object subfield -> (value type, operators)
     "basic_constraints.is_ca": ("boolean", EQUALITY + PRESENCE),
     "basic_constraints.max_path_len": ("integer", _INT_RANGE),
     "basic_constraints.critical": ("boolean", EQUALITY + PRESENCE),
-    "certificate_policy.policy_oid": ("oid", ("equals", "in", "exists")),
+    "certificate_policy.policy_oid": ("oid", ("equals", "in", "exists") + OID_PREFIX),
     "certificate_policy.cps_uris": ("uri", ("equals", "exists")),
     "certificate_policy.user_notices": ("text", ("equals", "contains", "exists")),
     **dict.fromkeys(("name_constraints.permitted_dns", "name_constraints.excluded_dns"), ("dns", _LIST + TEXT)),
-    **dict.fromkeys(("name_constraints.permitted_ip_ranges", "name_constraints.excluded_ip_ranges"), ("cidr", _LIST)),
+    **dict.fromkeys(("name_constraints.permitted_ip_ranges", "name_constraints.excluded_ip_ranges"),
+                    ("ip_range", IP_RANGE + PRESENCE)),
     **dict.fromkeys(("name_constraints.permitted_email", "name_constraints.excluded_email"), ("email", _LIST)),
     **dict.fromkeys(("name_constraints.permitted_uri", "name_constraints.excluded_uri"), ("uri", _LIST)),
     **dict.fromkeys(("name_constraints.permitted_directory", "name_constraints.excluded_directory"),
@@ -102,7 +112,20 @@ SUBFIELDS = {   # nested-object subfield -> (value type, operators)
     "signed_certificate_timestamp.timestamp": ("date", ("equals",) + RANGE + ("exists",)),
     "signed_certificate_timestamp.version": ("integer", ("equals", "in", "exists")),
 }
-FIELDS = {**{field: (kind, _top_level_operators(field)) for field, kind in FIELD_TYPES.items()}, **SUBFIELDS}
+# Part fields: one part of an email address (local_part, domain) or a URI (host, scheme), as `field.part`. URI fields
+# differ in which parts they have: a name-constraint URI is a host pattern, so it has no scheme.
+_PART_OPERATORS = {"local_part": ("text", _LIST + TEXT), "domain": ("dns", _LIST + TEXT),
+                   "host": ("dns", _LIST + TEXT), "scheme": ("enum", _LIST)}
+_PARTS = {
+    **dict.fromkeys(("subject_email_address", "san_upn", "san_smtp_utf8_mailbox"), ("local_part", "domain")),
+    **dict.fromkeys(("san_uri", "certificate_policy.cps_uris"), ("host", "scheme")),
+    **dict.fromkeys(("name_constraints.permitted_uri", "name_constraints.excluded_uri"), ("host",)),
+}
+PART_FIELDS = {f"{field}.{part}": _PART_OPERATORS[part] for field, parts in _PARTS.items() for part in parts}
+FIELDS = {**{field: (kind, _top_level_operators(field)) for field, kind in FIELD_TYPES.items()}, **SUBFIELDS,
+          **PART_FIELDS}
+ELEMENT_FIELDS = tuple(field for field, (_, operators) in FIELDS.items() if "matches_element" in operators)
+
 
 # Certificate Search sorts every match by one certificate field before paging (text, multi-value and nested fields
 # are not sortable): field -> (label, (wording of descending, wording of ascending)). sha256 ascending is the API default.
@@ -141,7 +164,7 @@ LIMITS = {"clauses": 32, "per_clause": 256, "predicates": 1024, "bytes": 65536, 
 CONTAINS_MIN, CONTAINS_MAX = 3, 63
 
 CERTIFICATE_COLUMNS = ["Use", "Common Name", "SANs", "Issuer", "Validation", "Not Before", "Not After", "Days",
-                       "Key", "Self-signed", "SHA-256", "Public Key SHA-256"]
+                       "Key", "Self-signed", "SHA-256", "Public Key SHA-256", "JA4X"]
 _LINE = re.compile(r"^\s*(\S+)\s+(\S+)(?:\s+(.*\S))?\s*$")
 
 
@@ -179,6 +202,12 @@ def examples(today=None):
         "DV policy, no subject organization": 'certificate_policy.policy_oid equals "2.23.140.1.2.1"\nAND\n'
                                               'subject_organization does_not_exist true\nAND\n'
                                               'san_dns ends_with ".domaintools.com"',
+        "JA4X: Sliver / Havoc C2 certificates, still valid": 'ja4x in ["000000000000_4f24da86fad6_bf0f0589fc03", '
+                                                             '"000000000000_7c32fa18c13e_bf0f0589fc03"]\nAND\n'
+                                                             f'validity_not_after greater_than "{now}"',
+        "JA4X: Cobalt Strike default certificate, last 30 days": 'ja4x equals '
+                                                                 '"2166164053c1_2166164053c1_30d204a01551"\nAND\n'
+                                                                 f'validity_not_before greater_than "{ago_30}"',
     }
 
 
@@ -196,17 +225,32 @@ def _is_comment(line):
     return line.startswith("#") or line.startswith("//")
 
 
+_BLOCK = re.compile(r"^(\S+)\s+(matches_element|does_not_match_element)\s*\($", flags=re.IGNORECASE)
+
+
 def _clauses(query):
-    """[[predicate lines]] split at AND lines; None marks an empty clause (AND first, last or twice)."""
-    clauses, current = [], []
+    """
+    [[items]] split at AND lines; None marks an empty clause (AND first, last or twice). An item is a predicate line,
+    or a `field matches_element (` … `)` block as a tuple of its lines (AND lines inside the block stay in it).
+    """
+    clauses, current, block = [], [], None
     for line in (line.strip() for line in query.splitlines()[1:]):
         if not line or _is_comment(line):
             continue
-        if line.upper() == "AND":
+        if block is not None:
+            block.append(line)
+            if line == ")":
+                current.append(tuple(block))
+                block = None
+        elif line.upper() == "AND":
             clauses.append(current or None)
             current = []
+        elif _BLOCK.match(line):
+            block = [line]
         else:
             current.append(line)
+    if block is not None:   # never closed
+        current.append(tuple(block))
     clauses.append(current or None)
     return clauses
 
@@ -241,27 +285,72 @@ def _operand_problem(field, kind, operator, value, line):
         return f"`{line}`: `{operator}` takes {CONTAINS_MIN} to {CONTAINS_MAX} characters."
     if kind == "country" and any(len(str(item)) != 2 for item in values):
         return f"`{line}`: country codes are two letters (ISO 3166-1 alpha-2), e.g. \"US\"."
+    if kind == "ja4x" and any(not JA4X.match(item) for item in values):
+        return (f"`{line}`: a JA4X fingerprint is three 12-character lowercase hex parts joined by `_`, e.g. "
+                "`\"2166164053c1_2166164053c1_30d204a01551\"`.")
+    if operator == "arc_begins_with" and not _OID.match(value):
+        return f"`{line}`: `arc_begins_with` takes a dotted OID prefix of whole arcs, e.g. `\"1.3.6.1.4.1\"`."
+    if operator == "contains_ip" and not _is_ip(value):
+        return f"`{line}`: `contains_ip` takes one IP address, e.g. `\"10.1.2.3\"`."
+    if operator in ("within", "overlaps_range") and not _is_network(value):
+        return f"`{line}`: `{operator}` takes an IP range in CIDR notation, e.g. `\"10.0.0.0/8\"`."
     return None
 
 
-def _predicate_problem(line):
+def _is_ip(value):
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_network(value):
+    try:
+        ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return False
+    return True
+
+
+def _not_allowed(line, field, kind, operator, allowed):
+    hint = ""
+    if kind == "nested":
+        hint = (" Nested objects take `exists true` / `does_not_exist true` or a `matches_element (` … `)` block; "
+                f"query a subfield with a dotted name (e.g. `{next(s for s in SUBFIELDS if s.startswith(field + '.'))}`).")
+    elif operator in ELEMENT:
+        hint = f" `{operator}` works on {', '.join(ELEMENT_FIELDS)}."
+    elif operator == "within" and kind == "date":
+        hint = " `within` is for IP ranges; for a date window use `between [\"YYYY-MM-DD\", \"YYYY-MM-DD\"]`."
+    elif kind == "ip_range":
+        hint = " IP range fields take `within` / `overlaps_range` with a CIDR, or `contains_ip` with an address."
+    return f"`{line}`: {field} does not support `{operator}`. Allowed: {', '.join(allowed)}.{hint}"
+
+
+def _predicate_problem(line, parent=None):
+    """What is wrong with one predicate line, or None; inside a `matches_element` block the field is relative to
+    `parent` (`policy_oid` means `certificate_policy.policy_oid`)."""
     match = _LINE.match(line)
     if not match:
         return f"`{line}` is not a predicate (field operator value, one per line)."
     field, operator, operand = match.group(1).lower(), match.group(2).lower(), match.group(3)
-    if operator in NOT_IN_API:
-        return f"`{line}`: {NOT_IN_API[operator]}"
+    if parent:
+        field = f"{parent}.{field}"
     if field not in FIELDS:
-        close = difflib.get_close_matches(field, list(FIELDS), n=1)
-        return f"`{line}`: unknown field `{field}`" + (f" (did you mean `{close[0]}`?)" if close else "") + "."
+        names = [name for name in FIELDS if not parent or name.startswith(parent + ".")]
+        close = difflib.get_close_matches(field, names, n=1)
+        close = [name[len(parent) + 1:] for name in close] if parent else close
+        where = f" in {parent}" if parent else ""
+        return f"`{line}`: unknown field `{match.group(1)}`{where}" + (f" (did you mean `{close[0]}`?)" if close else "") + "."
     kind, allowed = FIELDS[field]
     if operator not in OPERATORS:
         close = difflib.get_close_matches(operator, OPERATORS, n=1)
         return f"`{line}`: unknown operator `{operator}`" + (f" (did you mean `{close[0]}`?)" if close else "") + "."
+    if operator in ELEMENT and operator in allowed:
+        return f"`{line}`: `{operator}` opens a block: end the line with `(`, put the predicates on the next lines " \
+               "and close it with `)` on its own line."
     if operator not in allowed:
-        hint = " Nested objects only take `exists true` / `does_not_exist true`; query a subfield with a dotted name " \
-               f"(e.g. `{next(s for s in SUBFIELDS if s.startswith(field + '.'))}`)." if kind == "nested" else ""
-        return f"`{line}`: {field} does not support `{operator}`. Allowed: {', '.join(allowed)}.{hint}"
+        return _not_allowed(line, field, kind, operator, allowed)
     if operand is None:
         return f"`{line}`: add a value after `{operator}`."
     try:
@@ -269,6 +358,50 @@ def _predicate_problem(line):
     except ValueError:
         return f"`{line}`: the value must be JSON: quote text (`\"text\"`), numbers and true / false without quotes."
     return _operand_problem(field, kind, operator, value, line)
+
+
+def _block_problems(block):
+    """What is wrong with a `field matches_element (` … `)` block: its field and operator, its closing `)`, and each
+    predicate in it (fields relative to the block's field, AND lines between its clauses)."""
+    header = block[0]
+    match = _BLOCK.match(header)
+    parent, operator = match.group(1).lower(), match.group(2).lower()
+    if parent not in FIELDS:
+        close = difflib.get_close_matches(parent, ELEMENT_FIELDS, n=1)
+        return [f"`{header}`: unknown field `{parent}`" + (f" (did you mean `{close[0]}`?)" if close else "") + "."]
+    kind, allowed = FIELDS[parent]
+    if operator not in allowed:
+        return [_not_allowed(header, parent, kind, operator, allowed)]
+    found = []
+    closed = block[-1] == ")"
+    inner = list(block[1:-1] if closed else block[1:])
+    if not closed:
+        found.append(f"`{header}`: close the block with `)` on its own line.")
+    groups, current = [], []
+    for line in inner:
+        if line.upper() == "AND":
+            groups.append(current)
+            current = []
+        else:
+            current.append(line)
+    groups.append(current)
+    if not any(groups):
+        found.append(f"`{header}`: put at least one predicate between `(` and `)`.")
+    elif not all(groups):
+        found.append(f"`{header}`: `AND` goes between two predicates inside the block.")
+    for line in (line for group in groups for line in group):
+        if _BLOCK.match(line):
+            found.append(f"`{line}`: a `matches_element` block can't hold another block.")
+        elif issue := _predicate_problem(line, parent):
+            found.append(issue)
+    return found
+
+
+def _negated(item):
+    if isinstance(item, tuple):
+        return _BLOCK.match(item[0]).group(2).lower() == "does_not_match_element"
+    match = _LINE.match(item)
+    return bool(match) and match.group(2).lower() in NEGATED
 
 
 def problems(query):
@@ -280,34 +413,48 @@ def problems(query):
     if None in clauses:
         found.append("`AND` goes between two predicates, on its own line (no `AND` first, last or twice in a row).")
     clauses = [clause for clause in clauses if clause]
-    block = False   # inside a `field matches_element (` … `)` block: reported once, on its first line
-    for line in (line for clause in clauses for line in clause):
-        if block or line == ")":
-            block = line != ")"
-            continue
-        block = line.endswith("(")
-        if re.search(r"\s(AND|OR)\s", re.sub(r'"(?:\\.|[^"\\])*"', '""', line), flags=re.IGNORECASE):
-            found.append(f"`{line}`: put each predicate and each `AND` on its own line (lines in one clause are "
+    items = [item for clause in clauses for item in clause]
+    for item in items:
+        if isinstance(item, tuple):
+            found.extend(_block_problems(item))
+        elif re.search(r"\s(AND|OR)\s", re.sub(r'"(?:\\.|[^"\\])*"', '""', item), flags=re.IGNORECASE):
+            found.append(f"`{item}`: put each predicate and each `AND` on its own line (lines in one clause are "
                          "OR'ed, so no `OR` is needed).")
-        elif issue := _predicate_problem(line):
+        elif issue := _predicate_problem(item):
             found.append(issue)
+    if items and all(_negated(item) for item in items):
+        found.append("Every query needs at least one predicate that is not negated (not `does_not_…`, `not_in`): a "
+                     "query of only negations would match almost every certificate. Add what the certificates have, "
+                     "e.g. `san_dns ends_with \".example.com\"`.")
+    lines = [len(item) if isinstance(item, tuple) else 1 for item in items]
     if len(clauses) > LIMITS["clauses"]:
         found.append(f"At most {LIMITS['clauses']} clauses (AND-separated groups) per query.")
-    if any(len(clause) > LIMITS["per_clause"] for clause in clauses):
+    if any(sum(len(i) if isinstance(i, tuple) else 1 for i in clause) > LIMITS["per_clause"] for clause in clauses):
         found.append(f"At most {LIMITS['per_clause']} predicate lines in one clause.")
-    if sum(len(clause) for clause in clauses) > LIMITS["predicates"]:
+    if sum(lines) > LIMITS["predicates"]:
         found.append(f"At most {LIMITS['predicates']:,} predicate lines per query.")
     if len(query.encode()) > LIMITS["bytes"]:
         found.append(f"The query is over {LIMITS['bytes']:,} bytes.")
     return found
 
 
-def error_hint(error):
+RELEASE_KEYWORDS = ("ja4x", "within", "contains_ip", "overlaps_range", "arc_begins_with", "matches_element",
+                    "does_not_match_element", ".local_part", ".domain", ".host", ".scheme")
+
+
+def error_hint(error, query=""):
     """What to do about a Certificate Search answer that is about the query itself, or ''."""
     text = str(error or "")
     if "UNKNOWN_KEYWORD" in text:
-        return ("The API did not recognize a keyword: `within` and `matches_element` are not supported yet, and every "
-                "field and operator is lowercase snake_case (`san_dns ends_with`).")
+        used = [word for word in RELEASE_KEYWORDS if re.search(rf"(?<![\w.]){re.escape(word)}\b", query or "")
+                or (word.startswith(".") and word in (query or ""))]
+        if used:
+            return (f"The API did not recognize a keyword. This query uses {', '.join(f'`{w}`' for w in used)}, "
+                    "from the latest CertsQL release: the Certificates API you reach doesn't accept it yet. Try "
+                    "again once the release is live, or write the query without it.")
+        return ("The API did not recognize a keyword: every field and operator is lowercase snake_case "
+                "(`san_dns ends_with`), and the fields and operators of the latest CertsQL release (`ja4x`, "
+                "`within`, `matches_element`, …) may not be live on the API yet.")
     if re.search(r"\b50[234]\b", text) or "timed out" in text.lower() or "Connection error" in text:
         return ("The Certificates API (technology preview) is not answering right now; the query itself may be fine. "
                 "Try again in a few minutes. Successful searches are cached, so a retry costs nothing for them.")
@@ -345,6 +492,7 @@ def certificate_frame(hits):
         "Self-signed": bool(hit.get("is_self_signed")),
         "SHA-256": hit.get("sha256") or "",
         "Public Key SHA-256": hit.get("public_key_sha256") or "",
+        "JA4X": hit.get("ja4x") or "",
     } for hit in hits or [] if isinstance(hit, dict)]
     frame = pd.DataFrame(rows, columns=CERTIFICATE_COLUMNS).drop_duplicates("SHA-256")
     frame["Days"] = pd.to_numeric(frame["Days"], errors="coerce").astype("Int64")

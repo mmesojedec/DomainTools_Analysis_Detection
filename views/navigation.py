@@ -21,7 +21,7 @@ SECTIONS = {
     "Start": (PageSpec("home", "Start", ":material/home:"),),
     "IrisQL": (PageSpec("irisql", "IrisQL", ":material/manage_search:"),),
     "CertsQL": (PageSpec("certsql", "CertsQL", ":material/badge:"),),
-    "Sightings": (PageSpec("seen", "Sightings", ":material/visibility:"),),
+    "Recent runs": (PageSpec("recent", "Recent runs", ":material/schedule:"),),
     "Overview": (PageSpec("summary", "Summary", ":material/dashboard:"),
                  PageSpec("profile", "Domain profile", ":material/domain:"),
                  PageSpec("alerts", "Alerts", ":material/warning:")),
@@ -32,7 +32,9 @@ SECTIONS = {
                        PageSpec("certs", "Certificates", ":material/verified_user:")),
     "Hunt": (PageSpec("pivots", "Pivot Ranking", ":material/hub:", True),
              PageSpec("hostnames", "Hostname Inventory", ":material/list_alt:", True),
-             PageSpec("triage", "Subdomain Triage", ":material/filter_alt:", True)),
+             PageSpec("triage", "Subdomain Triage", ":material/filter_alt:", True),
+             PageSpec("hunt_graph", "Hunting graph", ":material/account_tree:", True),
+             PageSpec("hunt_tree", "Hunt tree", ":material/park:", True)),
     "Evidence": (PageSpec("raw", "Raw Records", ":material/table_view:", True),
                  PageSpec("queries", "Lookup Queries", ":material/terminal:", True)),
     "Manage Data": (PageSpec("save", "Save offline copy", ":material/save:"),
@@ -44,7 +46,7 @@ SECTIONS = {
     "Account": (PageSpec("account", "Account", ":material/account_circle:"),),
     "Help": (PageSpec("docs", "Documentation", ":material/menu_book:"),),
 }
-DIRECT = ("Start", "IrisQL", "CertsQL", "Sightings")   # one-page groups shown as plain links in the menu, not as a dropdown
+DIRECT = ("Start", "IrisQL", "CertsQL", "Recent runs")   # one-page groups shown as plain links in the menu, not as a dropdown
 SPECS = {spec.key: spec for specs in SECTIONS.values() for spec in specs}
 _PAGES = {}   # key -> StreamlitPage of this run
 SCROLL_TAB_KEY = "scroll_to_tab"   # a tab label: the next page scrolls its tab row into view once

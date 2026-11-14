@@ -290,19 +290,19 @@ The lists (generated from the modules named under each one):
 
 ### CDN networks (ISP names)
 
-`CDN_ISP_MARKERS` in `core/intel_data.py`, 11 entries. ISP / organization name fragments (from Iris IP data) that identify CDN or reverse-proxy networks.
+`CDN_ISP_MARKERS` in `core/intel_data.py`, 12 entries. ISP / organization name fragments (from Iris IP data) that identify CDN or reverse-proxy networks.
 
 **Used by:** CDN attribution of IPs, origin discovery
 
-`cloudflare` → Cloudflare, `akamai` → Akamai, `fastly` → Fastly, `incapsula` → Imperva, `imperva` → Imperva, `sucuri` → Sucuri, `cdn77` → CDN77, `edgecast` → Edgecast, `stackpath` → StackPath, `bunny` → BunnyCDN, `ddos-guard` → DDoS-Guard
+`cloudflare` → Cloudflare, `cloudfront` → Amazon CloudFront, `akamai` → Akamai, `fastly` → Fastly, `incapsula` → Imperva, `imperva` → Imperva, `sucuri` → Sucuri, `cdn77` → CDN77, `edgecast` → Edgecast, `stackpath` → StackPath, `bunny` → BunnyCDN, `ddos-guard` → DDoS-Guard
 
 ### CDN IP ranges
 
-`CDN_IP_RANGES` in `core/intel_data.py`, 41 entries. .
+`CDN_IP_RANGES` in `core/intel_data.py`, 411 entries. Ranges Cloudflare, Fastly and Amazon CloudFront publish for their edge networks, and those Akamai's CDN networks announce; an IP inside one is a CDN edge, shared by many unrelated sites, not the origin server.
 
 **Used by:** CDN attribution of IPs: hosting alerts, DNS & Hosting, IP pivots (CDN IPs are skipped), exports
 
-Cloudflare: 22 ranges; Fastly: 19 ranges
+Cloudflare: 22 ranges; Fastly: 19 ranges; Amazon CloudFront: 216 ranges; Akamai: 154 ranges
 
 ### Large DNS providers
 
@@ -319,6 +319,22 @@ Cloudflare: 22 ranges; Fastly: 19 ranges
 **Used by:** Certificate inputs: their SANs are never turned into targets
 
 `cloudflaressl.com`, `cloudflare-dns.com`, `fastly.net`, `akamaiedge.net`, `edgekey.net`, `azureedge.net`, `cloudfront.net`, `herokuapp.com`, `googleusercontent.com`
+
+### Known C2 and malware JA4X fingerprints
+
+`KNOWN_JA4X` in `core/intel_data.py`, 8 entries. JA4X certificate fingerprints of C2 frameworks and malware (FoxIO JA4+ database, as published with JA4+). A JA4X says how a certificate was generated, not what it names, so an unrelated certificate built with the same fields and extensions has the same value: confirm a match with the certificate itself. Editable; verify before acting.
+
+**Used by:** Known C2 Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS
+
+`2166164053c1_2166164053c1_30d204a01551` → Cobalt Strike (default certificate), `000000000000_4f24da86fad6_bf0f0589fc03` → Sliver / Havoc C2, `000000000000_7c32fa18c13e_bf0f0589fc03` → Sliver / Havoc C2, `2bab15409345_2bab15409345_75f1b0fafedd` → Metasploit, `2bab15409345_af684594efb4_000000000000` → Qakbot, `2bab15409345_af684594efb4_e3b0c44298fc` → Qakbot, `1a59268f55e5_1a59268f55e5_795797892f9c` → Pikabot, `7022c563de38_7022c563de38_0147df7a0c11` → AsyncRAT / QuasarRAT / BitRAT
+
+### Dual-use tool JA4X fingerprints
+
+`DUAL_USE_JA4X` in `core/intel_data.py`, 1 entries. JA4X fingerprints of dual-use tools: legitimate software that attackers also run for tunnels and remote access. Editable; verify before acting.
+
+**Used by:** Dual-Use Tool Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS
+
+`d55f458d5a6c_d55f458d5a6c_0fc8c171b6ae` → SoftEther VPN
 
 ### Homoglyphs
 

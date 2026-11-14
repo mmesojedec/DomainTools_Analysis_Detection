@@ -161,9 +161,9 @@ def test_irisql_page_is_always_in_the_menu():
 
 def test_start_irisql_and_certsql_are_plain_links_before_overview():
     from views import navigation
-    assert list(navigation.SECTIONS)[:5] == ["Start", "IrisQL", "CertsQL", "Sightings", "Overview"]
+    assert list(navigation.SECTIONS)[:5] == ["Start", "IrisQL", "CertsQL", "Recent runs", "Overview"]
     assert navigation.SPECS["irisql"].title == "IrisQL"
-    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "Sightings"}
+    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "Recent runs"}
 
 
 def test_an_irisql_search_becomes_its_own_lookup_queries_tool():

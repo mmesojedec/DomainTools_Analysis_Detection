@@ -144,7 +144,7 @@ def _render_results():
             analyze_button(top, f"Iris search {search}", key=f"pivot_hunt::{search}", container=c_hunt,
                            label=f"Analyze the top {len(top)} as a new run",
                            help=f"Analyzes the {len(top)} highest-risk domains right away as a new run, linked to "
-                                "this one in the hunt tree (Runs & Diffs).")
+                                "this one in the hunt tree (Hunt → Hunt tree).")
             c_add.button(f"Add {len(domains):,} domains to targets", on_click=add_to_targets,
                          args=(list(domains["Domain"]),), key=f"pivot_add::{search}", icon=":material/add:")
             with c_copy.popover("Copy domains"):

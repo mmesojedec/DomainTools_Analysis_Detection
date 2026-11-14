@@ -37,6 +37,7 @@ from views.collection_progress import PROGRESS_KEY, render_last_collection
 from views.common import chart, selected_rows, selection_key
 from views.history_cap import render_history_cap_notice
 from views.hunt_actions import analyze_button, current_run_id, iris_button
+from views.hunt_plan_view import first_step, plan, render_suggested_hunt
 from views.idn_display import display_name, enabled
 from views.pivot_view import dataset_pivots
 from views.risk_view import render_kpi_banner
@@ -106,7 +107,7 @@ def _render_hunt_trail():
     if len(trail) > 1:
         c_text, c_link = st.columns([5, 1], vertical_alignment="center")
         c_text.markdown(":material/account_tree: **Hunt trail:** " + trail_text(trail))
-        navigation.link("history", label="Hunt tree", container=c_link, icon=":material/account_tree:")
+        navigation.link("hunt_tree", label="Hunt tree", container=c_link, icon=":material/park:")
 
 
 def _metric(column, label, value, page=None, link=None, help_text=None):
@@ -192,10 +193,13 @@ def _render_triage_status(alerts, verdicts):
         navigation.link("alerts", label="Review the open alerts")
 
 
-def _render_next_steps(ctx, alerts, new_alerts):
+def _render_next_steps(ctx, alerts, new_alerts, start=None):
     view, profiles = ctx.view, ctx.profiles
     steps = next_steps(open_alerts(alerts), profiles, dataset_cname_map(ctx.ds), ctx.collected.statuses, new_alerts,
                        len(view.resolved), ctx.thresholds["high_risk_score"])
+    first = first_step(start)   # the first indicator to confirm (Suggested hunt), after the serious-alerts step
+    if first:
+        steps = sorted([*steps, first], key=lambda step: step["rank"])
     st.subheader("What to check next", help="Built from the open alerts (not yet marked Benign or Malicious), the "
                                              "riskiest domain, CNAME chains and the lookups.")
     if not steps:
@@ -429,7 +433,9 @@ def render_summary(ctx, window_banner):
     render_last_collection()
 
     new_alerts = int(view.new_mask.sum()) if view.new_mask is not None else 0
-    _render_next_steps(ctx, alerts, new_alerts)
+    leads, start, children = plan(ds, alerts)
+    _render_next_steps(ctx, alerts, new_alerts, start)
+    render_suggested_hunt(ds, alerts, leads, start, children)
     _render_leads(ds)
     _render_clusters(ctx.threats.correlation)
     _render_statistics(ds, alerts)

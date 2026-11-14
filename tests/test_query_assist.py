@@ -4,15 +4,22 @@ import pytest
 
 from core import certsql, irisql, query_assist
 
+_VALUES = {"contains_ip": "10.1.2.3", "within": "10.0.0.0/8", "overlaps_range": "10.0.0.0/8", "arc_begins_with": "1.3.6.1"}
+_JA4X = "2166164053c1_2166164053c1_30d204a01551"
 
-def _fill(template, operator):
+
+def _fill(template, operator, field=""):
     """The value as a user would finish it inside the inserted quotes / brackets (or after the cursor, for a number)."""
     text = template["text"]
     if text == "":
         return "1"
     if text == "[]":
         return "[1, 2]" if operator == "between" else "[1]"
-    return text.replace('""', '"abc"')
+    if text.startswith("("):   # a matches_element block: one predicate on a part or subfield of `field`
+        sub = next(name for name in certsql.FIELDS if name.startswith(field + "."))[len(field) + 1:]
+        return text.replace("\n  \n", f"\n  {sub} exists true\n")
+    value = _JA4X if field == "ja4x" else _VALUES.get(operator, "abc")
+    return text.replace('""', f'"{value}"')
 
 
 @pytest.mark.parametrize("language,module", [("irisql", irisql), ("certsql", certsql)])
@@ -24,10 +31,12 @@ def test_every_suggested_field_operator_and_value_passes_the_page_check(language
         for op in field["operators"]:
             values = op["values"] or [None]
             for value in values:
-                operand = (value if value in ("true", "false") else f'"{value}"') if value else _fill(op["template"], op["name"])
+                operand = (value if value in ("true", "false") else f'"{value}"') if value else _fill(op["template"], op["name"], field["name"])
                 line = f"{field['name']} {op['name']} {operand}"
                 if field["name"] in ("issuer_country", "subject_country"):   # two-letter codes
                     line = line.replace('"abc"', '"US"')
+                if module is certsql and (op["name"] in certsql.NEGATED):   # a query also needs a positive predicate
+                    line += '\nAND\nsan_dns ends_with ".example.com"'
                 assert module.problems(module.normalize(line)) == [], line
 
 
@@ -38,7 +47,10 @@ def test_catalogs_follow_the_rule_tables():
     assert "EXACTLY_MATCH" not in {op["name"] for op in iris["NAMESERVER_DOMAIN"]["operators"]}
     certs = {f["name"]: f for f in query_assist.catalog("certsql")["fields"]}
     assert set(certs) == set(certsql.FIELDS) and "basic_constraints.is_ca" in certs
-    assert [op["name"] for op in certs["basic_constraints"]["operators"]] == list(certsql.PRESENCE)
+    assert [op["name"] for op in certs["basic_constraints"]["operators"]] == list(certsql.PRESENCE + certsql.ELEMENT)
+    assert {op["name"] for op in certs["name_constraints.permitted_ip_ranges"]["operators"]} == \
+        {"within", "contains_ip", "overlaps_range", "exists", "does_not_exist"}
+    assert "ja4x" in certs and "san_uri.host" in certs and "subject_email_address.local_part" in certs
     assert "contains" not in {op["name"] for op in certs["sha256"]["operators"]}
     with pytest.raises(ValueError):
         query_assist.catalog("sql")
@@ -62,7 +74,8 @@ def test_nothing_is_inserted_that_has_to_be_deleted():
     for language in t.LANGUAGES:
         for field in t.catalog(language)["fields"]:
             for op in field["operators"]:
-                assert op["template"]["text"] in ("", '""', '[""]', '["", ""]', "[]", "true"), (field["name"], op)
+                assert op["template"]["text"] in ("", '""', '[""]', '["", ""]', "[]", "true", "(\n  \n)"), \
+                    (field["name"], op)
                 if op["template"]["text"] == "true":
                     assert op["name"] in ("exists", "does_not_exist"), (field["name"], op)
     assert json.dumps(t.catalog("certsql"))   # sent to the browser as JSON

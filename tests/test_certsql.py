@@ -49,15 +49,46 @@ def test_problems_catch_what_the_certificates_api_rejects():
         'san_dns in []': "non-empty JSON array",
         'issuer_country equals "USA"': "two letters",
         'issuer_locality contains "Paris"': "does not support `contains`",
-        'validity_not_after within "the next 30 days"': "`within` is not supported",
+        'validity_not_after within "the next 30 days"': "for a date window use `between",
         'certificate_policy.cps_uris ends_with "/cps.pdf"': "does not support `ends_with`",
+        'name_constraints.permitted_ip_ranges equals "10.0.0.0/8"': "IP range fields take",
+        'name_constraints.permitted_ip_ranges in ["10.0.0.0/8"]': "does not support `in`",
+        'name_constraints.permitted_ip_ranges contains_ip "10.0.0.0/8"': "one IP address",
+        'name_constraints.excluded_ip_ranges overlaps_range "10.0.0"': "CIDR",
+        'ja4x equals "2166164053C1_2166164053c1_30d204a01551"': "lowercase hex",
+        'ja4x contains "2166164053c1"': "does not support `contains`",
+        'extension_oids arc_begins_with "1.3.6."': "dotted OID prefix",
+        'san_dns arc_begins_with "1.3.6"': "does not support `arc_begins_with`",
+        'san_uri.port equals "443"': "unknown field `san_uri.port`",
+        'name_constraints.permitted_uri.scheme equals "https"': "unknown field",
+        'san_dns matches_element (': "works on",
+        'certificate_policy matches_element "x"': "opens a block",
+        'sha256 does_not_equal "00"': "at least one predicate that is not negated",
+        'subject_organization does_not_exist true': "not negated",
     }
     for body, expected in cases.items():
         found = check(body)
         assert len(found) == 1 and expected in found[0], (body, found)
-    block = check('certificate_policy matches_element (\n  policy_oid equals "x"\nAND\n  cps_uris exists true\n)\n'
-                  'AND\nsan_dns contains "login"')
-    assert len(block) == 1 and "matches_element" in block[0]   # reported once, not per line of the block
+    block = 'certificate_policy matches_element (\n  policy_oid equals "2.23.140.1.2.1"\nAND\n  cps_uris.host ends_with ' \
+            '"letsencrypt.org"\n)\nAND\nsan_dns contains "login"'
+    assert check(block) == []   # AND inside the block stays in it; subfields are relative to the block's field
+    assert check('san_uri does_not_match_element (\n  scheme equals "http"\nAND\n  host ends_with ".corp"\n)\n'
+                  'AND\nis_self_signed equals true') == []
+    assert ["unknown field `policy_id` in certificate_policy (did you mean `policy_oid`?)" in i
+            for i in check('certificate_policy matches_element (\n  policy_id equals "x"\n)')] == [True]
+    assert "close the block" in check('certificate_policy matches_element (\n  policy_oid equals "x"')[0]
+    assert "at least one predicate" in check('certificate_policy matches_element (\n)')[0]
+    assert "not negated" in check('certificate_policy does_not_match_element (\n  policy_oid equals "x"\n)')[0]
+    for ok in ('ja4x in ["000000000000_4f24da86fad6_bf0f0589fc03", "2166164053c1_2166164053c1_30d204a01551"]',
+               'name_constraints.permitted_ip_ranges within "10.0.0.0/8"',
+               'name_constraints.permitted_ip_ranges contains_ip "2001:db8::1"',
+               'name_constraints.excluded_ip_ranges overlaps_range "192.168.0.0/16"',
+               'extension_oids arc_begins_with "1.3.6.1.4.1.11129"',
+               'certificate_policy.policy_oid arc_begins_with "2.23.140.1"',
+               'subject_email_address.domain ends_with ".example.com"', 'san_upn.local_part equals "admin"',
+               'san_uri.scheme in ["http", "ftp"]', 'name_constraints.permitted_uri.host ends_with ".corp"',
+               'sha256 does_not_equal "00"\nsan_dns ends_with ".a.com"'):   # one positive line is enough
+        assert check(ok) == [], ok
     for ok in ('basic_constraints.max_path_len between [0, 1]', 'signed_certificate_timestamp exists true',
                'san_ip_v4 between ["1.2.3.0", "1.2.3.255"]', 'validity_not_before greater_than 1767225600000',
                'issuer_locality begins_with "Par"', 'name_constraints.permitted_dns ends_with ".corp"'):
@@ -66,7 +97,11 @@ def test_problems_catch_what_the_certificates_api_rejects():
 
 
 def test_error_hints():
-    assert "within" in certsql.error_hint("HTTP 400: Failed to scan the query (error: CQLScanningErrorCode.UNKNOWN_KEYWORD)")
+    unknown = "HTTP 400: Failed to scan the query (error: CQLScanningErrorCode.UNKNOWN_KEYWORD)"
+    assert "snake_case" in certsql.error_hint(unknown)
+    hint = certsql.error_hint(unknown, '# CertsQL-1.0\nja4x equals "x"\nAND\nsan_uri.host ends_with ".a.com"')
+    assert "`ja4x`, `.host`" in hint and "doesn't accept it yet" in hint
+    assert "This query uses" not in certsql.error_hint(unknown, 'san_dns contains "withinbrand"')
     assert certsql.error_hint("HTTP 400: 'contains' operand must be between 3 and 63 characters")
     assert certsql.error_hint("timeout") == ""
     assert "not answering" in certsql.error_hint("RetryError: too many 502 error responses")

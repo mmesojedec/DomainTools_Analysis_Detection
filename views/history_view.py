@@ -5,7 +5,6 @@ import plotly.express as px
 import streamlit as st
 
 from core.helpers import md_escape
-from core.hunt_tree import hunt_tree
 from core.offline import (
     apply_offline_retention,
     dataset_breakdown,
@@ -26,9 +25,7 @@ from core.persistence import (
     load_all_runs,
     load_run,
     load_runs,
-    load_settings,
     load_watches,
-    recent_runs,
     remove_watch,
     run_retention,
     set_run_retention,
@@ -49,7 +46,7 @@ from core.run_history import (
     snapshot_domains,
     snapshot_profiles,
 )
-from core.use_cases import PROFILES_SETTING, find_case
+from core.use_cases import find_case
 from views import navigation
 from views.common import chart, table
 from views.sidebar import (
@@ -65,7 +62,6 @@ ALERT_COLUMNS = ["Domain", "Threat Type", "Severity", "Confidence", "Category", 
 TARGET_SET_KEY = "hist_target_set"   # the target list picked on Runs & Diffs
 RECENT_PICK_KEY = "_hist_open_set"   # a target list to open Runs & Diffs on (Recent runs → Open), used once
 SEEN_KEY = "_hist_seen_current"      # the current run's list when Runs & Diffs last opened
-RECENT_RUNS = 10                     # runs listed under Recent runs on the Start page
 LEGACY_NOTE = ("Saved by an earlier version: only alert keys and infrastructure were recorded, so severity, confidence, "
                "risk scores, and DIF are not available for this run.")
 
@@ -480,28 +476,6 @@ def render_offline_datasets():
             st.rerun()
 
 
-def _render_hunt_tree(timezone, current_run_id):
-    """Every hunt with two or more runs, as a tree: which run led to which, and through which pivot."""
-    st.caption("A run started from a lead, a certificate or an Iris search (Summary, Certificates, Pivot Ranking) "
-               "remembers the run it came from. Each hunt below starts at its first run; indented runs came from the "
-               "run above them.")
-    rows = hunt_tree(load_all_runs())
-    if not rows:
-        st.info("No hunts yet. Use *Analyze* on a lead on the Summary page, *Analyze its domains* on a certificate, or "
-                "*Analyze the top … as a new run* on Iris search results to start one.")
-        return
-    for row in rows:
-        c_text, c_button = st.columns([6, 1], vertical_alignment="center")
-        indent = "&nbsp;" * 6 * row["Depth"] + ("↳ " if row["Depth"] else "")
-        via = f" · *via {md_escape(row['Via'])}*" if row["Via"] else ""
-        current = " :blue-badge[current]" if row["Run"] == current_run_id else ""
-        c_text.markdown(f"{indent}**{md_escape(row['Targets'])}** · {format_created(row['Created'], timezone)} · "
-                        f"{row['Alerts']} alert(s){via}{current}")
-        c_button.button("Analyze again", key=f"hunt_again::{row['Run']}", on_click=start_hunt,
-                        args=(row["Target List"], row["Via"] or "Analyzed again", row["Parent"]), width="stretch",
-                        help="Runs this branch's targets again (same place in the tree) with the current options.")
-
-
 def _render_watches(timezone):
     st.caption("Target lists you watch (*Watch this list* on the Summary page). Run one to see what is new since its "
                "last run: the Summary's *What's new since the last analysis* lists the new IPs, name servers, "
@@ -557,54 +531,34 @@ def _recent_row(run, timezone, offline_id, profiles):
             "Offline copy": offline_id is not None}
 
 
-def _render_recent_actions(run, offline_id):
-    """Run again, Load offline copy and Open in Runs & Diffs for the run picked in the table."""
+def render_run_actions(run, offline_id, prefix="recent"):
+    """Run again, Load offline copy and Open in Runs & Diffs for one saved run (`prefix` keeps the button keys apart)."""
     options = run.get("options") or {}
     lines = list(run.get("seeds") or []) or list(run.get("targets") or [])
     with st.container(horizontal=True, vertical_alignment="center"):
-        st.button("Run again", key="recent_again", icon=":material/replay:", type="primary",
+        st.button("Run again", key=f"{prefix}_again", icon=":material/replay:", type="primary",
                   on_click=run_again, args=(lines, options, "Run again"),
                   help=("Analyzes these targets again as a new run with the same use case, analysis window and "
                         "collection options as this run. Makes live API queries." if options else
                         "Analyzes these targets again as a new run. This run was saved before its options were "
                         "recorded, so the current use case and collection options are used. Makes live API "
                         "queries."))
-        st.button("Load offline copy", key="recent_offline", icon=":material/upload_file:",
+        st.button("Load offline copy", key=f"{prefix}_offline", icon=":material/upload_file:",
                   disabled=offline_id is None, on_click=request_offline_load, args=(offline_id,),
                   help="Loads the offline copy saved from this run and re-analyzes it with no API calls."
                   if offline_id else "No offline copy was saved from this run (*Save offline copy*).")
-        navigation.jump_button("history", "Open in Runs & Diffs", button_key="recent_open", icon=":material/history:",
+        navigation.jump_button("history", "Open in Runs & Diffs", button_key=f"{prefix}_open", icon=":material/history:",
                                state={RECENT_PICK_KEY: run["key"], f"hist_detail_{run['key']}": run["id"]},
                                help="Opens this run in Runs & Diffs: its details, and comparisons and trends with "
                                     "the other runs of the same targets.")
 
 
-def render_recent_runs(timezone="UTC", limit=RECENT_RUNS):
-    """Start page: the newest saved runs in a table; the picked one gets Run again, Load offline copy and Open."""
-    st.subheader("Recent runs", help="Runs are saved automatically after each live Analyze (dt_runs/).")
-    st.caption("Pick up a previous analysis: run it again with the same use case and options, load the offline copy "
-               "saved from it (no API calls), or open it in Runs & Diffs to compare it with earlier runs.")
-    runs = recent_runs(limit)
-    if not runs:
-        st.caption("No saved runs yet. Each live Analyze is saved automatically and shows here next time.")
-        return
-    with st.expander(f"Show the last {len(runs)} runs", icon=":material/history:"):
-        offline, profiles = _offline_by_run(list_offline_datasets()), load_settings().get(PROFILES_SETTING)
-        frame = pd.DataFrame([_recent_row(run, timezone, offline.get(run["id"]), profiles) for run in runs])
-        picked = st.dataframe(
-            frame, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
-            key="recent_runs_table",
-            column_config={"Run": st.column_config.TextColumn(width="medium"),
-                           "Targets": st.column_config.TextColumn(width="medium"),
-                           "Offline copy": st.column_config.CheckboxColumn(
-                               width="small", help="An offline copy was saved from this run")})
-        rows = picked.selection.rows if picked and picked.selection else []
-        run = runs[rows[0]] if rows else runs[0]
-        st.caption(f"Picked: **{md_escape(_targets_label(run['targets'], 3, run.get('seeds')))}** "
-                   f"({format_created(run['created'], timezone)})"
-                   + ("" if rows else ", the newest. Click a row to pick another."))
-        _render_recent_actions(run, offline.get(run["id"]))
-        navigation.link("history", label="See every run on Runs & Diffs")
+def _list_labels(all_runs):
+    """{target list key: its label} from each list's newest run."""
+    labels = {}
+    for key, snapshot in all_runs:   # oldest first: the newest run's label wins
+        labels[key] = _targets_label(snapshot.get("targets", []), 3, snapshot.get("seeds"))
+    return labels
 
 
 def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
@@ -618,7 +572,7 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         return
     keys = [s["key"] for s in target_sets]
     meta = {s["key"]: s for s in target_sets}
-    pick = st.session_state.pop(RECENT_PICK_KEY, None)   # Open on the Start page's Recent runs
+    pick = st.session_state.pop(RECENT_PICK_KEY, None)   # Open on the Recent runs page
     if pick in keys:
         st.session_state[TARGET_SET_KEY] = pick
     elif current_key in keys and st.session_state.get(SEEN_KEY) != current_key:   # a new run: show its list
@@ -636,8 +590,8 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         st.info("No runs saved for this target list.")
         return
     table(_runs_table(runs, timezone, current_run_id))
-    tabs = st.tabs(["Run Details", "Compare Runs", "Trends", "Domain History", "Hunt Tree", "Watched Lists",
-                    "Manage Runs"], key=HISTORY_TAB_KEY, on_change="rerun")
+    tabs = st.tabs(["Run Details", "Compare Runs", "Trends", "Domain History", "Watched Lists", "Manage Runs"],
+                   key=HISTORY_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
     with tabs[0]:
         _render_run_details(key, runs, timezone)
@@ -648,8 +602,8 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
     with tabs[3]:
         _render_domain_history(current_key or key, timezone)
     with tabs[4]:
-        _render_hunt_tree(timezone, current_run_id)
-    with tabs[5]:
         _render_watches(timezone)
-    with tabs[6]:
+    with tabs[5]:
         _render_manage(key, runs, timezone)
+    navigation.link("hunt_tree", label="See which runs led to which on the Hunt tree (Hunt menu)",
+                    icon=":material/park:")

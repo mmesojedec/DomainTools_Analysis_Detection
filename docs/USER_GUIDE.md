@@ -23,6 +23,7 @@ Most of these explanations are also available inside the app: **Detection reason
 - [CNAME chains](#cname-chains)
 - [Detection thresholds](#detection-thresholds)
 - [Run history, alert lifecycle and trends](#run-history-alert-lifecycle-and-trends)
+- [JA4X: how certificates were generated](#ja4x-how-certificates-were-generated)
 - [Suppressions and exports](#suppressions-and-exports)
 - [Hunting: triage status, leads and the hunt tree](#hunting-triage-status-leads-and-the-hunt-tree)
 - [Pages](#pages)
@@ -332,6 +333,8 @@ current run.
 | ACME Certificate Sprawl | Medium-High | Low | T1588.004 (Obtain Digital Certificates) | More than 3 _acme-challenge names in passive DNS. | Mass automated certificate issuance supports fast setup of many hostnames. |
 | Rapid Weaponization (Cert-to-DNS Gap) | High | Medium | T1588.004 (Obtain Digital Certificates) | Certificate issued within Cert-to-DNS Gap (Hours) of the first DNS record. | Certificate and DNS set up together point to scripted, disposable deployment. |
 | Self-Signed Certificate Detected | High | High | T1573.002 (Encrypted Channel) | Certificate subject equals its issuer. | Common on C2 servers and malware panels; untrusted by browsers. |
+| Known C2 Certificate Fingerprint (JA4X) | High | Medium | T1588.002 (Obtain Capabilities: Tool) | The certificate's JA4X is on the built-in list of C2 framework and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, ...). | The certificate was generated the way that tool generates its own. Other certificates built with the same fields match too, so confirm with the certificate (self-signed, default names, the IP's ports). |
+| Dual-Use Tool Certificate Fingerprint (JA4X) | Medium | Low | T1572 (Protocol Tunneling) | The certificate's JA4X is on the built-in list of dual-use tools (e.g. SoftEther VPN). | Legitimate software that attackers also run for tunnels and remote access; unexpected on a phishing or brand domain. |
 | Short-Lived Certificate | Low (informational, not scored) | High | T1588.004 (Obtain Digital Certificates) | Certificate valid at most Short-Lived Certificate Max Validity (Days), e.g. Let's Encrypt's 6-day profile. | Context only: short lifetimes reflect good automation, so this is excluded from risk scores and DIF. |
 | Mega-SAN Cluster (Bulk Infrastructure) | High | Medium | T1583.001 (Acquire Infrastructure) | One certificate covers at least Mega-SAN Min Root Domains registrable domains. | Bundling unrelated domains in one certificate links bulk-registered infrastructure. |
 | Multi-IP Certificate (Shared C2 / Proxy Cluster) | High | Medium | T1008 (Fallback Channels) | Certificate for an IP target also lists other raw IPs. | Points to a cluster of C2 or proxy nodes sharing one certificate. |
@@ -508,6 +511,7 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 7 |
 | Resource Development | T1585.002 | Acquire Email Accounts | 1 |
 | Resource Development | T1588 | Obtain Capabilities | 2 |
+| Resource Development | T1588.002 | Obtain Capabilities: Tool | 1 |
 | Resource Development | T1588.004 | Obtain Digital Certificates | 12 |
 | Resource Development | T1608.005 | Stage Capabilities: Link Target | 1 |
 | Initial Access | T1566.002 | Phishing: Spearphishing Link | 1 |
@@ -522,6 +526,7 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Command and Control | T1568 | Dynamic Resolution | 1 |
 | Command and Control | T1568.001 | Dynamic Resolution; Fast Flux DNS | 3 |
 | Command and Control | T1568.002 | Dynamic Resolution: DGA | 1 |
+| Command and Control | T1572 | Protocol Tunneling | 1 |
 | Command and Control | T1573.002 | Encrypted Channel | 1 |
 
 Most domain-infrastructure behavior falls under **Resource Development** (the adversary acquiring and preparing
@@ -641,17 +646,37 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
 - **Changes Since Last Run** (Alerts page): compared with the previous run of the same target list, it shows new and
   resolved alerts and added / removed infrastructure (IPs, name servers, certificates, ...).
 - **First Detected / Runs Seen** use every saved run, from any target list, that covered the domain.
-- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*). The Start page's **Recent runs** (under the IrisQL / CertsQL links; click *Show the last 10 runs*) lists the newest saved runs in a table (time, targets, window, use case, alerts, whether an offline copy was saved). Click a row to pick a run (the newest is picked at first); under the table, **Run again** (a new live run with the same use case, analysis window and collection options; runs saved before options were recorded use the current ones), **Load offline copy** (the newest offline dataset saved from that run, re-analyzed with no API calls; greyed out when none was saved) and **Open in Runs & Diffs** (this page, on that run):
+- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*). The **Recent runs** page (top menu) shows the newest saved runs as a timeline (one lane per target list, dot size = alerts, color = highest severity), as cards (alerts new and resolved since the previous run of the same list, Unified Risk trend, the indicators it shares with other target lists, each a click away from its sightings) or as a table (time, targets, window, use case, alerts, whether an offline copy was saved), with a filter, a run count, *With alerts* / *New alerts* toggles and a runs-per-day calendar. Click a dot, card or row to pick a run (the newest is picked at first); under the view, **Run again** (a new live run with the same use case, analysis window and collection options; runs saved before options were recorded use the current ones), **Load offline copy** (the newest offline dataset saved from that run, re-analyzed with no API calls; greyed out when none was saved) and **Open in Runs & Diffs** (this page, on that run):
   - **Run Details:** one run's alerts, risk and DIF.
   - **Compare Runs:** any two runs; new, resolved and persisting alerts, infrastructure changes, and risk / DIF changes.
   - **Trends:** detections per run by severity, Unified Risk per domain with DIF-change markers, and infrastructure counts per run.
   - **Domain History:** one domain across every saved run that included it, with a detection lifecycle (first /
     last detected, active in the latest run).
-  - **Hunt Tree:** every hunt, from its first run to each run started from a lead ([below](#leads-and-the-hunt-tree)).
   - **Watched Lists:** the target lists you watch, each with *Run now* ([below](#watched-target-lists)).
   - **Manage Runs:** name and annotate runs, export as JSON, delete (with confirmation), and set retention (default 10 per target list).
 - Runs saved by earlier versions show in a reduced *legacy* format (no severity, risk or DIF).
 - **Offline Datasets** has its own page, *Manage Data → Offline Datasets*: see [Usage](USAGE.md#offline-datasets).
+
+## JA4X: how certificates were generated
+
+JA4X (part of FoxIO's JA4+) fingerprints how a certificate was generated, not what it names: three 12-character
+parts `a_b_c` hash the issuer's attribute types, the subject's, and the extension OIDs. `000000000000` means that
+part is empty. Certificates made by the same tool or template have the same JA4X, whatever their names and keys.
+
+The Certificates API returns `ja4x` with the latest CertsQL release. Certificates collected before it is live have no
+JA4X, and everything below stays empty for them.
+
+| Where | What it does |
+| --- | --- |
+| Alerts | **Known C2 Certificate Fingerprint (JA4X)** (High) when a certificate's JA4X is on the built-in list of C2 and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, Pikabot, AsyncRAT / QuasarRAT / BitRAT); confidence is High when the certificate is also self-signed, else Medium. **Dual-Use Tool Certificate Fingerprint (JA4X)** (Medium, Low confidence) for tools such as SoftEther VPN. The lists are in Reference → Built-in lists |
+| **Certificates → JA4X** tab | One row per JA4X in the run: the tool it matches, the domains and certificates with it, issuers, self-signed, and what the layout says (*issuer = subject layout*, *empty issuer*, *no extensions*) |
+| *Check how common* | Counts each JA4X in the Certificates API: one Certificate Search request per value, at most 10 per click, cached. *Rare* is 50 certificates or fewer, *Uncommon* up to 1,000, else *Common*. A rare or uncommon JA4X shared by two domains is called out: the same tool or template made their certificates |
+| *Find certificates with this JA4X* | Opens CertsQL with `ja4x equals "…"`, to find every certificate with it, not only this run's. *Hunt for a known tool's certificates* does the same for a value from the built-in lists |
+| Runs & Diffs, Sightings | Each domain's JA4X values are saved with the run, so a changed JA4X between two runs (the operator rebuilt the server) shows up in the diff, and Indicator Sightings (Recent runs page) finds earlier runs with the same value |
+
+Certificates from public CAs share a few very common JA4X values, so a shared JA4X alone is no link: use *Check how
+common* before treating it as one. A known-tool match means the certificate was built the way that tool builds its
+own; other certificates built with the same fields match too, so confirm with the certificate itself.
 
 ## Suppressions and exports
 
@@ -712,8 +737,66 @@ Self-signed certificate cards (Certificates → Self-Signed) offer the same: *An
 a `sha256:` / `sha1:` input) and *Find in Iris* (by SHA-1).
 
 A run started this way remembers the run it came from and what led to it. The Summary shows the **hunt trail**
-(first run → … → this run), and **Runs & Diffs → Hunt Tree** shows every hunt as a tree, with *Analyze again* to rerun a
-branch.
+(first run → … → this run), and **Hunt → Hunt tree** shows every hunt as a tree, with *Analyze again* to rerun a
+branch. For example:
+
+```text
+example.com                               11-02 09:10 · 4 alerts
+  ↳ 185.220.101.5                         11-02 09:25 · 2 alerts · via IP 185.220.101.5
+      ↳ login-example.com, pay-example.com  11-02 09:40 · 6 alerts · via Iris search IP 185.220.101.5
+  ↳ sha256:3f1c…9a2e                      11-02 10:05 · 1 alert  · via certificate 3f1c…9a2e
+```
+
+The analyst analyzed example.com, followed its hosting IP as a lead (*Analyze*), searched Iris for the other domains
+on that IP (*Find in Iris*, then *Analyze the top 25 as a new run* on Pivot Ranking), then went back and followed
+example.com's self-signed certificate (*Analyze its domains*). The **Hunting graph** draws the same links over time.
+
+### Suggested hunt
+
+Before you follow anything, the Summary's **Suggested hunt** proposes where to start and which branches to follow.
+It ranks what the run already knows, with no API call until you click; it is a ranking, not a prediction of what new
+lookups will find.
+
+- **Start here**: the indicators the open alerts name, in order. The most severe alerts come first; within a
+  severity, what identifies an operator best goes first: a JA4X, then the certificate, then the IP, then other hosts.
+  An indicator that is also a lead is followed by a step for its shared domains (*Find in Iris*). The first step also
+  appears in *What to check next*, opening its page already narrowed to it.
+- **The hunt this run would grow**: the five best leads (Pivot Ranking values another domain shares) as branches,
+  each with a score and its reasons:
+
+  | Counts for a lead | Points |
+  | --- | --- |
+  | Few domains share it in Iris | up to 40 (10 or fewer: 40; 50 or fewer: 32; 200 or fewer: 24; 500 or fewer: 16) |
+  | Several of your domains have it | 5 per extra domain, up to 10 |
+  | Named in open alerts | 30 critical, 22 high, 15 medium-high, 10 medium, 4 low, +2 per extra alert, up to 35 |
+  | Kind of value | certificates 12, tracker codes and contact emails 10, redirect domains 9, registrant details 6–7, IPs 6, name servers 4, mail servers 2 |
+  | Seen in other investigations | 8, +4 when those domains had alerts. Only runs on other domains count: an earlier run of the same domains is the same investigation |
+
+  Under the first three, a look-ahead (gray) says what following them would bring: how many domains are not in
+  this run yet (Iris count), where earlier investigations saw the value and with how many alerts, and, when the Iris
+  search was already made on Pivot Ranking, the riskiest of its domains and how many earlier investigations flagged.
+  Each branch has *Analyze* (when the app can take the value as a target) and *Find in Iris*; a branch you followed is
+  marked *followed* and links to the Hunt tree. *Analyze the top 3 as one run* analyzes the best target-able leads
+  together.
+- **Set aside**: leads not worth following, with the reason: shared by more than 500 domains in Iris (shared hosting
+  or a service), a CDN edge, a private address, a large DNS provider or parking name server, already analyzed in
+  this hunt, every domain that has it already in this run, or no Iris count and no alert naming it.
+
+**Details** on a step or a branch opens that indicator alone, with no API call: how many of your domains have it,
+the open alerts that name it, its certificates (certificates and JA4X) or passive DNS records (IPs and hosts), its
+VPNDB verdict, and the earlier investigations of other domains that saw it. Its next steps are already pointed at it:
+
+| Indicator | Next steps |
+| --- | --- |
+| Certificate | *Show on Certificates (only this)*: every Certificates tab narrowed to it, with *Show every certificate* to go back; *Analyze its domains*; *Search CertsQL* (its `sha256` / `sha1` query, ready to run); *Find in Iris* |
+| JA4X | *Show on Certificates (only this)*; *Search CertsQL* (`ja4x equals …`) |
+| IP, host | *Analyze*; *Find in Iris* |
+| Any | *Where else was it seen?* (Recent runs → Indicator Sightings) |
+
+**Hunt → Hunt tree** shows the same suggested hunt for the loaded run above your hunts, as a tree (the Summary's
+section, with its buttons) or a graph: the run, its suggested branches (dashed, with their score; green with the
+run you started when followed) and the *Start here* steps (dotted, orange). The graph view also draws your hunts:
+one node per run, an arrow labelled with the lead that started the next run.
 
 ### Watched target lists
 
@@ -731,18 +814,18 @@ bundle; the section also lists the Iris Investigate searches for the strong and 
 
 ## Pages
 
-The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Sightings**, **Overview** (Summary, Domain profile, Alerts),
+The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Recent runs**, **Overview** (Summary, Domain profile, Alerts),
 **Infrastructure** (DNS & Hosting, VPNDB, Tor network, CNAME Chains, Certificates), **Hunt** (Pivot Ranking, Hostname Inventory,
-Subdomain Triage), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
+Subdomain Triage, Hunting graph, Hunt tree), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
 **Data sources**, **Settings**, **Account** and **Help**. Red and yellow banners at the top of every page warn when a product this app uses has used up (or nearly) its monthly quota or expires soon. With *Analyst mode* off, Hunt,
 Raw Records and Lookup Queries are left out.
 
 | Page | Highlights |
 | --- | --- |
-| Start | Use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting): each sets the collection options and window and gives a plan; Recent runs (the last 10 runs: run again with the same options, load their offline copy, open in Runs & Diffs) |
+| Start | Use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting): each sets the collection options and window and gives a plan; the last run, with a link to Recent runs |
 | IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as CLI, curl and SDK code; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run |
 | CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as curl and Python code; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
-| Sightings | *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, tracker code or email was observed across saved runs and offline datasets (local files, no API query); open the run, load the dataset or analyze the indicator |
+| Recent runs | *Recent runs*: the newest saved runs as a timeline, cards or a table (filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open in Runs & Diffs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
 | Summary | KPIs, hunt trail, every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains), analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits), top alerts, hunt status, the use-case plan with checkboxes, *What to check next* with a button to the right page (filtered where useful), leads to follow, linked domains, run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health), what's new since the last analysis and *Watch this list* |
 | Domain profile | One domain: risk and DIF, why this score, your verdict, one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons, suppressions, run diff, exports, confirmed indicators, DomainTools risk evidence |
@@ -750,15 +833,17 @@ Raw Records and Lookup Queries are left out.
 | Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when one of the run's hosting networks is among them |
 | DNS & Hosting | A one-line VPNDB summary, then infrastructure & DNS tracking (event scatter, heatmap, lifespans, tempo, subdomains, IP clusters, Nexus overlap, trackers, TXT fingerprints), then campaign & hosting intel (domain story timeline, infrastructure graph, clusters, hosting map, Domain ➔ ASN ➔ IP Sankey, CDN origin exposure, domain hopping) |
 | CNAME Chains | Every CNAME with its target service, full chain and outcome (resolves, dead end, loop); per-hostname table with CNAME history; chains filled in on demand and read from the analyzed domain; chain map boxed per domain with optional one node per hostname; chase results grouped by chain, most hostnames first; cross-domain links and link map; reverse CNAME (RDATA) related domains for chain targets or typed names; chase selected or all hostnames, up to 10 DNSDB queries per domain per click |
-| Certificates | SAN sprawl (up to 15 certificates per domain and 12 SANs each, the rest grouped), Sankey flow, self-signed certificates (rated Critical to Low, with the reasons and what to do), validity, keys, reuse, CAA audit, CT logs, bare-IP certificates |
+| Certificates | SAN sprawl (up to 15 certificates per domain and 12 SANs each, the rest grouped), Sankey flow, self-signed certificates (rated Critical to Low, with the reasons and what to do), validity, keys, reuse, [JA4X](#ja4x-how-certificates-were-generated) (known tools, how common, pivot to CertsQL), CAA audit, CT logs, bare-IP certificates |
 | Pivot Ranking | Every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it; add values to the targets or find their domains in Iris |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
+| Hunting graph | Every saved run on its target list's lane over time; arrows where a run was started from a lead in another, dashed lines where two target lists found the same IP, name server, certificate, JA4X, tracker or email on different domains (CDN IPs, large DNS providers and values in more than 5 lists left out). Filter the link types, click a run for its links and *Run again* / *Load offline copy* / *Open in Runs & Diffs*. Reads saved runs only, no API calls |
+| Hunt tree | The loaded run's suggested hunt (as on the Summary) and every hunt you ran (its first run, then each run started from one of its leads, with *via* what led there and *Analyze again*), as a tree or a graph; with no run loaded and no hunts, an example |
 | Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Offline Datasets with it selected, to give it a name |
 | Offline Datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename, delete and how many are kept |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
 | Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
-| Runs & Diffs | Previous Runs & Comparison: run details, compare any two runs, trends, per-domain history across target lists, hunt tree, watched lists, manage runs |
+| Runs & Diffs | Previous Runs & Comparison: run details, compare any two runs, trends, per-domain history across target lists, watched lists, manage runs |
 | Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Data Export | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 
@@ -776,7 +861,7 @@ Raw Records and Lookup Queries are left out.
    and chase the chains that are still *Not chased*.
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
    **Leads to follow** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
-   Check a new indicator against earlier investigations on **Sightings**.
+   Check a new indicator against earlier investigations on **Recent runs → Indicator Sightings**.
 8. Re-run later and use **Only first detected in this run** and **Changes Since Last Run** to focus on what changed.
 
 ## Limitations

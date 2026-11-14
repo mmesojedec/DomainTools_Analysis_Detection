@@ -275,7 +275,7 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Detection | Every rule runs per domain / IP, then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping). A domain among the 10,000 most popular in Iris has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
-| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (sidebar, before Analyze; or after it on the status line or under *Manage Data*) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the Start page's *Recent runs* lists and *Sightings* searches | - |
+| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (sidebar, before Analyze; or after it on the status line or under *Manage Data*) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the *Recent runs* page lists and its *Indicator Sightings* tab searches | - |
 
 ## What each source feeds
 

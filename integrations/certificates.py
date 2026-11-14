@@ -322,6 +322,7 @@ def parse_domaintools_certs(hits, target_inputs):
                 "Public Key Algo": hit.get("public_key_algorithm", ""),
                 "Public Key Bits": hit.get("public_key_bits", None),
                 "Public Key SHA256": hit.get("public_key_sha256", ""),
+                "JA4X": hit.get("ja4x") or "",
                 "Signature Algo": hit.get("signature_algorithm", ""),
                 "Key Usage": hit.get("key_usage", []),
                 "Extended Key Usage": hit.get("extended_key_usage", []),

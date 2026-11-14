@@ -254,6 +254,18 @@ RULE_CATALOG = {
     "Self-Signed Certificate Detected": ("High", "T1573.002 (Encrypted Channel)",
                                          "Certificate subject equals its issuer.",
                                          "Common on C2 servers and malware panels; untrusted by browsers."),
+    "Known C2 Certificate Fingerprint (JA4X)": ("High", "T1588.002 (Obtain Capabilities: Tool)",
+                                                "The certificate's JA4X is on the built-in list of C2 framework and "
+                                                "malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, "
+                                                "Qakbot, ...).",
+                                                "The certificate was generated the way that tool generates its own. "
+                                                "Other certificates built with the same fields match too, so confirm "
+                                                "with the certificate (self-signed, default names, the IP's ports)."),
+    "Dual-Use Tool Certificate Fingerprint (JA4X)": ("Medium", "T1572 (Protocol Tunneling)",
+                                                     "The certificate's JA4X is on the built-in list of dual-use tools "
+                                                     "(e.g. SoftEther VPN).",
+                                                     "Legitimate software that attackers also run for tunnels and "
+                                                     "remote access; unexpected on a phishing or brand domain."),
     "Short-Lived Certificate": ("Low (informational, not scored)", "T1588.004 (Obtain Digital Certificates)",
                                 "Certificate valid at most Short-Lived Certificate Max Validity (Days), e.g. Let's Encrypt's "
                                 "6-day profile.",

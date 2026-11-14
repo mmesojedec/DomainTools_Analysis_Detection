@@ -47,7 +47,9 @@ COLOR = "#2e8b57"
 QUERY_HELP = ("One predicate per line: `field operator value` (lowercase), with `AND` on its own line between clauses. "
               "Lines in one clause are OR'ed. Values are JSON: `\"text\"`, numbers, `true` / `false`, `[\"a\", \"b\"]`; "
               "dates are `\"YYYY-MM-DD\"`. Comments start with `#` or `//`. The `# CertsQL-1.0` line is added when "
-              "missing. Fields and operators: Documentation → CertsQL.")
+              "missing. To bind predicates to one policy, constraint or address: `field matches_element (`, the "
+             "predicates on the next lines (fields relative to it), then `)` on its own line. Fields and operators: "
+             "Documentation → CertsQL.")
 
 
 def _load_example():
@@ -139,7 +141,7 @@ def render_certsql_page():
         st.session_state[SORT_KEY], st.session_state[ORDER_KEY] = DEFAULT_SORT   # also replaces an old one-box choice
     st.selectbox("Start from an example", [""] + list(sample), key=EXAMPLE_KEY, on_change=_load_example,
                  format_func=lambda name: name or "Choose an example to replace the query…",
-                 help="Dates in the examples are relative to today (CertsQL has no relative dates such as *within*).")
+                 help="Dates in the examples are relative to today (CertsQL has no relative dates).")
     text = query_editor("certsql", QUERY_KEY, "CertsQL query", help=QUERY_HELP)
     query = normalize(text)
     issues = problems(query)
@@ -189,7 +191,7 @@ def _render_results(state):
     if result.error:
         st.error(f"Certificate Search: {result.error}" + (f" ({len(result.data):,} certificates fetched before it)"
                                                           if result.data else ""))
-        if hint := error_hint(result.error):
+        if hint := error_hint(result.error, state["query"]):
             st.info(hint, icon=":material/tips_and_updates:")
         if not result.data:
             return
@@ -260,7 +262,11 @@ def _render_certificates(state, certs):
                                                                "Domains, IPs and Hostnames tabs"),
             "Not Before": st.column_config.DateColumn("Not Before"),
             "Not After": st.column_config.DateColumn("Not After"),
-            "Days": st.column_config.NumberColumn("Days", help="Validity period in days", format="%d")})
+            "Days": st.column_config.NumberColumn("Days", help="Validity period in days", format="%d"),
+            "JA4X": st.column_config.Column("JA4X", help="How the certificate was generated (issuer, subject and "
+                                                         "extension layout). The same JA4X across certificates points to "
+                                                         "the same tool or framework; search it with `ja4x equals`. "
+                                                         "Empty while the API doesn't return it.")})
     if edited["Use"].tolist() != certs["Use"].tolist():   # the used set changed: re-derive the target tables
         state["certs"] = edited
         _derive(state, state["preselect"])

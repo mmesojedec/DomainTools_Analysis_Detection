@@ -12,6 +12,7 @@ import pandas as pd
 
 from config import MAX_RUN_SNAPSHOTS, RUNS_DIR, SETTINGS_FILE, SUPPRESSIONS_FILE
 from core.helpers import extract_ip_addresses
+from core.ja4x import normalize as ja4x_normalize
 from core.network_intel import record_types
 from core.run_history import (
     ALERT_FIELDS,
@@ -170,6 +171,9 @@ def collect_run_artifacts(collected):
         if frame is not None and not frame.empty and "Hash" in frame.columns:
             for domain, value in zip(frame["Domain"], frame["Hash"]):
                 add(domain, "Certificate", value)
+            if "JA4X" in frame.columns:
+                for domain, value in zip(frame["Domain"], frame["JA4X"].map(ja4x_normalize)):
+                    add(domain, "JA4X", value)
     return {dom: {kind: sorted(vals) for kind, vals in kinds.items()} for dom, kinds in artifacts.items()}
 
 

@@ -18,7 +18,7 @@ their text is shown.
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
-- [Indicator Sightings](#indicator-sightings)
+- [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)
 - [Account](#account)
 - [Offline datasets](#offline-datasets)
 - [Where local data is stored](#where-local-data-is-stored)
@@ -34,10 +34,10 @@ analysis window, timezone, view filters).
 | **Start** | *Start*: pick a use case (see below) |
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
-| **Sightings** | *Indicator Sightings*: every saved run and offline dataset where one indicator was observed (see [Indicator Sightings](#indicator-sightings)) |
+| **Recent runs** | *Recent runs* (the newest saved runs as a timeline, cards or a table) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed), as two tabs (see [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)) |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
-| **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* |
+| **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* · *Hunting graph* · *Hunt tree* |
 | **Evidence** | *Raw Records* · *Lookup Queries* |
 | **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Offline Datasets* to name it · *Offline Datasets*: load, rename and delete saved datasets (see [Offline datasets](#offline-datasets)) · *Data Export* · *Runs & Diffs* (saved runs, comparisons, trends) |
 | **Data sources** | *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
@@ -63,10 +63,9 @@ is in [Pages](USER_GUIDE.md#pages).
   **Analyze**. Your own saved profiles are listed below the use cases. See [Use cases and
   profiles](#use-cases-and-profiles).
 
-  **Recent runs** (under the IrisQL / CertsQL links): expand *Show the last 10 runs* for a compact table of the
-  newest saved runs (time, targets, window, use case, alerts, offline copy). Click a row, then **Run again** (a new
-  live run with the same use case, analysis window and collection options), **Load offline copy** (the newest
-  offline dataset saved from that run, no API calls) or **Open in Runs & Diffs**.
+  Under the intro, three links: **Run lookups with IrisQL**, **Run lookups with CertsQL** and **Recent runs &
+  Sightings** (see [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)), with the last run
+  named below them.
 - **IrisQL** (next to Start in the menu) finds the targets for you: an IrisQL query lists the matching domains from
   Iris Investigate, and the ones you tick (and their IPs) are analyzed with the use case you pick. See [IrisQL](#irisql).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
@@ -87,7 +86,10 @@ is in [Pages](USER_GUIDE.md#pages).
   - the use-case plan, when the run was started from a use case;
   - **What to check next** (open critical alerts, the riskiest domain, alert categories, dead-end or unchased
     CNAMEs, changes since the last analysis, failed lookups), each with a button to the page that shows it, already
-    filtered where that helps;
+    filtered where that helps. When open alerts name an indicator, *Confirm the … first* points at the first step of
+    the Suggested hunt;
+  - **Suggested hunt**: where to start and the hunt this run would probably grow (see [Suggested
+    hunt](USER_GUIDE.md#suggested-hunt));
   - **Leads to follow**: the strongest pivots, each with *Analyze* (a new run on that value) and *Find in Iris*;
   - **Linked domains**: the infrastructure clusters in one sentence each;
   - **Run statistics**: alerts by category, the top shared hosting networks, registrars, name servers and
@@ -916,8 +918,9 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
 
    The examples include a domain and its subdomains, brand look-alikes on new certificates, login hostnames from free
    CAs, certificates expiring in the next 30 days, key reuse (same public key), self-signed certificates, weak RSA
-   keys, long validity, non-CA certificates with critical basic constraints, brand names not issued to the brand, and
-   DV policy without a subject organization. Their dates are counted from today.
+   keys, long validity, non-CA certificates with critical basic constraints, brand names not issued to the brand,
+   DV policy without a subject organization, and two JA4X hunts: Sliver / Havoc C2 certificates and the Cobalt
+   Strike default certificate. Their dates are counted from today.
 
 2. The page checks the query against the CertsQL field catalog before you search, and names the problem and the
    allowed operators. The API would answer each of these with *HTTP 400*:
@@ -931,11 +934,35 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
    | Range operators (`greater_than`, `less_than`, `…_or_equal`, `between [min, max]`) only on dates, `validity_duration_days`, `public_key_bits`, `san_count`, `san_ip_v4`, `san_ip_v6` | `public_key_bits less_than "2048"` (a number goes without quotes) |
    | Nested objects (`basic_constraints`, `certificate_policy`, `name_constraints`, `signed_certificate_timestamp`) take only `exists true` / `does_not_exist true`; query a subfield with a dotted name | `basic_constraints.is_ca equals false` |
    | `exists` / `does_not_exist` take `true`; negative operators only match a field that is present | `subject_organization does_not_exist true` finds certificates without one |
+   | Every query needs at least one predicate that isn't negated (negated: `does_not_…`, `not_in`, `does_not_match_element`), so a query can't match almost every certificate | `sha256 does_not_equal "…"` on its own |
+   | `ja4x` (the certificate's JA4X fingerprint) takes `equals`, `does_not_equal`, `in`, `not_in`, `exists`, `does_not_exist`, with three 12-character lowercase hex parts joined by `_` | `ja4x contains "2166"` |
+   | Part fields: `.local_part` and `.domain` on email fields (`subject_email_address`, `san_upn`, `san_smtp_utf8_mailbox`); `.host` and `.scheme` on `san_uri` and `certificate_policy.cps_uris`; only `.host` on the name-constraint URIs | `san_uri.port equals "443"` |
+   | IP range fields (`name_constraints.permitted_ip_ranges`, `…excluded_ip_ranges`) take `within` and `overlaps_range` with a CIDR, `contains_ip` with an address, and `exists` / `does_not_exist`; no longer `equals` / `does_not_equal` / `in` / `not_in` | `name_constraints.permitted_ip_ranges equals "10.0.0.0/8"` |
+   | `arc_begins_with` on OID fields (`extension_oids`, `extended_key_usage_oids`, `certificate_policy.policy_oid`) matches whole arcs: `"1.3.6.1"` matches `1.3.6.1.5`, not `1.3.6.10` | `san_dns arc_begins_with "1.3"` |
+   | `matches_element` / `does_not_match_element` bind predicates to the same element of a nested object or of an email / URI field: end the line with `(`, write the predicates with fields relative to it (`AND` lines allowed), close with `)` on its own line | `certificate_policy matches_element "x"` |
+   | `within` is for IP ranges only; for a date window use `between` | `validity_not_after within "the next 30 days"` |
    | Limits: 32 clauses, 256 lines in a clause, 1,024 lines, 1,000 values in an `in` array, 64 KB | |
 
-   Two forms in the CertsQL overview aren't accepted by the API yet: it answers both with *UNKNOWN_KEYWORD*, and the
-   page flags them. Instead of `within "the next 30 days"`, use `between ["2026-11-04", "2026-12-04"]`. Instead of
-   `matches_element ( … )`, use dotted subfields, one per clause.
+   A `matches_element` block: one policy entry must have both the DV OID and a CPS on Let's Encrypt's host.
+
+   ```text
+   # CertsQL-1.0
+   certificate_policy matches_element (
+     policy_oid equals "2.23.140.1.2.1"
+   AND
+     cps_uris.host ends_with "letsencrypt.org"
+   )
+   AND
+   san_dns ends_with ".example.com"
+   ```
+
+   `ja4x`, part fields, `within`, `contains_ip`, `overlaps_range`, `arc_begins_with` and the `matches_element` blocks
+   come from the latest CertsQL release. Until the Certificates API you reach has that release, it answers them with
+   *UNKNOWN_KEYWORD*; the hint under the error names which of them the query used. In the meantime, query
+   subfields with dotted names, one per clause.
+
+   *Sort by* offers only fields the API accepts for sorting (issue date, expiry date, validity length, key size,
+   SHA-256): the API now rejects a sort on any other field.
 
 3. Set **Certificates to fetch** (pages of 500, up to 5,000), **Sort by** and **Order**, and **Pre-select the most
    named**. Then click **Search**. The
@@ -962,7 +989,7 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
 | Domains | Registered domains the certificates name (SAN DNS, or the common name when a certificate has no SANs), with how many certificates name each and how many hostnames they have. Shared CDN names (Cloudflare SNI, Akamai, Fastly, …) are left out. The most named are ticked; *Tick* buttons change that |
 | IPs | Public IPs in the certificates' SANs, to analyze as IP targets |
 | Hostnames | Every hostname, wildcards included, with its registered domain. Analyzing a domain covers all of its subdomains |
-| Certificates | Each certificate: common name, SANs, issuer, validation level, validity dates and days, key, self-signed flag, SHA-256 and public key SHA-256. Untick **Use** to leave a certificate's names out of the Domains, IPs and Hostnames tabs |
+| Certificates | Each certificate: common name, SANs, issuer, validation level, validity dates and days, key, self-signed flag, SHA-256, public key SHA-256 and JA4X (empty until the API returns it). Untick **Use** to leave a certificate's names out of the Domains, IPs and Hostnames tabs |
 | Breakdown | Certificates issued per month, top issuers, validation levels, keys and domains |
 | Raw JSON | The certificate records as received, with a download |
 
@@ -970,10 +997,48 @@ Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs*
 the Analyze button, or click **Add to the sidebar targets**, as on the IrisQL page. Runs & Diffs notes the run as *via CertsQL: …*, and **Lookup Queries → CertsQL**
 shows the query and its curl request.
 
-## Indicator Sightings
+## Recent runs and Indicator Sightings
 
-**Sightings** in the top menu shows every saved run (`dt_runs/`) and offline dataset (`dt_offline/`) where one
-indicator was observed, so you can tell which earlier investigation it came up in, when, and with which domains. Local files only: no API query.
+**Recent runs** in the top menu has two tabs: **Recent runs**, your saved runs (`dt_runs/`), and **Indicator
+Sightings**, where an indicator was observed across those runs and the offline datasets (`dt_offline/`). The two are
+linked: an indicator a run shares with other investigations opens its sightings in one click, and a sighting opens
+its run. Local files only: no API query.
+
+### Recent runs tab
+
+Pick a view and narrow the list:
+
+| Control | Does |
+| --- | --- |
+| View | **Timeline** (default): one lane per target list, one dot per run over time; size is the number of alerts, color the highest severity. Hover for targets, use case, window, risk and API cost; click a dot to pick the run. **Cards**: four compact cards per row (below). **Table**: time, targets, window, use case, alerts, offline copy and *Shares*; click a row to pick the run |
+| Filter | Only runs whose targets, seeds or name contain the text |
+| Runs | How many of the newest matching runs (10, 25, 50 or 100). A run picked from Indicator Sightings stays in view even when it is older |
+| With alerts | Only runs that raised alerts |
+| New alerts | Only runs with alerts the previous run of the same targets did not have (a first run counts when it has alerts) |
+
+Each card shows the targets, time, use case and window; severity badges and *+N new* / *−N resolved* alerts since
+the previous run of the same list (*first run* for a new list); *Risk*, the highest Unified Risk with its change and a
+small trend line of the list's last 8 runs. The **?** has the details. Under it, *Select* picks the run, and
+**Shares N** (when the run found an IP, name server, certificate, JA4X, tracker or email that other target lists
+have on different domains) opens the list of those indicators: click one to see its sightings.
+
+For the picked run:
+
+- **Run again** (a new live run with the same use case, analysis window and collection options), **Load offline
+  copy** (the newest offline dataset saved from that run, no API calls) or **Open in Runs & Diffs**.
+- **Shared with other target lists**: every indicator the run shares, how many other lists have it and which. Click
+  a row, then **Where else was … seen?** to open it on the Indicator Sightings tab.
+- **Any indicator of this run**: pick a kind (IP, Name Server, Certificate, JA4X, Hostname, …) and a value the run
+  recorded, then **Show its sightings**.
+- **Runs per day**: a calendar of the last 12 weeks.
+
+CDN IPs, large DNS providers, loopback and private addresses, and values found in more than 5 target lists never
+count as shared, and two lists that both analyzed the same domain do not share that domain's artifacts.
+
+### Indicator Sightings tab
+
+Shows every saved run and offline dataset where one indicator was observed, so you can tell which earlier
+investigation it came up in, when, and with which domains.
 
 - Enter an IP, domain or hostname, name server, MX host, certificate SHA-256, web tracker code (`G-…`, `UA-…`,
   `GTM-…`) or email address. Defanged input works (`a[.]com`, `hxxps://a[.]com/login`).
@@ -983,8 +1048,14 @@ indicator was observed, so you can tell which earlier investigation it came up i
 - The result: in how many runs, offline datasets and target lists it appears, with how many domains, and when it was
   first and last seen. The table has one row per sighting: where (run or offline dataset), when, the target list, the
   domain it was seen with, what kind of value it is and, for runs, how many alerts that domain had.
-- Click a row, then **Open in Runs & Diffs** (a run), **Load offline dataset** (a dataset, no API calls) or
+- **Sightings over time** (two or more runs or datasets): each sighting as a dot, one lane per target list, colored
+  by kind.
+- Click a row, then **Pick in Recent runs** (a run: shows it on the Recent runs tab with its actions and shared
+  indicators), **Open in Runs & Diffs** (a run), **Load offline dataset** (a dataset, no API calls) or
   **Analyze … as a new run** (IPs, domains, hostnames, name servers and MX hosts; live lookups).
+- With no indicator entered, **Shared across your target lists** lists the indicators that link two or more of your
+  target lists (the same links as the cards' *Shares* and the Hunting graph's dashed lines), most widely shared
+  first. Click a row and **Show sightings of …**.
 
 Runs record email addresses (registration contacts, SOA, certificates) from now on; older runs match emails through
 their offline datasets.

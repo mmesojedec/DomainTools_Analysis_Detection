@@ -62,7 +62,7 @@ function render(kind) {
 
 function insertValue(cm, from, template) {
   cm.replaceRange(template.text, from, cm.getCursor());
-  cm.setCursor(CM.Pos(from.line, from.ch + template.cursor));
+  cm.setCursor(cm.posFromIndex(cm.indexFromPos(from) + template.cursor));   // a template may span lines
 }
 
 function reopen(cm) {
