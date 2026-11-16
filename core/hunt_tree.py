@@ -64,3 +64,30 @@ def trail_text(trail):
         via = (snapshot.get("parent") or {}).get("via")
         parts.append((f"*via {via}* → " if i and via else "→ " if i else "") + f"**{_targets(snapshot)}**")
     return " ".join(parts)
+
+
+def hunt_root(runs, run_id):
+    """The id of the first run of the hunt `run_id` belongs to (itself when it was not started from another run)."""
+    trail = hunt_trail(runs, run_id)
+    return trail[0]["id"] if trail else None
+
+
+def hunt_members(runs, root_id):
+    """[(key, snapshot, depth)] of the hunt that starts at `root_id`: the run, then each run started from it, depth-first."""
+    by_id = {snapshot["id"]: (key, snapshot) for key, snapshot in runs}
+    children = {}
+    for _, snapshot in runs:
+        children.setdefault(_parent_id(snapshot), []).append(snapshot["id"])
+    members, seen = [], set()
+
+    def walk(run_id, depth):
+        if run_id in seen or run_id not in by_id:
+            return
+        seen.add(run_id)
+        key, snapshot = by_id[run_id]
+        members.append((key, snapshot, depth))
+        for child in sorted(children.get(run_id, []), key=lambda c: str(by_id[c][1].get("created"))):
+            walk(child, depth + 1)
+
+    walk(root_id, 0)
+    return members

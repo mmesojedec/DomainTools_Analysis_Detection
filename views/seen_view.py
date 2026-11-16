@@ -49,7 +49,7 @@ def _render_suggestions():
     st.markdown("**Shared across your target lists**",
                 help="Indicators that runs of two or more different target lists found, on different domains (CDN "
                      "IPs, large DNS providers and values in many lists left out). The same links as the cards' "
-                     "*Shares* and the Hunting graph's dashed lines.")
+                     "*Shares* and the Hunt map's *All investigations* dashed lines.")
     picked = st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", on_select="rerun",
                           selection_mode="single-row", key=SUGGESTIONS_KEY,
                           column_config={"Lists": st.column_config.NumberColumn("Target lists", width="small"),

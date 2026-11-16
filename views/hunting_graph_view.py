@@ -1,4 +1,4 @@
-"""Hunting graph (Hunt menu): how saved runs connect, through leads followed and artifacts shared across target lists."""
+"""All investigations (Hunt → Hunt map): how saved runs connect, through leads followed and artifacts shared across target lists."""
 import pandas as pd
 import streamlit as st
 
@@ -7,7 +7,6 @@ from core.offline import list_offline_datasets
 from core.persistence import load_all_runs
 from core.run_history import format_created
 from core.run_views import COMMON_LISTS, GRAPH_RUNS, SHARED_KINDS, shared_text
-from views import navigation
 from views.common import chart
 from views.history_view import _list_labels, _offline_by_run, render_run_actions
 from views.run_visuals import _picked, graph_data, hunting_figure
@@ -38,12 +37,13 @@ def _links_of(run_id, edges, nodes, labels):
     return rows
 
 
-def render_hunting_graph(timezone="UTC"):
-    st.subheader("Hunting graph",
-                 help="Every saved run as a dot on its target list's lane, over time. Arrows: a run started from a "
-                      "lead in another run (Analyze on a lead, a certificate or an Iris search). Dashed lines: two "
-                      "target lists whose runs found the same IP, name server, certificate, JA4X, tracker or email on "
-                      "different domains. Read from dt_runs/; no API calls.")
+def render_hunting_graph(timezone="UTC", header=True):
+    if header:
+        st.subheader("Hunting graph",
+                     help="Every saved run as a dot on its target list's lane, over time. Arrows: a run started from "
+                          "a lead in another run (Analyze on a lead, a certificate or an Iris search). Dashed lines: "
+                          "two target lists whose runs found the same IP, name server, certificate, JA4X, tracker or "
+                          "email on different domains. Read from dt_runs/; no API calls.")
     st.caption("How your investigations connect: the leads you followed, and the infrastructure different "
                "investigations have in common without you linking them. Click a run for its links and actions.")
     all_runs = load_all_runs()
@@ -98,4 +98,3 @@ def render_hunting_graph(timezone="UTC"):
     else:
         st.caption("This run has no links with these settings.")
     render_run_actions(node, _offline_by_run(list_offline_datasets()).get(node["id"]), prefix="hunt_graph")
-    navigation.link("hunt_tree", label="See the hunts as a tree on the Hunt tree", icon=":material/park:")

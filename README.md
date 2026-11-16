@@ -60,8 +60,8 @@ certificates in the sidebar and click **Analyze**. The last run links to the Rec
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
   offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records. The
   *Recent runs* page shows the last runs as a timeline, cards (what changed, risk trend, shared indicators) or a
-  table, and runs one again or loads its offline copy. The *Hunting graph* (Hunt menu) shows how
-  runs connect: leads followed, and infrastructure different investigations share.
+  table, and runs one again or loads its offline copy. The *Hunt map* (Hunt menu) draws each hunt with
+  its open and done steps, and how runs connect: leads followed, and infrastructure different investigations share.
 - **Finds earlier sightings** of an indicator (*Recent runs → Indicator Sightings*): every saved run and offline
   dataset where an IP, domain, name server, MX host, certificate hash, JA4X, tracker code or email was observed, with
   no API query. An indicator a run shares with other investigations opens its sightings in one click.
@@ -133,11 +133,13 @@ core/
   subdomain_triage.py          Subdomain Triage: name and lifecycle signals, score and level per subdomain
   cname.py                     CNAME chains: target service types, chains through collected data and DNSDB chases, per-domain chase plan, cross-domain links
   use_cases.py                 Use cases and custom profiles: collection options, window, plan, lookups and limits
-  next_steps.py                Summary's "What to check next": findings turned into steps that point at a page
+  next_steps.py                Hunt map's "What to check next": findings turned into steps that point at a page
   hunt_plan.py                 Suggested hunt: leads scored, stop rules, look-ahead and the start order from alerts
   hunt_stats.py                Summary statistics: analysis details, alerts by category, shared infrastructure, weekly activity, lifecycle, data health, cluster callouts
-  hunt_tree.py                 Hunt tree: which run a run was started from, the trail to any run and every hunt as a tree
-  run_views.py                 Recent runs and Hunting graph data: change since the previous run, risk trend, shared artifacts, links
+  hunt_result.py               Hunt status and result: what each run added, link to the start, cluster, core indicators
+  hunt_combine.py              Combined hunts: what hunts share, links between their runs, where a joined hunt attaches
+  hunt_tree.py                 Hunts: which run a run was started from, the trail to any run, a hunt's runs
+  run_views.py                 Recent runs and All investigations data: change since the previous run, risk trend, shared artifacts, links
   ja4x.py                      JA4X: known C2 fingerprints, layout notes, rarity, per-run summary
   triage.py                    Triage status of alerts and domain verdicts (New, Investigating, Benign, Malicious), kept in dt_triage.json
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
@@ -219,10 +221,13 @@ views/                         One module per page + sidebar, alert tools, certi
   api_usage_view.py            What each service has left, skipped products
   sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
   history_view.py              Runs & Diffs (previous runs, comparison, trends, watched lists), Offline Datasets, run actions
-  run_visuals.py               Recent runs timeline, run cards and runs-per-day calendar; the Hunting graph figure
-  hunting_graph_view.py        Hunting graph page (Hunt menu): runs linked by leads and shared artifacts
-  hunt_tree_view.py            Hunt tree page (Hunt menu): every hunt as a tree of runs started from leads
-  hunt_plan_view.py            Summary's Suggested hunt: where to start, ranked branches, leads set aside
+  run_visuals.py               Recent runs timeline, run cards and runs and detections per day; the All investigations figure
+  hunt_map_view.py             Hunt map page (Hunt menu): a hunt's runs, open and done steps, the next steps to run
+  hunting_graph_view.py        Hunt map → All investigations: runs linked by leads and shared artifacts
+  hunt_run_view.py             Run the suggested hunt: clickable graph, picked steps, Run suggested hunt…, guided hunt
+  hunt_plan_view.py            Suggested hunt (Hunt map): where to start, ranked branches, leads set aside
+  hunt_next_view.py            Hunt map's alert decisions, what to check next and more leads (moved from the Summary)
+  hunt_combine_view.py         Hunt map's Combined hunts tab: several hunts on one map, combined result, join / detach
   export_view.py               Data Export: case report, confirmed indicators, IOCs, tables and raw records
   docs_view.py                 In-app documentation (Help → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation

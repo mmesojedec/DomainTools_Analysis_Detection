@@ -21,7 +21,7 @@ from views.history_view import (
     _use_case_title,
     render_run_actions,
 )
-from views.run_visuals import CARDS_PER_ROW, recent_timeline, run_card, runs_calendar
+from views.run_visuals import CARDS_PER_ROW, recent_timeline, run_card, runs_activity
 from views.seen_view import QUERY_KEY, render_sightings
 
 TAB_KEY = "recent_tab"
@@ -180,11 +180,12 @@ def _render_runs(timezone):
     st.caption(f"Picked: {format_created(run['created'], timezone)}" + (", the newest." if run["id"] == ids[0] else "."))
     render_run_actions(run, offline.get(run["id"]))
     _render_shared(run, labels)
-    with st.expander("Runs per day", icon=":material/calendar_month:"):
-        runs_calendar(all_runs)
+    with st.expander("Runs and detections per day", icon=":material/calendar_month:"):
+        runs_activity(all_runs)
     with st.container(horizontal=True):
         navigation.link("history", label="See every run on Runs & Diffs")
-        navigation.link("hunt_graph", label="See how runs connect on the Hunting graph")
+        navigation.jump_button("hunt_tree", "See how runs connect on the Hunt map", state={"hunt_map_tab": "All investigations"},
+                               button_key="recent_hunt_map", icon=":material/account_tree:", type="tertiary")
 
 
 def render_recent_page(timezone="UTC"):

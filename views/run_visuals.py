@@ -1,5 +1,5 @@
 """
-Visual run views: the Recent runs timeline, run cards and runs-per-day calendar (Recent runs page), and the Hunting graph
+Visual run views: the Recent runs timeline, run cards and runs-and-detections-per-day chart (Recent runs page), and the Hunting graph
 page (Hunt menu). Data comes from core/run_views.py; nothing here makes API calls.
 """
 import html
@@ -11,7 +11,7 @@ import streamlit as st
 
 from core.helpers import md_escape
 from core.run_history import SEVERITY_ORDER, format_created
-from core.run_views import SEVERITY_COLORS, SHARED_KINDS, calendar_frame, hunting_graph, shared_indicators, shared_text
+from core.run_views import SEVERITY_COLORS, SHARED_KINDS, activity_frame, hunting_graph, shared_indicators, shared_text
 from views.common import chart
 
 BADGE = {"Critical": "red", "High": "orange", "Medium-High": "orange", "Medium": "yellow", "Low": "blue"}
@@ -179,22 +179,64 @@ def _shared_list(run, other_labels, on_find):
             st.caption(f"+{len(indicators) - CARD_INDICATORS} more: select the run for the full list.")
 
 
-def runs_calendar(all_runs, timezone_note=""):
-    """Runs per day for the last weeks, as a weekday × week heatmap."""
-    frame = calendar_frame(all_runs)
-    grid = frame.pivot(index="Weekday", columns="Week", values="Runs").sort_index()
-    dates = frame.pivot(index="Weekday", columns="Week", values="Date").sort_index()
-    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    fig = go.Figure(go.Heatmap(
-        z=grid.values, x=[week.strftime("%b %d") for week in grid.columns], y=days, xgap=3, ygap=3, zmin=0, zmax=max(1, int(frame["Runs"].max())),
-        colorscale=[[0, "rgba(148,163,184,0.18)"], [1e-9, "#bfdbfe"], [1, "#1d4ed8"]],
-        customdata=[[pd.Timestamp(d).strftime("%a %Y-%m-%d") for d in row] for row in dates.values],
-        hovertemplate="%{customdata}: %{z} run(s)<extra></extra>", showscale=False))
-    fig.update_layout(height=230, margin={"l": 10, "r": 10, "t": 10, "b": 10},
-                      yaxis={"autorange": "reversed"}, xaxis={"side": "top"})
-    chart(fig)
-    st.caption(f"{int(frame['Runs'].sum())} run(s) in the last {frame['Week'].nunique()} weeks (UTC days)"
-               + timezone_note + ".")
+ACTIVITY_COLORS = {"Runs": "#93c5fd", "Hunt runs": "#6d28d9"}
+ACTIVITY_SPANS = {"2 weeks": 14, "6 weeks": 42, "12 weeks": 84}
+
+
+def activity_figure(frame, new_only=True):
+    """Runs per day (new investigations and hunt runs) above alerts per day by severity, on one dated axis."""
+    from plotly.subplots import make_subplots
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.38, 0.62],
+                        subplot_titles=("Runs", "New detections" if new_only else "Alerts found"))
+    hover_day = [f"{d:%a %d %b %Y} · week {w}" for d, w in zip(frame["Date"], frame["Week"], strict=True)]
+    others = frame["Runs"] - frame["Hunt runs"]
+    for name, values, color in (("New investigation", others, ACTIVITY_COLORS["Runs"]),
+                                ("Hunt run (from a lead)", frame["Hunt runs"], ACTIVITY_COLORS["Hunt runs"])):
+        fig.add_trace(go.Bar(x=frame["Date"], y=values, name=name, marker_color=color, legendgroup="runs",
+                             legendgrouptitle_text="Runs", customdata=hover_day,
+                             hovertemplate="%{customdata}<br>" + name + ": %{y}<extra></extra>"), row=1, col=1)
+    for severity in SEVERITY_ORDER:
+        column = f"New {severity}" if new_only else severity
+        fig.add_trace(go.Bar(x=frame["Date"], y=frame[column], name=severity, legendgroup="alerts",
+                             legendgrouptitle_text="New detections" if new_only else "Alerts",
+                             marker_color=SEVERITY_COLORS.get(severity), customdata=hover_day,
+                             hovertemplate="%{customdata}<br>" + severity + ": %{y}<extra></extra>"), row=2, col=1)
+    span = len(frame)
+    mondays = frame[frame["Date"].dt.day_of_week == 0]
+    ticks = frame if span <= 14 else mondays   # a tick per day for 2 weeks, else per week (its Monday)
+    labels = [f"{d:%a %d %b}<br>W{w}" if span <= 14 else f"W{w}<br>Mon {d:%d %b}"
+              for d, w in zip(ticks["Date"], ticks["Week"], strict=True)]
+    for monday in mondays["Date"]:   # week boundaries
+        fig.add_vline(x=monday - pd.Timedelta(hours=12), line_width=1, line_dash="dot",
+                      line_color="rgba(148,163,184,0.45)")
+    fig.update_layout(barmode="stack", height=430, bargap=0.15, margin={"l": 10, "r": 10, "t": 30, "b": 10},
+                      legend={"groupclick": "toggleitem", "orientation": "h", "yanchor": "top", "y": -0.22,
+                              "x": 0, "traceorder": "grouped"}, hovermode="x unified")
+    fig.update_xaxes(tickangle=0, range=[frame["Date"].min() - pd.Timedelta(hours=12),
+                                         frame["Date"].max() + pd.Timedelta(days=2 if span > 14 else 0.6)])
+    fig.update_xaxes(tickvals=ticks["Date"], ticktext=labels, row=2, col=1)
+    fig.update_yaxes(rangemode="tozero", tickformat="d")
+    return fig
+
+
+def runs_activity(all_runs, timezone_note=""):
+    """Runs and detections per day: when the hunting happened and what it found."""
+    c_span, c_kind = st.columns([1, 1.4])
+    span = c_span.segmented_control("Period", list(ACTIVITY_SPANS), default="6 weeks", key="recent_activity_span")
+    kind = c_kind.segmented_control("Alerts", ["New detections", "All alerts found"], default="New detections",
+                                    key="recent_activity_alerts",
+                                    help="New detections: a domain and threat type no earlier run had found. All "
+                                         "alerts found: every alert of each run, so re-running a list counts again.")
+    frame = activity_frame(all_runs, days=ACTIVITY_SPANS.get(span or "6 weeks", 42))
+    new_only = (kind or "New detections") == "New detections"
+    chart(activity_figure(frame, new_only))
+    alert_columns = [f"New {s}" if new_only else s for s in SEVERITY_ORDER]
+    alerts = int(frame[alert_columns].sum().sum())
+    high = int(frame[alert_columns[:2]].sum().sum())
+    st.caption(f"{int(frame['Runs'].sum())} run(s), {int(frame['Hunt runs'].sum())} of them hunt runs, and {alerts} "
+               f"{'new detection(s)' if new_only else 'alert(s)'} ({high} Critical or High) from "
+               f"{frame['Date'].min():%a %d %b} (week {frame['Week'].iloc[0]}) to {frame['Date'].max():%a %d %b} "
+               f"(week {frame['Week'].iloc[-1]}), UTC days" + timezone_note + ".")
 
 
 # --- Hunting graph ----------------------------------------------------------------------------------------------------

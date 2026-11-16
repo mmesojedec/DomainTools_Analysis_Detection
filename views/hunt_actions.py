@@ -17,21 +17,25 @@ def current_run_id():
     return st.session_state.get("current_run_id")
 
 
-def analyze_button(targets, via, key, label="Analyze as a new run", container=None, **kwargs):
-    """Starts a new run on `targets` right away, linked to the current run through `via`."""
+def analyze_button(targets, via, key, label="Analyze as a new run", container=None, direct=False, **kwargs):
+    """
+    Starts a new run on `targets` right away, linked to the current run through `via`. `direct`: certificate targets
+    skip the review screens (the suggested hunt's steps).
+    """
     kwargs.setdefault("help", "Replaces the sidebar targets with this value and runs Analyze with the current "
                               "collection options. The new run remembers it came from this one (Hunt → Hunt "
                               "tree).")
-    (container or st).button(label, key=key, on_click=start_hunt, args=(list(targets), via, current_run_id()),
+    (container or st).button(label, key=key, on_click=start_hunt, args=(list(targets), via, current_run_id(), direct),
                              icon=":material/travel_explore:", **kwargs)
 
 
-def find_in_iris(search):
+def find_in_iris(search, open_page=True):
     """Runs the Iris Investigate search `param=value` and opens its domains on the Pivot Ranking page."""
     param, value = next(iter(iris_search_params(search).items()))
-    with st.spinner("Searching Iris Investigate..."):
+    with st.spinner(f"Searching Iris Investigate: {search}..."):
         st.session_state.setdefault(PIVOT_RESULTS_KEY, {})[search] = fetch_iris_pivot(param, value)
-    navigation.go("pivots")
+    if open_page:
+        navigation.go("pivots")
 
 
 def iris_button(search, key, container=None, label="Find in Iris", **kwargs):

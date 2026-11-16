@@ -1,7 +1,7 @@
 """
-Summary page: the analysis in numbers and where the hunt goes next. Every domain with what drives its risk, the
-analysis details, top alerts, triage status, what to check next, the strongest leads, linked domains, run statistics,
-and what is new since the last analysis, each one click from the page that shows it.
+Summary page: the analysis in numbers. Every domain with what drives its risk, the analysis details, top alerts, a
+short pointer to the hunt (the hunting work itself is on the Hunt map), linked domains, run statistics, and what is
+new since the last analysis, each one click from the page that shows it.
 """
 import time
 
@@ -10,7 +10,6 @@ import plotly.express as px
 import streamlit as st
 
 from core.anonymizers import PROXY, RESIDENTIAL, TOR, VPN, anonymizer_rows, shared_exit
-from core.cname import dataset_cname_map
 from core.helpers import md_escape
 from core.hunt_stats import (
     alerts_by_category,
@@ -23,11 +22,10 @@ from core.hunt_stats import (
 )
 from core.hunt_tree import hunt_trail, trail_text
 from core.idn import has_ace, to_unicode
-from core.next_steps import SEVERITY_RANK, next_steps
+from core.next_steps import SEVERITY_RANK
 from core.persistence import find_watch, load_all_runs, load_settings, remove_watch, save_watch
-from core.pivots import top_leads
 from core.risk_profile import drivers_text, score_drivers
-from core.triage import STATUS_HELP, domain_verdicts, load_triage, open_alerts, triage_counts
+from core.triage import domain_verdicts, load_triage, open_alerts, triage_counts
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.cache import age_text
 from views import navigation
@@ -36,10 +34,9 @@ from views.anonymizer_view import alerts_button, domain_verdict_text, ip_check_o
 from views.collection_progress import PROGRESS_KEY, render_last_collection
 from views.common import chart, selected_rows, selection_key
 from views.history_cap import render_history_cap_notice
-from views.hunt_actions import analyze_button, current_run_id, iris_button
-from views.hunt_plan_view import first_step, plan, render_suggested_hunt
+from views.hunt_actions import current_run_id
+from views.hunt_plan_view import KIND_LABELS, plan
 from views.idn_display import display_name, enabled
-from views.pivot_view import dataset_pivots
 from views.risk_view import render_kpi_banner
 from views.ssl_view import CERT_TAB_KEY, SELF_SIGNED_TAB
 
@@ -107,7 +104,7 @@ def _render_hunt_trail():
     if len(trail) > 1:
         c_text, c_link = st.columns([5, 1], vertical_alignment="center")
         c_text.markdown(":material/account_tree: **Hunt trail:** " + trail_text(trail))
-        navigation.link("hunt_tree", label="Hunt tree", container=c_link, icon=":material/park:")
+        navigation.link("hunt_tree", label="Hunt map", container=c_link, icon=":material/account_tree:")
 
 
 def _metric(column, label, value, page=None, link=None, help_text=None):
@@ -176,64 +173,32 @@ def _render_vpndb_glance(ds):
         alerts_button("summary_vpndb")
 
 
-def _render_triage_status(alerts, verdicts):
+def _render_hunt_pointer(alerts, leads, start):
+    """
+    Where the hunting goes on from here, in one box: open alerts to decide, suggested steps and strong leads. The work
+    itself (alert decisions, what to check next, the suggested hunt, more leads) is on the Hunt map.
+    """
     counts = triage_counts(alerts)
-    st.subheader("Hunt status", help="Your decisions on the alerts (Alerts page, in each group) and on domains "
-                                      "(Domain profile). They are kept between runs, so a rerun shows what is still "
-                                      "open. " + STATUS_HELP.replace("**", ""))
-    columns = st.columns(5)
-    columns[0].metric("Open alerts", f"{counts['New'] + counts['Investigating']:,}",
-                      help="New and Investigating: still need a decision")
-    columns[1].metric("Investigating", f"{counts['Investigating']:,}")
-    columns[2].metric("Benign", f"{counts['Benign']:,}")
-    columns[3].metric("Malicious", f"{counts['Malicious']:,}", help="Confirmed bad; exported as confirmed indicators")
-    malicious = [d for d, s in verdicts.items() if s == "Malicious"]
-    columns[4].metric("Domains marked malicious", f"{len(malicious):,}", help=", ".join(malicious) or None)
-    if counts["New"] + counts["Investigating"]:
-        navigation.link("alerts", label="Review the open alerts")
-
-
-def _render_next_steps(ctx, alerts, new_alerts, start=None):
-    view, profiles = ctx.view, ctx.profiles
-    steps = next_steps(open_alerts(alerts), profiles, dataset_cname_map(ctx.ds), ctx.collected.statuses, new_alerts,
-                       len(view.resolved), ctx.thresholds["high_risk_score"])
-    first = first_step(start)   # the first indicator to confirm (Suggested hunt), after the serious-alerts step
-    if first:
-        steps = sorted([*steps, first], key=lambda step: step["rank"])
-    st.subheader("What to check next", help="Built from the open alerts (not yet marked Benign or Malicious), the "
-                                             "riskiest domain, CNAME chains and the lookups.")
-    if not steps:
-        st.caption("Nothing stands out: no open serious alerts, no open CNAME chains and every lookup succeeded.")
-    for i, step in enumerate(steps):
-        if navigation.page(step["page"]) is None:
-            continue
-        c_text, c_button = st.columns([5, 1], vertical_alignment="center")
-        c_text.markdown(f"{step['icon']} {step['text']}")
-        navigation.jump_button(step["page"], f"Open {navigation.title(step['page'])}", step["state"],
-                               button_key=f"next_step::{i}", container=c_button, width="stretch")
-
-
-def _render_leads(ds):
-    """The strongest pivots of the run, each one click from a new run or an Iris search."""
-    leads = top_leads(dataset_pivots(ds))
-    st.subheader("Leads to follow", help="The rarest values the run's domains have (Pivot Ranking): shared by only a "
-                                         "few hundred domains in Iris, so they often lead to the same operator. "
-                                         "Values two or more of your domains share come first.")
-    if leads is None or leads.empty:
-        st.caption("No strong or useful pivots: Iris Investigate found no rare shared value for these domains.")
-        return
-    for i, lead in leads.iterrows():
-        count = f"{int(lead['Iris Domains']):,} domains in Iris" if pd.notna(lead["Iris Domains"]) else "count unknown"
-        shared = f" · shared by **{lead['Run Domains']}** of your domains" if lead["Run Domains"] > 1 else \
-            f" · {md_escape(lead['Shared With'])}"
-        c_text, c_analyze, c_iris = st.columns([4, 1.3, 1], vertical_alignment="center")
-        c_text.markdown(f":{SIGNAL_BADGES.get(lead['Signal'], 'gray')}-badge[{lead['Signal']}] **{lead['Type']}** "
-                        f"`{lead['Value']}` · {count}{shared}")
-        if lead["Analyze As"]:
-            analyze_button([lead["Analyze As"]], f"{lead['Type']} {lead['Value']}", key=f"lead_hunt::{i}",
-                           container=c_analyze, label="Analyze", width="stretch")
-        iris_button(lead["Iris Search"], key=f"lead_iris::{i}", container=c_iris, width="stretch")
-    navigation.link("pivots", label="All pivots, ranked")
+    open_count = counts["New"] + counts["Investigating"]
+    branches = [lead for lead in leads if not lead["Stop"]]
+    st.subheader("Hunt", help="The hunting work of this run (alert decisions, what to check next, the suggested hunt "
+                              "and the leads to follow) is on the Hunt map, next to the map of the hunt it grows.")
+    with st.container(border=True):
+        parts = [f"**{open_count:,}** open alert(s) to decide" if not alerts.empty else "no alerts",
+                 f"**{len(start)}** indicator(s) to confirm first" if start else "",
+                 f"**{len(branches)}** lead(s) worth following" if branches else "no lead worth following"]
+        st.markdown(" · ".join(p for p in parts if p))
+        if start:
+            first = start[0]
+            st.caption(f"Start with the {KIND_LABELS.get(first['kind'], first['kind'])} `{first['value']}`: {md_escape(first['why'])}")
+        with st.container(horizontal=True):
+            if navigation.page("hunt_tree") is not None and st.button(
+                    "Open the Hunt map", key="summary_hunt_map", icon=":material/account_tree:", type="primary",
+                    help="Next steps, the suggested hunt and leads to follow, with the map of this hunt (no API "
+                         "call)"):
+                navigation.open_tab("hunt_tree", "hunt_map_tab", "This hunt")
+            if open_count:
+                navigation.link("alerts", label="Review the open alerts")
 
 
 def _render_clusters(correlation):
@@ -412,9 +377,9 @@ def render_summary(ctx, window_banner):
     ds, view, profiles = ctx.ds, ctx.view, ctx.profiles
     alerts = view.active
     verdicts = domain_verdicts(load_triage(), ds.selected_domains)
-    st.header("Summary", help="The analysis in numbers and where the hunt goes next: every domain, the analysis "
-                              "details, top alerts, triage status, what to check next, leads, linked domains and "
-                              "what changed since the last analysis.")
+    st.header("Summary", help="The analysis in numbers: every domain, the analysis details, top alerts, linked "
+                              "domains and what changed since the last analysis. Where the hunt goes next (what to "
+                              "check, the suggested hunt, leads) is on the Hunt map.")
     if ip_check_only(ds):   # IP check use case: VPNDB verdicts only
         render_ip_check(ds, alerts)
         render_use_case_plan()
@@ -427,16 +392,12 @@ def render_summary(ctx, window_banner):
         render_networks(ds)
     _render_glance(ds, alerts)
     _render_top_alerts(alerts)
-    if not alerts.empty:
-        _render_triage_status(alerts, verdicts)
     render_use_case_plan()
     render_last_collection()
 
     new_alerts = int(view.new_mask.sum()) if view.new_mask is not None else 0
-    leads, start, children = plan(ds, alerts)
-    _render_next_steps(ctx, alerts, new_alerts, start)
-    render_suggested_hunt(ds, alerts, leads, start, children)
-    _render_leads(ds)
+    leads, start, _ = plan(ds, alerts)   # also keeps the suggested steps with the run, for the Hunt map
+    _render_hunt_pointer(alerts, leads, start)
     _render_clusters(ctx.threats.correlation)
     _render_statistics(ds, alerts)
     _render_since_last_run(view, new_alerts, list(ctx.collected.targets))

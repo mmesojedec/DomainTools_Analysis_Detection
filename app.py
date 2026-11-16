@@ -8,6 +8,7 @@ from contextlib import nullcontext
 import pandas as pd
 import streamlit as st
 
+from config import SEED_MAX_TARGETS
 from core.account import unavailable_stages
 from core.api_usage import queries_by_product
 from core.cert_inputs import idn_conversions, parse_inputs, run_key_labels
@@ -52,8 +53,7 @@ from views.export_view import render_export_lens
 from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_run_history
 from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
-from views.hunt_tree_view import render_hunt_tree
-from views.hunting_graph_view import render_hunting_graph
+from views.hunt_map_view import render_hunt_map
 from views.infra_view import render_infra_lens
 from views.irisql_view import ORIGIN_KEY as IRISQL_ORIGIN_KEY
 from views.irisql_view import render_irisql_page
@@ -177,10 +177,12 @@ def run_key(collected):
     return target_set_key(run_key_labels(collected.targets, getattr(collected, "seed_inputs", None) or []))
 
 
-def run_collection(settings):
+def run_collection(settings, direct=False):
     """
     Analyze clicked: plain domains / IPs are collected directly. Certificate inputs first go through two steps in the
-    main area: review the recognized searches (no API calls), then pick the derived domains / IPs to analyze.
+    main area: review the recognized searches (no API calls), then pick the derived domains / IPs to analyze. With
+    `direct` (a step of the suggested hunt) both steps are skipped: the searches run as recognized and the derived
+    targets pre-selected are analyzed right away.
     """
     items = parse_inputs(settings.raw_input)
     st.session_state.idn_conversions = idn_conversions(settings.raw_input)
@@ -199,6 +201,18 @@ def run_collection(settings):
     st.session_state.pop("seed_preview", None)
     if not seeds:
         collect_targets(settings, plain)
+        return
+    if direct:
+        search_seeds({"settings": settings, "plain": plain}, seeds)
+        preview = st.session_state.pop("seed_preview")
+        derived = preview["resolution"].derived
+        selected = [] if derived.empty else derived.loc[derived["Analyze"], "Target"].tolist()[:SEED_MAX_TARGETS]
+        if not plain and not selected:
+            st.warning("The certificate searches found no domains or IPs to analyze (shared CDN names and private "
+                       "IPs are not offered).")
+            return
+        collect_targets(settings, list(dict.fromkeys(plain + selected)), preview["seeds"], preview["resolution"],
+                        selected)
         return
     st.session_state.pop("seed_query_editor", None)
     st.session_state.seed_queries = {"settings": settings, "plain": plain, "items": seeds}
@@ -360,7 +374,7 @@ def save_pending_snapshot(view, profiles, host_focus=None):
                              seeds=getattr(collected, "seed_inputs", None), host_focus=host_focus,
                              parent=st.session_state.pop(HUNT_PARENT_KEY, None),
                              queries=queries_by_product(collected.statuses),
-                             options=st.session_state.get(RUN_OPTIONS_KEY))
+                             options=st.session_state.get(RUN_OPTIONS_KEY), continue_list=True)
     st.session_state.current_run_id = snapshot["id"]
     offline_id = st.session_state.pop("offline_pending_id", None)
     if offline_id:
@@ -612,8 +626,7 @@ PAGE_FUNCTIONS = {
     "pivots": data_page(lambda: render_pivot_lens(CTX.ds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
-    "hunt_graph": lambda: render_hunting_graph(CTX.timezone),
-    "hunt_tree": lambda: render_hunt_tree(CTX.timezone, st.session_state.get("current_run_id"), CTX),
+    "hunt_tree": lambda: render_hunt_map(CTX.timezone, CTX),
     "sources": data_page(page_sources),
     "raw": data_page(lambda: render_raw_lens(CTX.ds)),
     "queries": data_page(lambda: render_query_lens(CTX.collected, st.session_state.get("run_created"))),
@@ -657,9 +670,10 @@ def main():
     settings = render_lookup_controls(navigation.page("settings"))
     settings = st.session_state.pop(RERUN_KEY, None) or settings   # a re-run asked for on the Data sources page
     hunt = st.session_state.pop(HUNT_KEY, None)   # "Analyze as a new run" on a lead: targets are in the box already
+    direct = bool(hunt and hunt.get("direct"))   # a suggested-hunt step: no certificate review screens
     if hunt and not settings.run and settings.mode == "live" and settings.raw_input.strip():
         settings = dataclasses.replace(settings, run=True)
-        st.session_state[HUNT_PARENT_KEY] = hunt
+        st.session_state[HUNT_PARENT_KEY] = {"id": hunt.get("id"), "via": hunt.get("via")}
     elif settings.run:
         st.session_state.pop(HUNT_PARENT_KEY, None)
     st.sidebar.divider()
@@ -677,9 +691,10 @@ def main():
             st.session_state.idn_conversions = []
             load_offline(settings)
         else:
-            run_collection(settings)
-        if st.session_state.get("collected") is not before and not st.session_state.get("seed_queries"):
-            navigation.go("summary")   # a new analysis opens on its Summary
+            run_collection(settings, direct=direct)
+        if st.session_state.get("collected") is not before and not st.session_state.get("seed_queries") \
+                and not direct:
+            navigation.go("summary")   # a new analysis opens on its Summary (a hunt step stays on the Hunt map)
     render_apex_notice(st.session_state.get("apex_conversions"))
     render_idn_notice(st.session_state.get("idn_conversions"))
 

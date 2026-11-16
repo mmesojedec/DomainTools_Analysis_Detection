@@ -37,7 +37,7 @@ analysis window, timezone, view filters).
 | **Recent runs** | *Recent runs* (the newest saved runs as a timeline, cards or a table) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed), as two tabs (see [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)) |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
-| **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* · *Hunting graph* · *Hunt tree* |
+| **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* · *Hunt map* |
 | **Evidence** | *Raw Records* · *Lookup Queries* |
 | **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Offline Datasets* to name it · *Offline Datasets*: load, rename and delete saved datasets (see [Offline datasets](#offline-datasets)) · *Data Export* · *Runs & Diffs* (saved runs, comparisons, trends) |
 | **Data sources** | *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
@@ -71,7 +71,7 @@ is in [Pages](USER_GUIDE.md#pages).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
   the domains and IPs they name that you tick are analyzed. See [CertsQL](#certsql).
 - **Summary** opens after every Analyze or dataset load. From top to bottom:
-  - the **hunt trail** when this run was started from another run's lead (see [Hunting](USER_GUIDE.md#hunting-triage-status-leads-and-the-hunt-tree));
+  - the **hunt trail** when this run was started from another run's lead (see [Hunting](USER_GUIDE.md#hunting-triage-status-leads-and-the-hunt-map));
   - the risk numbers, then every **domain** with its verdict, open alerts and **risk drivers** (select one to open
     its profile; a **Unicode** column is added for internationalized domains; with VPNDB verdicts a **VPNDB** column
     says how many of its checked IPs are VPN, proxy or Tor exits and whose, e.g. `1 of 58 IPs: Residential proxy
@@ -82,15 +82,10 @@ is in [Pages](USER_GUIDE.md#pages).
     IPs checked, VPN / proxy exits, residential proxy exits and Tor relays / exits, with the exits listed in an
     expander (shared ones counted);
   - **Top alerts**: the ten most severe alerts with their triage status;
-  - **Hunt status**: open, investigating, benign and malicious alerts, and the domains marked malicious;
   - the use-case plan, when the run was started from a use case;
-  - **What to check next** (open critical alerts, the riskiest domain, alert categories, dead-end or unchased
-    CNAMEs, changes since the last analysis, failed lookups), each with a button to the page that shows it, already
-    filtered where that helps. When open alerts name an indicator, *Confirm the … first* points at the first step of
-    the Suggested hunt;
-  - **Suggested hunt**: where to start and the hunt this run would probably grow (see [Suggested
-    hunt](USER_GUIDE.md#suggested-hunt));
-  - **Leads to follow**: the strongest pivots, each with *Analyze* (a new run on that value) and *Find in Iris*;
+  - **Hunt**: one box with the open alerts to decide, the indicators to confirm first and the leads worth
+    following, the first step, and **Open the Hunt map**. The hunting work itself (alert decisions, *What to check
+    next*, the [Suggested hunt](USER_GUIDE.md#suggested-hunt) and more leads) is on the Hunt map, under the map;
   - **Linked domains**: the infrastructure clusters in one sentence each;
   - **Run statistics**: alerts by category, the top shared hosting networks, registrars, name servers and
     certificate issuers, activity per week, lifecycle (newest domain, domains and certificates expiring within 30
@@ -115,8 +110,8 @@ is in [Pages](USER_GUIDE.md#pages).
 2. **Sidebar**: enter the targets (domains, IPs or certificates), check the *Options* line (change them under
    *Settings* if needed) and click **Analyze**. Or choose *Offline dataset* and load a saved one. Don't have the
    targets yet? Choose **Data source → IrisQL** or **CertsQL** (or open them from the menu), search, and analyze the domains you pick.
-3. **Summary** opens: read the key numbers, then work through **What to check next**; each button opens the page that
-   shows it.
+3. **Summary** opens: read the key numbers, then **Open the Hunt map** and work through **What to check next**; each
+   button opens the page that shows it.
 4. **Domain profile** for the domain that matters, then the detail pages it links to: **Alerts** for the evidence,
    **CNAME Chains** to chase chains, **Certificates**, **DNS & Hosting**.
 5. Mark what you reviewed: a status per alert group on **Alerts**, a verdict per domain on its profile. Follow a lead
@@ -1030,7 +1025,9 @@ For the picked run:
   a row, then **Where else was … seen?** to open it on the Indicator Sightings tab.
 - **Any indicator of this run**: pick a kind (IP, Name Server, Certificate, JA4X, Hostname, …) and a value the run
   recorded, then **Show its sightings**.
-- **Runs per day**: a calendar of the last 12 weeks.
+- **Runs and detections per day**: over 2, 6 or 12 weeks, runs per day (hunt runs started from a lead in purple)
+  above the new detections (a domain and threat type no earlier run had found) or all alerts found, per day by
+  severity. Days are dated and grouped by week number (W46 …).
 
 CDN IPs, large DNS providers, loopback and private addresses, and values found in more than 5 target lists never
 count as shared, and two lists that both analyzed the same domain do not share that domain's artifacts.
@@ -1054,7 +1051,7 @@ investigation it came up in, when, and with which domains.
   indicators), **Open in Runs & Diffs** (a run), **Load offline dataset** (a dataset, no API calls) or
   **Analyze … as a new run** (IPs, domains, hostnames, name servers and MX hosts; live lookups).
 - With no indicator entered, **Shared across your target lists** lists the indicators that link two or more of your
-  target lists (the same links as the cards' *Shares* and the Hunting graph's dashed lines), most widely shared
+  target lists (the same links as the cards' *Shares* and the Hunt map's *All investigations* dashed lines), most widely shared
   first. Click a row and **Show sightings of …**.
 
 Runs record email addresses (registration contacts, SOA, certificates) from now on; older runs match emails through

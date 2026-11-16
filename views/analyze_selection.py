@@ -11,6 +11,25 @@ from core.persistence import load_settings
 from core.use_cases import PROFILES_SETTING, all_cases
 
 SCOPES = ("domains", "ips", "both")
+LINK_SUFFIX = "_link_hunt"   # checkbox: the new run joins the loaded run's hunt
+
+
+def hunt_parent(prefix):
+    """The loaded run's id when the page's *Add to the hunt* box is ticked (the default), else None."""
+    run_id = st.session_state.get("current_run_id")
+    return run_id if run_id and st.session_state.get(f"{prefix}{LINK_SUFFIX}", True) else None
+
+
+def _render_link(prefix):
+    """*Add to the hunt of …*: shown while a run is loaded, so a search made from a hunt stays in it."""
+    collected = st.session_state.get("collected")
+    if not st.session_state.get("current_run_id") or collected is None:
+        return
+    targets = list(getattr(collected, "targets", []) or [])
+    label = ", ".join(targets[:2]) + (f" +{len(targets) - 2}" if len(targets) > 2 else "")
+    st.checkbox(f"Add the new run to the hunt of the loaded run ({label})", value=True, key=f"{prefix}{LINK_SUFFIX}",
+                help="Ticked: the new run is linked to the loaded run and grows its hunt on the Hunt map. Unticked: "
+                     "it starts a hunt of its own.")
 
 
 def _plural(count, one, many):
@@ -89,6 +108,7 @@ def render_analyze_selection(prefix, picked_domains, picked_ips, on_analyze, on_
     over = len(targets) > SEED_MAX_TARGETS
     if over:
         st.error(f"Select at most {SEED_MAX_TARGETS} targets per run.")
+    _render_link(prefix)
     with st.container(horizontal=True):
         st.button(analyze_label(domains, ips), type="primary", icon=":material/play_arrow:",
                   disabled=over or not targets, key=f"{prefix}_analyze", on_click=on_analyze,

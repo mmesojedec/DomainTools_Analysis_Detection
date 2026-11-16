@@ -89,21 +89,92 @@ def test_sightings_index_and_followed_branches():
     assert hunt_plan.followed({"Value": "9.9.9.9", "Analyze As": ""}, [child]) is None
 
 
-def test_suggested_and_hunts_graphs_draw_branches_followed_runs_and_start_steps():
-    from views.hunt_tree_view import hunts_dot, suggested_dot
+def test_plan_items_merge_start_steps_and_branches_into_one_ordered_list_to_run():
     leads = hunt_plan.score_leads(pivots(), alerts(), analyzed=["a.com"])
     steps = hunt_plan.start_order(alerts(), leads)
     child = {"id": "c1", "targets": ["45.13.20.7"], "alerts": [{}], "parent": {"id": "p", "via": "IP 45.13.20.7"}}
-    dot = suggested_dot(["a.com"], leads, steps, [child])
-    assert '"run" -> "lead::0" [label="followed"' in dot and '"lead::0" -> "child::c1"' in dot
-    assert '"run" -> "lead::1" [style=dashed, label="suggested"' in dot
-    assert '"run" -> "step::1" [style=dotted' in dot and "confirm JA4X" in dot
-    assert "104.16.1.1" not in dot   # set-aside leads are not drawn
-    rows = [{"Run": "r1", "Parent": None, "Depth": 0, "Targets": "a.com", "Created": "2026-11-02T09:10:00Z",
-             "Alerts": 4, "Via": ""},
-            {"Run": "r2", "Parent": "r1", "Depth": 1, "Targets": "45.13.20.7", "Created": "2026-11-02T09:25:00Z",
-             "Alerts": 2, "Via": "IP 45.13.20.7"}]
-    assert '"run::r1" -> "run::r2" [label="IP 45.13.20.7"' in hunts_dot(rows)
+    items = hunt_plan.plan_items(steps, leads, [child])
+    assert [(i["step"], i["source"], i["value"], i["action"]) for i in items] == [
+        (1, "Start", JA4X, "CertsQL"), (2, "Start", "45.13.20.7", "Analyze"),
+        (3, "Start", SHA1, "Analyze"), (4, "Branch", "G-ABC", "Iris")]
+    assert items[1]["done"] and items[1]["score"] is not None and items[2]["target"] == f"sha1:{SHA1}"
+    assert [i["step"] for i in hunt_plan.runnable(items)] == [3, 4]          # followed and by-hand steps left out
+    targets, searches, over = hunt_plan.run_parts(items, max_targets=1)
+    assert targets == ["45.13.20.7"] and searches == ["x=G-ABC"] and over == [f"sha1:{SHA1}"]
+    assert hunt_plan.via_text(items[1:3]) == "Suggested hunt: IP 45.13.20.7, Certificate abababababababababababa…"
+
+
+def test_hunt_map_marks_followed_steps_done_and_keeps_open_ones_with_their_facts():
+    from views.hunt_map_view import hunt_map_dot
+    leads = hunt_plan.score_leads(pivots(), alerts(), analyzed=["a.com"])
+    plan = hunt_plan.saved_plan(hunt_plan.plan_items(hunt_plan.start_order(alerts(), leads), leads))
+    assert plan[1]["alerts"] == 1 and plan[1]["worst"] == "High" and plan[3]["iris"] == 40
+    assert plan[0]["types"] == ["Known C2 Certificate Fingerprint (JA4X)"]
+    root = {"id": "r1", "targets": ["a.com"], "created": "2026-11-02T09:10:00Z", "plan": plan,
+            "summary": {"by_severity": {"High": 1, "Medium": 1}},
+            "alerts": [{"Domain": "a.com", "Threat Type": "Known C2 Certificate Fingerprint (JA4X)", "Severity": "High"}],
+            "artifacts": {"a.com": {"IP": ["45.13.20.7"]}}}
+    child = {"id": "r2", "targets": ["45.13.20.7", "b.com"], "created": "2026-11-02T09:25:00Z", "alerts": [],
+             "parent": {"id": "r1", "via": "IP address 45.13.20.7"},
+             "artifacts": {"b.com": {"IP": ["45.13.20.7"]}}}
+    dot = hunt_map_dot([("k1", root, 0), ("k2", child, 1)], loaded_id="r2", live_items=[])
+    assert '"run::r1" -> "done::r1::r2::0"' in dot and '"done::r1::r2::0" -> "run::r2"' in dot   # ✓ step 2, on
+    assert "✓ #2 IP" in dot and "2 alerts: " in dot and "1 High" in dot and "starting point" in dot
+    assert '"open::r1::g-abc"' in dot and "Iris 40" in dot and "start here" in dot      # still open, with facts
+    assert "+2 new domain(s) · +0 new alert(s)" in dot and "linked to start: 1 IP" in dot and "● loaded" in dot
+    assert dot.count('"run::r1" -> "open::r1::') == 3 and "more open" not in dot         # JA4X, certificate, GA4
+    lit = hunt_map_dot([("k1", root, 0), ("k2", child, 1)], highlight=("type", "Known C2 Certificate Fingerprint (JA4X)"))
+    assert '"run::r1" [label=' in lit and 'color="#ff5252", penwidth=2.5' in lit and 'fontcolor="#777777"' in lit
+    orphan = {**child, "id": "r3", "parent": {"id": "r1", "via": "Certificate abc"}, "targets": ["z.com"],
+              "artifacts": {"z.com": {"IP": ["9.9.9.9"]}}}
+    other = hunt_map_dot([("k1", root, 0), ("k3", orphan, 1)])
+    assert '"run::r1" -> "run::r3" [color="#43a047", label="✓ Certificate abc"]' in other
+    assert "no link to start: drifted" in other
+
+
+def test_a_step_followed_anywhere_in_the_hunt_is_never_open_again_and_repeats_collapse():
+    from views.hunt_map_view import hunt_map_dot, run_items
+    cert = "ab" * 32
+    step = {"step": 1, "source": "Start", "kind": "Certificate", "value": cert, "action": "Analyze",
+            "target": f"sha256:{cert}", "search": "", "score": None, "why": "", "iris": None, "alerts": 1,
+            "worst": "High", "domains": 1, "types": []}
+    r1 = {"id": "r1", "created": "1", "targets": ["a.com"], "plan": [step]}
+    r2 = {"id": "r2", "created": "2", "targets": ["a.com", "b.com"], "seeds": [f"sha256:{cert}"], "plan": [step],
+          "parent": {"id": "r1", "via": "Suggested hunt: Certificate ab"}}
+    assert run_items([("k", r1, 0), ("k", r2, 1)])["r2"] == []          # followed by r1's child: not open in r2
+    r3 = {**r2, "id": "r3", "created": "3", "parent": {"id": "r2", "via": "Suggested hunt: Certificate ab"}}
+    dot = hunt_map_dot([("k", r1, 0), ("k", r2, 1), ("k", r3, 2)])
+    assert "✓ 1 step(s) repeated from before" in dot                    # r2 → r3 followed it again
+    steps = hunt_plan.start_order(alerts(), exclude={"45.13.20.7"})
+    assert "45.13.20.7" not in [s["value"] for s in steps]
+
+
+def test_hunt_status_yield_links_and_result():
+    from core import hunt_result as hr
+    root = {"id": "r1", "created": "1", "targets": ["a.com", "b.com"],
+            "alerts": [{"Domain": "a.com", "Threat Type": "C2", "Severity": "High"}],
+            "artifacts": {"a.com": {"IP": ["45.13.20.7"], "Email": ["abuse@namesilo.com"]},
+                          "b.com": {"IP": ["45.13.20.7"], "Certificate": ["cc" * 20]}}}
+    linked = {"id": "r2", "created": "2", "targets": ["c.com"], "parent": {"id": "r1"},
+              "alerts": [{"Domain": "c.com", "Threat Type": "C2", "Severity": "High"},
+                         {"Domain": "c.com", "Threat Type": "Phish", "Severity": "Medium"}],
+              "artifacts": {"c.com": {"Certificate": ["CC" * 20], "Email": ["abuse@namesilo.com"]}}}
+    drifted = {"id": "r3", "created": "3", "targets": ["z.com"], "parent": {"id": "r1"}, "alerts": [],
+               "artifacts": {"z.com": {"IP": ["9.9.9.9"]}}}
+    runs = [root, linked, drifted]
+    assert hr.run_yield(runs)["r2"] == {"new_domains": 1, "new_alerts": 2, "new_high": 1, "new_types": 1}
+    links = hr.start_links(runs, root)
+    assert links["r2"] == {"Certificate": 1} and not links["r3"]          # a role mailbox links nothing
+    assert hr.hunt_status(runs, [0, 1, 1], ["x"]) == ("converging", "the newest run added 1 new domain(s) and no new "
+                                                      "kind of alert: following more steps is unlikely to find much")
+    assert hr.hunt_status(runs, [0, 1, 3], ["x"])[0] == "done" and hr.hunt_status(runs, [0], [], closed={
+        "verdict": "Benign"}) == ("closed", "closed as Benign")
+    result = hr.hunt_result(runs, root)
+    assert [row["Domain"] for row in result["cluster"]] == ["a.com", "b.com", "c.com"] and result["drifted"] == ["r3"]
+    assert {(row["Kind"], row["Domains"]) for row in result["core"]} == {("IP", 2), ("Certificate", 2)}
+    assert result["alerts"][0] == {"Threat Type": "C2", "Domains": 2, "Worst": "High"}
+    page = hr.hunt_report_html("Hunt: a.com", result, [], ("converging", "x"), "Malicious cluster", "note <b>")
+    assert "Malicious cluster" in page and "note &lt;b&gt;" in page and "c.com" in page
 
 
 def test_indicator_kinds_and_certificate_records():
@@ -139,3 +210,60 @@ def test_certificates_page_narrows_to_the_focused_certificate():
     at = AppTest.from_function(page).run(timeout=30)
     assert not at.exception and any("rows=1 derived=0 full=2" in m.value for m in at.markdown)
     assert "Showing only" in at.info[0].value
+
+
+def test_guided_hunt_banner_skips_and_stops_and_picked_steps_offer_one_run():
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import streamlit as st
+
+        from views.hunt_run_view import GUIDE_KEY, render_guide, render_picked
+        item = {"id": "1.2.3.4", "step": 1, "source": "Start", "kind": "IP", "value": "1.2.3.4", "action": "Analyze",
+                "target": "1.2.3.4", "search": "ip=1.2.3.4", "score": 40, "why": "1 alert", "done": False}
+        other = {**item, "id": "g-1", "step": 2, "source": "Branch", "kind": "GA4", "value": "G-1", "action": "Iris",
+                 "target": "", "search": "ga4=G-1"}
+        if "started" not in st.session_state:
+            st.session_state["started"] = True
+            st.session_state[GUIDE_KEY] = {"parent": "p", "label": "a.com", "items": [item, other], "position": 0}
+        render_guide()
+        render_picked(None, None, [item, other], "p", key="t")
+
+    at = AppTest.from_function(page).run(timeout=30)
+    assert not at.exception and "step 1 of 2" in at.markdown[0].value
+    assert any(b.label == "Run 2 picked steps" for b in at.button)
+    at.button(key="hunt_guide_skip").click().run()
+    assert "step 2 of 2" in at.markdown[0].value
+    at.button(key="hunt_guide_stop").click().run()
+    assert "hunt_guide" not in at.session_state
+
+
+def test_analyze_on_a_picked_step_starts_the_run_after_the_target_box_is_drawn(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import streamlit as st
+
+        from views.hunt_run_view import render_picked
+        from views.sidebar import TARGETS_KEY
+        st.sidebar.text_area("Targets", key=TARGETS_KEY)   # drawn before the step's buttons, as in the app
+        item = {"id": "c", "step": 1, "source": "Start", "kind": "Certificate", "value": "ab" * 32,
+                "action": "Analyze", "target": "sha256:" + "ab" * 32, "search": "", "score": 50, "why": "1 alert",
+                "done": False}
+        render_picked(None, None, [item], "parent-run", key="t")
+
+    at = AppTest.from_function(page).run(timeout=30)
+    at.button(key="t::analyze").click().run(timeout=30)
+    assert not at.exception
+    assert at.session_state["targets_input"] == "sha256:" + "ab" * 32
+    assert at.session_state["hunt_request"]["direct"] is True and at.session_state["hunt_request"]["id"] == "parent-run"
+
+
+def test_more_leads_leaves_out_what_the_suggested_hunt_lists(monkeypatch):
+    import pandas as pd
+
+    from views import hunt_next_view
+    leads = pd.DataFrame({"Value": ["SHA256:AB", "1.2.3.4", "x@y.com"], "Type": ["Certificate", "IP", "Email"]})
+    monkeypatch.setattr(hunt_next_view, "dataset_pivots", lambda ds: None)
+    monkeypatch.setattr(hunt_next_view, "top_leads", lambda pivots: leads)
+    assert hunt_next_view.more_leads(None, {"ab", "1.2.3.4"})["Value"].tolist() == ["x@y.com"]

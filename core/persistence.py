@@ -221,14 +221,22 @@ def _profile_records(profiles):
     return json.loads(profiles[columns].to_json(orient="records"))
 
 
+SAME_TARGETS = "Same targets again"   # the via of a run continuing its target list's hunt
+
+
 def save_snapshot(key, targets, artifacts, alerts, window_label=None, profiles=None, name="", note="", seeds=None,
-                  host_focus=None, parent=None, queries=None, options=None):
+                  host_focus=None, parent=None, queries=None, options=None, continue_list=False):
     """
     Saves a v2 run snapshot (alerts with severity / confidence, per-domain risk and DIF) and applies retention.
     `options` (use case, analysis window and collection options) lets the run be analyzed again the same way.
     `parent` ({"id": run id, "via": what led here}) links a run started from another run's lead (hunt tree).
-    `queries` ({product or service: API queries}) is what the run cost.
+    `queries` ({product or service: API queries}) is what the run cost. `continue_list`: a run not started from
+    another run continues the hunt of the newest earlier run of the same target list (Run again, the same targets).
     """
+    if continue_list and not (parent or {}).get("id"):
+        previous = load_latest_snapshot(key)
+        if previous is not None:
+            parent = {"id": previous["id"], "via": (parent or {}).get("via") or SAME_TARGETS}
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     alert_rows = _alert_records(alerts)
     profile_rows = _profile_records(profiles)
@@ -391,6 +399,62 @@ def update_run_meta(key, run_id, name=None, note=None):
         snapshot["name"] = name.strip()[:120]
     if note is not None:
         snapshot["note"] = note.strip()[:2000]
+    save_json(path, snapshot)
+    return snapshot
+
+
+def save_run_plan(key, run_id, plan):
+    """Keeps the run's suggested hunt (core.hunt_plan.saved_plan) with the run, for the Hunt map. False if unchanged."""
+    path = _run_path(key, run_id)
+    snapshot = _load_snapshot_file(path)
+    if snapshot is None or snapshot.get("plan") == plan:
+        return False
+    snapshot["plan"] = plan
+    save_json(path, snapshot)
+    return True
+
+
+def join_run(key, run_id, parent_id, via):
+    """
+    Attaches run `run_id` (a hunt's first run) to run `parent_id` of another hunt, so the two hunts become one; the
+    link it had before is kept for detach_run().
+    """
+    path = _run_path(key, run_id)
+    snapshot = _load_snapshot_file(path)
+    if snapshot is None:
+        raise FileNotFoundError(run_id)
+    snapshot.setdefault("joined", {"previous": snapshot.get("parent"), "at": _utc_now()})
+    snapshot["parent"] = {"id": parent_id, "via": str(via or "Joined")[:200]}
+    save_json(path, snapshot)
+    return snapshot
+
+
+def detach_run(key, run_id):
+    """Undoes join_run(): the run gets back the link it had before (or none) and starts its own hunt again."""
+    path = _run_path(key, run_id)
+    snapshot = _load_snapshot_file(path)
+    if snapshot is None or "joined" not in snapshot:
+        return snapshot
+    previous = snapshot.pop("joined").get("previous")
+    if previous:
+        snapshot["parent"] = previous
+    else:
+        snapshot.pop("parent", None)
+    save_json(path, snapshot)
+    return snapshot
+
+
+def save_hunt_result(key, run_id, result):
+    """Keeps a hunt's verdict ({"verdict", "note", "closed"}) with its first run; None reopens the hunt."""
+    path = _run_path(key, run_id)
+    snapshot = _load_snapshot_file(path)
+    if snapshot is None:
+        raise FileNotFoundError(run_id)
+    if result is None:
+        snapshot.pop("hunt_result", None)
+    else:
+        snapshot["hunt_result"] = {"verdict": str(result.get("verdict") or "")[:40],
+                                   "note": str(result.get("note") or "").strip()[:2000], "closed": _utc_now()}
     save_json(path, snapshot)
     return snapshot
 

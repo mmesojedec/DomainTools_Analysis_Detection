@@ -855,14 +855,14 @@ def run_again(lines, options, via="Run again"):
     start_hunt(lines, via)
 
 
-def start_hunt(lines, via, parent_id=None):
+def start_hunt(lines, via, parent_id=None, direct=False):
     """
     Button callback: replaces the sidebar targets with `lines` and analyzes them right away as a new run, linked to
-    run `parent_id` through `via` (hunt tree).
+    run `parent_id` through `via` (hunt tree). `direct`: certificate targets skip the review screens (suggested hunt).
     """
     st.session_state[TARGETS_KEY] = "\n".join(dict.fromkeys(line for line in lines if line))
     st.session_state[DATA_MODE_KEY] = LIVE_MODE
-    st.session_state[HUNT_KEY] = {"id": parent_id, "via": via}
+    st.session_state[HUNT_KEY] = {"id": parent_id, "via": via, "direct": direct}
     st.session_state[APP_RERUN_KEY] = True
 
 

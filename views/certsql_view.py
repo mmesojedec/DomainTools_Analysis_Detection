@@ -31,7 +31,7 @@ from core.certsql import (
 from core.persistence import load_settings
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.certificates import fetch_certsql
-from views.analyze_selection import render_analyze_selection
+from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_editor, set_query
 from views.sidebar import add_to_targets, apply_use_case, start_hunt
@@ -118,7 +118,7 @@ def _analyze(targets, case_key, state):
     if case is not None:
         apply_use_case(case)
     st.session_state[ORIGIN_KEY] = search_status(state)
-    start_hunt(targets, _label(state["query"]))
+    start_hunt(targets, _label(state["query"]), hunt_parent("certsql"))
 
 
 def _add(targets, state):

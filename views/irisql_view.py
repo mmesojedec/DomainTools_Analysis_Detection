@@ -24,7 +24,7 @@ from core.irisql import (
 from core.persistence import load_settings
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.enrichment import fetch_irisql
-from views.analyze_selection import render_analyze_selection
+from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_editor, set_query
 from views.sidebar import add_to_targets, apply_use_case, start_hunt
@@ -103,7 +103,7 @@ def _analyze(targets, case_key, state):
     if case is not None:
         apply_use_case(case)
     _remember_search(state)
-    start_hunt(targets, _label(state["query"]))
+    start_hunt(targets, _label(state["query"]), hunt_parent("irisql"))
 
 
 def _add(targets, state):

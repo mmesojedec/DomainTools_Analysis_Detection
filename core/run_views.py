@@ -18,7 +18,6 @@ SEVERITY_COLORS = {"Critical": "#b91c1c", "High": "#dc2626", "Medium-High": "#ea
 SHARED_KINDS = ("IP", "Name Server", "Certificate", "JA4X", "Web Tracker", "Email")   # artifact kinds that link runs
 COMMON_LISTS = 5          # a value seen in more target lists than this is infrastructure everyone uses, not a link
 TREND_RUNS = 8            # runs per target list in a card's risk trend
-CALENDAR_WEEKS = 12       # weeks in the runs-per-day calendar
 GRAPH_RUNS = 40           # newest runs the Hunting graph draws
 GRAPH_SHARE_EDGES = 60    # most shared-artifact links it draws (the strongest first)
 
@@ -122,19 +121,35 @@ def recent_overview(runs, limit=10):
     return rows
 
 
-def calendar_frame(runs, weeks=CALENDAR_WEEKS, today=None):
-    """Runs per day for the last `weeks` weeks ending this week: columns Week (Monday), Weekday (0 = Monday), Date, Runs."""
+def activity_frame(runs, days=42, today=None):
+    """
+    One row per UTC day for the last `days` days (ending today): Date, Week (ISO week number), Runs, Hunt runs (runs
+    started from another run's lead), and per severity the alerts the day's runs found ("<severity>") and the new
+    detections among them ("New <severity>": a domain and threat type no earlier run had found).
+    """
     now = pd.Timestamp(today) if today is not None else pd.Timestamp.now(tz="UTC")
     today = (now.tz_convert(None) if now.tzinfo else now).normalize()
-    start = today - pd.Timedelta(days=today.weekday()) - pd.Timedelta(weeks=weeks - 1)
-    days = pd.date_range(start, start + pd.Timedelta(days=7 * weeks - 1), freq="D")
-    counts = defaultdict(int)
-    for _, snapshot in runs:
+    dates = pd.date_range(today - pd.Timedelta(days=days - 1), today, freq="D")
+    rows = {d: {"Runs": 0, "Hunt runs": 0, **{s: 0 for s in SEVERITY_ORDER},
+                **{f"New {s}": 0 for s in SEVERITY_ORDER}} for d in dates}
+    seen = set()
+    for _, snapshot in sorted(runs, key=_order):
         created = _created(snapshot)
-        if pd.notna(created):
-            counts[created.tz_convert(None).normalize()] += 1
-    return pd.DataFrame({"Date": days, "Week": [d - pd.Timedelta(days=d.weekday()) for d in days],
-                         "Weekday": [d.weekday() for d in days], "Runs": [counts.get(d, 0) for d in days]})
+        day = created.tz_convert(None).normalize() if pd.notna(created) else None
+        alerts = snapshot_alerts(snapshot).drop_duplicates(subset=["Domain", "Threat Type"])
+        row = rows.get(day)
+        if row is not None:
+            row["Runs"] += 1
+            row["Hunt runs"] += bool((snapshot.get("parent") or {}).get("id"))
+        for domain, kind, severity in zip(alerts["Domain"].astype(str), alerts["Threat Type"].astype(str),
+                                          alerts["Severity"], strict=True):
+            new = (domain, kind) not in seen
+            seen.add((domain, kind))
+            if row is not None and severity in SEVERITY_ORDER:
+                row[severity] += 1
+                row[f"New {severity}"] += new
+    frame = pd.DataFrame([{"Date": d, "Week": d.isocalendar()[1], **values} for d, values in rows.items()])
+    return frame
 
 
 def hunting_graph(runs, max_runs=GRAPH_RUNS, max_share_edges=GRAPH_SHARE_EDGES):

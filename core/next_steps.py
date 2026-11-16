@@ -1,5 +1,5 @@
 """
-"What to check next" on the Summary page: findings of the run turned into a short list of actions, each pointing at
+"What to check next" on the Hunt map: findings of the run turned into a short list of actions, each pointing at
 the page (and filter) where the analyst continues. Most important first.
 """
 import pandas as pd

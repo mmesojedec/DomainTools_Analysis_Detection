@@ -69,11 +69,23 @@ def test_hunting_graph_draws_leads_and_shared_links_between_newest_runs():
     assert {node["key"] for node in nodes} == {"B", "C"} and not [e for e in edges if e["kind"] == "lead"]
 
 
-def test_calendar_counts_runs_per_day():
-    frame = run_views.calendar_frame(runs(), weeks=2, today=pd.Timestamp("2026-11-05"))
-    assert len(frame) == 14 and frame["Weekday"].tolist()[:2] == [0, 1]
-    assert frame.loc[frame["Date"] == pd.Timestamp("2026-11-03"), "Runs"].item() == 1
-    assert frame["Runs"].sum() == 4
+def test_activity_counts_runs_hunt_runs_and_new_detections_per_day():
+    frame = run_views.activity_frame(runs(), days=7, today=pd.Timestamp("2026-11-05"))
+    assert len(frame) == 7 and frame["Date"].iloc[-1] == pd.Timestamp("2026-11-05")
+    day = frame.set_index("Date")
+    assert day.loc["2026-11-03", "Runs"] == 1 and day.loc["2026-11-03", "Hunt runs"] == 1   # B came from A's lead
+    assert day.loc["2026-11-01", "High"] == 1 and day.loc["2026-11-01", "New High"] == 1
+    assert day.loc["2026-11-02", "Critical"] == 1 and day.loc["2026-11-02", "New Critical"] == 1
+    assert frame["Runs"].sum() == 4 and day.loc["2026-11-01", "Week"] == 44 and day.loc["2026-11-02", "Week"] == 45
+
+
+def test_activity_figure_labels_days_with_week_numbers():
+    from views.run_visuals import activity_figure
+    frame = run_views.activity_frame(runs(), days=14, today=pd.Timestamp("2026-11-05"))
+    fig = activity_figure(frame)
+    ticks = fig.layout.xaxis2.ticktext
+    assert len(ticks) == 14 and ticks[-1] == "Thu 05 Nov<br>W45"
+    assert {trace.name for trace in fig.data} >= {"Hunt run (from a lead)", "Critical", "High"}
 
 
 def test_shared_text_counts_kinds():
@@ -158,23 +170,30 @@ def test_recent_page_links_a_shared_indicator_to_its_sightings(monkeypatch):
     assert at.session_state["recent_selected"] == "20261104T100000000000Z"   # the newest sighting: run C
 
 
-def test_hunt_tree_page_shows_an_example_or_the_hunts(monkeypatch):
+def test_hunt_map_page_shows_the_hunts_and_the_timeline_of_all_investigations(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     import core.persistence as persistence
-    from views import hunt_tree_view  # imported before the patch, so it keeps the real one afterwards
+    from views import hunt_map_view, hunting_graph_view  # imported before the patch: they keep the real ones after
     monkeypatch.setattr(persistence, "load_all_runs", lambda: runs()[:1])
-    monkeypatch.setattr(hunt_tree_view, "load_all_runs", lambda: runs()[:1])
+    monkeypatch.setattr(hunt_map_view, "load_all_runs", lambda: runs()[:1])
+    monkeypatch.setattr(hunt_map_view, "list_offline_datasets", lambda: [])
+    monkeypatch.setattr(hunting_graph_view, "load_all_runs", runs)
+    monkeypatch.setattr(hunting_graph_view, "list_offline_datasets", lambda: [])
 
     def page():
-        from views import hunt_tree_view
-        hunt_tree_view.render_hunt_tree("UTC")
+        from views import hunt_map_view
+        hunt_map_view.render_hunt_map("UTC")
 
     at = AppTest.from_function(page).run(timeout=30)
-    assert not at.exception and "No hunts yet" in at.info[0].value
-    assert any("via IP 185.220.101.5" in m.value for m in at.markdown)   # the example tree
-    monkeypatch.setattr(hunt_tree_view, "load_all_runs", runs)
+    assert not at.exception and "No hunt yet" in at.info[0].value
+    monkeypatch.setattr(hunt_map_view, "load_all_runs", runs)
     at.run(timeout=30)
-    assert not at.exception and not at.info
-    assert [b.label for b in at.button] == ["Analyze again", "Analyze again"]   # A's 11-02 run and B, led from it
-    assert any("via IP 45.13.20.7" in m.value for m in at.markdown)
+    assert not at.exception and "a.com · 2 run(s)" in at.selectbox(key="hunt_map_hunt").format_func(
+        at.selectbox(key="hunt_map_hunt").value)
+    assert len(at.get("graphviz_chart")) == 1 and "Load a run of this hunt" in at.info[-1].value
+    assert "Hunt status: Done" in at.info[0].value   # the runs kept no suggested steps: nothing open
+    assert any("Hunt result" in e.label for e in at.expander)
+    at.session_state["hunt_map_tab"] = "All investigations"
+    at.run(timeout=30)
+    assert not at.exception and len(at.get("plotly_chart")) == 1

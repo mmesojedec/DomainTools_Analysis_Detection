@@ -17,6 +17,7 @@ from views.hunt_actions import analyze_button, iris_button
 from views.pivot_view import dataset_pivots
 from views.query_editor import set_query
 from views.recent_view import open_sightings
+from views.sidebar import rerun_app_if_requested
 from views.ssl_view import CERT_FOCUS_KEY
 
 IP_KINDS = {"IP", "IP address", "Name server IP", "Mail server IP"}
@@ -103,7 +104,8 @@ def _render_actions(ds, kind, value, certs, pivot, key):
         if kind == "Certificate":
             field = "sha256" if len(value) == 64 else "sha1"
             target = f"{field}:{str(value).lower()}"
-            analyze_button([target], f"Certificate {value}", key=f"{key}::analyze", label="Analyze its domains")
+            analyze_button([target], f"Certificate {value}", key=f"{key}::analyze", label="Analyze its domains",
+                           direct=True)
             if st.button("Search CertsQL", key=f"{key}::certsql", icon=":material/badge:",
                          help="Opens CertsQL with this certificate's query (run it there)"):
                 _certsql_search(field, value)
@@ -118,7 +120,7 @@ def _render_actions(ds, kind, value, certs, pivot, key):
                          help="Opens CertsQL with every certificate of this JA4X (run it there)"):
                 _certsql_search("ja4x", value)
         elif kind in ("IP", "Host"):
-            analyze_button([value], f"{kind} {value}", key=f"{key}::analyze", label="Analyze")
+            analyze_button([value], f"{kind} {value}", key=f"{key}::analyze", label="Analyze", direct=True)
             search = lead_search or (f"ip={value}" if kind == "IP" else "")
             if search:
                 iris_button(search, key=f"{key}::iris")
@@ -127,6 +129,7 @@ def _render_actions(ds, kind, value, certs, pivot, key):
         if st.button("Where else was it seen?", key=f"{key}::seen", icon=":material/visibility:",
                      help="Recent runs → Indicator Sightings for this value"):
             open_sightings(value)
+    rerun_app_if_requested()   # a dialog reruns only itself: Analyze needs the whole app to rerun
 
 
 @st.dialog("Indicator", width="large")

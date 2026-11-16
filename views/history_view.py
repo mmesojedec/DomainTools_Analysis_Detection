@@ -605,5 +605,5 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
         _render_watches(timezone)
     with tabs[5]:
         _render_manage(key, runs, timezone)
-    navigation.link("hunt_tree", label="See which runs led to which on the Hunt tree (Hunt menu)",
+    navigation.link("hunt_tree", label="See which runs led to which on the Hunt map (Hunt menu)",
                     icon=":material/park:")

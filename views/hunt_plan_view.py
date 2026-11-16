@@ -1,5 +1,5 @@
 """
-Suggested hunt on the Summary page: where to start (the indicators the open alerts point at, in order), the hunt tree
+Suggested hunt on the Hunt map: where to start (the indicators the open alerts point at, in order), the hunt tree
 this run would probably grow (its best leads, scored, with a look-ahead of what each would bring), and the leads set
 aside with the reason. Local data only: nothing here makes an API call until a button is clicked.
 """
@@ -7,15 +7,24 @@ import pandas as pd
 import streamlit as st
 
 from core.helpers import md_escape
-from core.hunt_plan import BRANCHES, LOOKAHEAD, followed, lookahead, score_leads, sightings_index, start_order
-from core.hunt_tree import hunt_trail
-from core.persistence import load_all_runs
+from core.hunt_plan import (
+    BRANCHES,
+    LOOKAHEAD,
+    followed,
+    lookahead,
+    plan_items,
+    saved_plan,
+    score_leads,
+    sightings_index,
+    start_order,
+)
+from core.hunt_result import followed_values, norm
+from core.hunt_tree import hunt_members, hunt_root
+from core.persistence import load_all_runs, save_run_plan
 from core.triage import open_alerts
-from views import navigation
 from views.hunt_actions import PIVOT_RESULTS_KEY, analyze_button, current_run_id, iris_button
 from views.indicator_view import show_indicator
 from views.pivot_view import dataset_pivots
-from views.ssl_view import CERT_FOCUS_KEY
 
 TOP_RUN = 3   # leads analyzed together by "Analyze the top 3 as one run"
 KIND_LABELS = {"JA4X": "JA4X", "Certificate": "certificate", "IP": "IP", "Host": "host"}
@@ -27,9 +36,12 @@ def _context(ds):
     run_id = current_run_id()
     this = next((snapshot for _, snapshot in runs if snapshot.get("id") == run_id), None)
     children = [snapshot for _, snapshot in runs if run_id and (snapshot.get("parent") or {}).get("id") == run_id]
-    analyzed = set(ds.selected_domains)
-    for snapshot in hunt_trail(runs, run_id) if run_id else []:
-        analyzed |= set(snapshot.get("targets") or []) | set(snapshot.get("seeds") or [])
+    # values any run of the hunt analyzed or started from, except the runs started from this one (those show as done)
+    analyzed = {norm(d) for d in ds.selected_domains}
+    if run_id:
+        own = {child["id"] for child in children}
+        hunt = [snapshot for _, snapshot, _ in hunt_members(runs, hunt_root(runs, run_id)) if snapshot["id"] not in own]
+        analyzed |= followed_values(hunt)
     return runs, this, children, analyzed
 
 
@@ -49,18 +61,11 @@ def plan(ds, alerts):
     runs, this, children, analyzed = _context(ds)
     open_ = open_alerts(alerts)
     leads = score_leads(dataset_pivots(ds), open_, analyzed, _index(ds, runs, this))
-    return leads, start_order(open_, leads), children
-
-
-def first_step(steps):
-    """The first indicator to confirm, as a "What to check next" step, or None."""
-    if not steps:
-        return None
-    step = steps[0]
-    state = {CERT_FOCUS_KEY: step["value"]} if step["page"] == "certs" else {}   # the page narrowed to it
-    return {"rank": 0.5, "page": step["page"], "state": state, "icon": ":material/flag:",
-            "text": f"Confirm the {KIND_LABELS.get(step['kind'], step['kind'])} {step['value']} first ({step['why']}): "
-                    "see *Suggested hunt* below"}
+    steps = start_order(open_, leads, exclude=analyzed)
+    if this is not None:   # kept with the run: the Hunt map shows its open suggestions after you move on
+        key = next(k for k, snapshot in runs if snapshot is this)
+        save_run_plan(key, this["id"], saved_plan(plan_items(steps, leads)))
+    return leads, steps, children
 
 
 def _details(ds, alerts, kind, value, key, container):
@@ -98,11 +103,11 @@ def _render_branch(ds, alerts, number, lead, children, iris_results, index):
                     f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;:gray[{md_escape('; '.join(lead['Reasons']))}]")
     _details(ds, alerts, lead["Type"], lead["Value"], f"plan_details::{number}", c_details)
     if done:
-        navigation.link("hunt_tree", label="In the Hunt tree", container=c_analyze, icon=":material/park:")
+        c_analyze.caption("✓ on the map")
     else:
         if lead["Analyze As"]:
             analyze_button([lead["Analyze As"]], f"{lead['Type']} {lead['Value']}", key=f"plan_hunt::{number}",
-                           container=c_analyze, label="Analyze", width="stretch")
+                           container=c_analyze, label="Analyze", width="stretch", direct=True)
         iris_button(lead["Iris Search"], key=f"plan_iris::{number}", container=c_iris, width="stretch")
     if number < LOOKAHEAD and not done:
         for line in lookahead(lead, iris_results, index):
@@ -140,7 +145,7 @@ def render_suggested_hunt(ds, alerts, leads, steps, children):
         st.markdown(f"**The hunt this run would grow** · from **{md_escape(targets)}** (this run)",
                     help="The best leads, as the branches of a hunt tree. Under the first ones, what following them "
                          "would bring, from the Iris count, the saved runs and any Iris search already made on Pivot "
-                         "Ranking. A branch you followed is marked and appears in the Hunt tree.")
+                         "Ranking. A branch you followed is marked and appears on the map above.")
         iris_results = st.session_state.get(PIVOT_RESULTS_KEY) or {}
         index = ds.derived.get("hunt_sightings", (None, {}))[1]
         for number, lead in enumerate(branches):
@@ -149,8 +154,8 @@ def render_suggested_hunt(ds, alerts, leads, steps, children):
         if len(top) > 1:
             analyze_button([lead["Analyze As"] for lead in top],
                            "Suggested hunt: " + ", ".join(f"{lead['Type']} {lead['Value']}" for lead in top),
-                           key="plan_hunt_top", label=f"Analyze the top {len(top)} as one run",
+                           key="plan_hunt_top", label=f"Analyze the top {len(top)} as one run", direct=True,
                            help="Analyzes the best leads the app can take as targets (IPs, certificates, redirect "
-                                "domains) together as one new run, linked to this one in the Hunt tree. Live lookups.")
+                                "domains) together as one new run, linked to this one on the Hunt map. Live lookups.")
     if stopped:
         _render_set_aside(stopped)

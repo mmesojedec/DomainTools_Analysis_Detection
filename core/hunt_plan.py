@@ -9,7 +9,7 @@ already made. Alerts also give a starting order: which indicators to confirm fir
 These are rankings from local data, not predictions of what new lookups will find.
 """
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import pandas as pd
 
@@ -169,6 +169,7 @@ def score_leads(pivots, alerts=None, analyzed=(), index=None):
             score += min(10, 5 * (row["Run Domains"] - 1))
             reasons.append(f"{row['Run Domains']} of your domains have it")
         ties = _ties(row["Value"], alerts)
+        worst = None
         if ties:
             worst = min(ties, key=lambda tie: SEVERITY_RANK.get(tie[0], 9))
             score += min(35, SEVERITY_POINTS.get(worst[0], 0) + 2 * (len(ties) - 1))
@@ -191,7 +192,8 @@ def score_leads(pivots, alerts=None, analyzed=(), index=None):
         leads.append({**{k: row.get(k) for k in ("Type", "Value", "Run Domains", "Shared With", "Iris Search",
                                                   "Analyze As")},
                       "Iris Domains": count, "Score": min(100, score), "Reasons": reasons, "Stop": stop,
-                      "Alerts": len(ties), "Seen": seen})
+                      "Alerts": len(ties), "Worst": worst[0] if worst else "", "Seen": seen,
+                      "Types": [kind for kind, _ in Counter(tie[1] for tie in ties).most_common(3)]})
     return sorted(leads, key=lambda lead: (bool(lead["Stop"]), -lead["Score"], lead["Iris Domains"] or 10**9,
                                            lead["Type"], lead["Value"]))
 
@@ -254,12 +256,13 @@ KIND_ORDER = {"JA4X": 0, "Certificate": 1, "IP": 2, "Host": 3}
 KIND_PAGES = {"JA4X": "certs", "Certificate": "certs", "IP": "dns", "Host": "dns"}
 
 
-def start_order(alerts, leads=None, limit=6):
+def start_order(alerts, leads=None, limit=6, exclude=()):
     """
     Which indicators to confirm first, from the open alerts: [{"step", "kind", "value", "why", "page", "domains",
     "lead"}]. Indicators behind the most severe alerts come first; within a severity, what identifies the operator
     best goes first (a C2 JA4X, then the certificate, then the IP, then other hosts). An IP or certificate that is
-    also a lead adds a step after it: the other domains that share it.
+    also a lead adds a step after it: the other domains that share it. Values in `exclude` (already followed in this
+    hunt, normalized) are left out: a hunt never suggests the same step twice.
     """
     if alerts is None or alerts.empty:
         return []
@@ -268,6 +271,8 @@ def start_order(alerts, leads=None, limit=6):
         severity = alert.get("Severity")
         for kind, value in _indicators(alert):
             if kind == "IP" and (not is_public_ip(value) or cdn_for_ip(value)):
+                continue
+            if str(value).lower() in exclude:
                 continue
             entry = found.setdefault((kind, value), {"rank": 9, "alerts": [], "domains": set()})
             entry["rank"] = min(entry["rank"], SEVERITY_RANK.get(severity, 9))
@@ -283,6 +288,8 @@ def start_order(alerts, leads=None, limit=6):
         worst = min(entry["alerts"], key=lambda a: SEVERITY_RANK.get(a[0], 9))
         types = sorted({a[1] for a in entry["alerts"]})
         steps.append({"kind": kind, "value": value, "page": KIND_PAGES[kind], "domains": sorted(entry["domains"]),
+                      "alerts": len(entry["alerts"]), "worst": worst[0],
+                      "types": [t for t, _ in Counter(alert[1] for alert in entry["alerts"]).most_common(3)],
                       "why": f"{len(entry['alerts'])} alert(s), worst {worst[0]}: {', '.join(types[:2])}"
                              + (f" +{len(types) - 2}" if len(types) > 2 else ""), "lead": None})
         lead = leads_by_value.get(value)
@@ -293,3 +300,96 @@ def start_order(alerts, leads=None, limit=6):
     for number, step in enumerate(steps, 1):
         step["step"] = number
     return steps
+
+
+MAX_TARGETS = 10   # targets one run of picked steps analyzes together
+ACTIONS = ("Analyze", "Iris", "CertsQL")
+
+
+def _certificate_target(value):
+    value = str(value).lower()
+    return f"sha256:{value}" if len(value) == 64 else f"sha1:{value}" if len(value) == 40 else ""
+
+
+def plan_items(steps, leads, children=(), branches=BRANCHES):
+    """
+    The suggested hunt as one ordered list of steps to run: the Start here indicators first, then the best branches.
+    Each step: {"id", "source" (Start / Branch), "kind", "value", "action" (Analyze: a run on `target`; Iris: the
+    search `search`; CertsQL: a JA4X, searched by hand; None), "target", "search", "score", "why", "done" (a run
+    started from this run already followed it)}. A branch that is also a start indicator is one step.
+    """
+    items = {}
+    for step in steps:
+        if step["kind"] == "Lead":
+            continue
+        kind, value = step["kind"], str(step["value"])
+        target = {"IP": value, "Host": value, "Certificate": _certificate_target(value)}.get(kind, "")
+        search = f"ip={value}" if kind == "IP" else f"ssl_hash={value.lower()}" if kind == "Certificate" and \
+            len(value) == 40 else ""
+        action = "CertsQL" if kind == "JA4X" else "Analyze" if target else "Iris" if search else None
+        items.setdefault(value.lower(), {"id": value.lower(), "source": "Start", "kind": kind, "value": value,
+                                         "action": action, "target": target, "search": search, "score": None,
+                                         "why": step["why"], "iris": None, "alerts": step.get("alerts", 0),
+                                         "worst": step.get("worst", ""), "domains": len(step.get("domains") or []),
+                                         "types": step.get("types") or []})
+    for lead in [lead for lead in leads if not lead["Stop"]][:branches]:
+        value = str(lead["Value"])
+        target, search = str(lead.get("Analyze As") or ""), str(lead.get("Iris Search") or "")
+        if value.lower() in items:   # a start indicator that is also a lead: one step, with the lead's score
+            item = items[value.lower()]
+            item.update(score=lead["Score"], search=search or item["search"], iris=lead["Iris Domains"])
+            continue
+        items[value.lower()] = {"id": value.lower(), "source": "Branch", "kind": lead["Type"], "value": value,
+                                "action": "Analyze" if target else "Iris" if search else None, "target": target,
+                                "search": search, "score": lead["Score"], "why": "; ".join(lead["Reasons"]),
+                                "iris": lead["Iris Domains"], "alerts": lead.get("Alerts", 0),
+                                "worst": lead.get("Worst", ""), "domains": lead.get("Run Domains") or 0,
+                                "types": lead.get("Types") or []}
+    ordered = list(items.values())
+    for number, item in enumerate(ordered, 1):
+        item["step"] = number
+        item["done"] = followed({"Value": item["value"], "Analyze As": item["target"]}, children) is not None
+    return ordered
+
+
+def runnable(items):
+    """The steps a click can run (an analysis or an Iris search) that no run has followed yet."""
+    return [item for item in items if item["action"] in ("Analyze", "Iris") and not item["done"]]
+
+
+def run_parts(items, max_targets=MAX_TARGETS):
+    """(targets analyzed together as one run, Iris searches, steps left out over the target cap) of picked steps."""
+    targets, searches, over = [], [], []
+    for item in items:
+        if item["action"] == "Analyze":
+            if item["target"] in targets:
+                continue
+            (targets if len(targets) < max_targets else over).append(item["target"])
+        elif item["action"] == "Iris" and item["search"] not in searches:
+            searches.append(item["search"])
+    return targets, searches, over
+
+
+def via_text(items, prefix="Suggested hunt"):
+    """What a run started from picked steps says it came from (Hunt tree)."""
+    names = [f"{item['kind']} {item['value'] if len(item['value']) <= 24 else item['value'][:23] + '…'}"
+             for item in items[:2]]
+    return f"{prefix}: " + ", ".join(names) + (f" +{len(items) - 2}" if len(items) > 2 else "")
+
+
+PLAN_FIELDS = ("step", "source", "kind", "value", "action", "target", "search", "score", "why", "iris", "alerts",
+               "worst", "domains", "types")
+
+
+def saved_plan(items):
+    """The steps as kept with the run (no "done": that depends on the runs started from it later)."""
+    return [{field: item.get(field) for field in PLAN_FIELDS} for item in items]
+
+
+def mark_done(items, children):
+    """Each step with "done" and "child" (the run that followed it, or None) from the runs started from its run."""
+    marked = []
+    for item in items:
+        child = followed({"Value": item["value"], "Analyze As": item.get("target") or ""}, children)
+        marked.append({**item, "id": str(item["value"]).lower(), "done": child is not None, "child": child})
+    return marked

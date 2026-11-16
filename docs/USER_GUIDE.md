@@ -25,7 +25,7 @@ Most of these explanations are also available inside the app: **Detection reason
 - [Run history, alert lifecycle and trends](#run-history-alert-lifecycle-and-trends)
 - [JA4X: how certificates were generated](#ja4x-how-certificates-were-generated)
 - [Suppressions and exports](#suppressions-and-exports)
-- [Hunting: triage status, leads and the hunt tree](#hunting-triage-status-leads-and-the-hunt-tree)
+- [Hunting: triage status, leads and the hunt map](#hunting-triage-status-leads-and-the-hunt-map)
 - [Pages](#pages)
 - [A suggested triage workflow](#a-suggested-triage-workflow)
 - [Limitations](#limitations)
@@ -646,7 +646,7 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
 - **Changes Since Last Run** (Alerts page): compared with the previous run of the same target list, it shows new and
   resolved alerts and added / removed infrastructure (IPs, name servers, certificates, ...).
 - **First Detected / Runs Seen** use every saved run, from any target list, that covered the domain.
-- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*). The **Recent runs** page (top menu) shows the newest saved runs as a timeline (one lane per target list, dot size = alerts, color = highest severity), as cards (alerts new and resolved since the previous run of the same list, Unified Risk trend, the indicators it shares with other target lists, each a click away from its sightings) or as a table (time, targets, window, use case, alerts, whether an offline copy was saved), with a filter, a run count, *With alerts* / *New alerts* toggles and a runs-per-day calendar. Click a dot, card or row to pick a run (the newest is picked at first); under the view, **Run again** (a new live run with the same use case, analysis window and collection options; runs saved before options were recorded use the current ones), **Load offline copy** (the newest offline dataset saved from that run, re-analyzed with no API calls; greyed out when none was saved) and **Open in Runs & Diffs** (this page, on that run):
+- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*). The **Recent runs** page (top menu) shows the newest saved runs as a timeline (one lane per target list, dot size = alerts, color = highest severity), as cards (alerts new and resolved since the previous run of the same list, Unified Risk trend, the indicators it shares with other target lists, each a click away from its sightings) or as a table (time, targets, window, use case, alerts, whether an offline copy was saved), with a filter, a run count, *With alerts* / *New alerts* toggles and a **Runs and detections per day** chart (runs per day, hunt runs started from a lead in purple, and below, new detections or all alerts found per day by severity; dated days with week numbers, over 2, 6 or 12 weeks). Click a dot, card or row to pick a run (the newest is picked at first); under the view, **Run again** (a new live run with the same use case, analysis window and collection options; runs saved before options were recorded use the current ones), **Load offline copy** (the newest offline dataset saved from that run, re-analyzed with no API calls; greyed out when none was saved) and **Open in Runs & Diffs** (this page, on that run):
   - **Run Details:** one run's alerts, risk and DIF.
   - **Compare Runs:** any two runs; new, resolved and persisting alerts, infrastructure changes, and risk / DIF changes.
   - **Trends:** detections per run by severity, Unified Risk per domain with DIF-change markers, and infrastructure counts per run.
@@ -698,7 +698,7 @@ own; other certificates built with the same fields match too, so confirm with th
   evidence, risk by domain, an infrastructure snapshot (registrar, dates, IPs with ASN and country, name servers,
   MX) and the indicators. It contains no scripts and loads nothing from the internet.
 
-## Hunting: triage status, leads and the hunt tree
+## Hunting: triage status, leads and the hunt map
 
 ### Triage status
 
@@ -713,7 +713,7 @@ Every alert has a **status**, and every domain a **verdict**:
 
 Set the status of all alerts in a group at the top of the group on the **Alerts** page (with a note), and a domain's
 verdict on its **Domain profile**. Decisions are kept in `dt_triage.json` by (domain, threat type), so a rerun of the
-same domains shows what was already reviewed. The Summary's **Hunt status** counts them, *What to check next* only
+same domains shows what was already reviewed. The Hunt map's **Alert decisions** count them, *What to check next* only
 uses the open alerts (New and Investigating), and the alert filters and tables show the status.
 
 ### Risk drivers
@@ -723,9 +723,10 @@ into its parts, largest first: 0.4 × the DomainTools risk score and 0.3 × each
 behind that vector. When the DomainTools score alone is higher than the telemetry score, it sets the score and is the
 only driver.
 
-### Leads and the hunt tree
+### Leads and the hunt map
 
-**Leads to follow** on the Summary are the strongest values of [Pivot Ranking](#pages): shared by a few hundred
+The suggested hunt's branches and, below them on the Hunt map, **More leads from Pivot Ranking** (strong values the
+suggested hunt doesn't already list) are the strongest values of [Pivot Ranking](#pages): shared by a few hundred
 domains or fewer in Iris (values two or more of your domains share come first). Each lead has:
 
 - **Analyze**: replaces the sidebar targets with the value (IPs, certificates, redirect domains) and runs Analyze
@@ -737,30 +738,25 @@ Self-signed certificate cards (Certificates → Self-Signed) offer the same: *An
 a `sha256:` / `sha1:` input) and *Find in Iris* (by SHA-1).
 
 A run started this way remembers the run it came from and what led to it. The Summary shows the **hunt trail**
-(first run → … → this run), and **Hunt → Hunt tree** shows every hunt as a tree, with *Analyze again* to rerun a
-branch. For example:
+(first run → … → this run), and **Hunt → Hunt map** draws the whole hunt (see [Hunt map](#hunt-map)). Runs join the
+loaded run's hunt in three more ways:
 
-```text
-example.com                               11-02 09:10 · 4 alerts
-  ↳ 185.220.101.5                         11-02 09:25 · 2 alerts · via IP 185.220.101.5
-      ↳ login-example.com, pay-example.com  11-02 09:40 · 6 alerts · via Iris search IP 185.220.101.5
-  ↳ sha256:3f1c…9a2e                      11-02 10:05 · 1 alert  · via certificate 3f1c…9a2e
-```
-
-The analyst analyzed example.com, followed its hosting IP as a lead (*Analyze*), searched Iris for the other domains
-on that IP (*Find in Iris*, then *Analyze the top 25 as a new run* on Pivot Ranking), then went back and followed
-example.com's self-signed certificate (*Analyze its domains*). The **Hunting graph** draws the same links over time.
+- **IrisQL and CertsQL**: while a run is loaded, *Add the new run to the hunt of the loaded run* (above the Analyze
+  button, ticked by default) links the run you analyze from a search to it. Untick it to start a hunt of its own.
+- **The same targets again**: *Run again*, or analyzing exactly the same target list, continues the hunt of that
+  list's newest earlier run (*Same targets again* on the map) instead of starting a new hunt.
+- **Join**: see *Combined hunts* below.
 
 ### Suggested hunt
 
-Before you follow anything, the Summary's **Suggested hunt** proposes where to start and which branches to follow.
+Before you follow anything, the Hunt map's **Suggested hunt** (under *Next steps from the loaded run*) proposes where to start and which branches to follow.
 It ranks what the run already knows, with no API call until you click; it is a ranking, not a prediction of what new
 lookups will find.
 
 - **Start here**: the indicators the open alerts name, in order. The most severe alerts come first; within a
   severity, what identifies an operator best goes first: a JA4X, then the certificate, then the IP, then other hosts.
-  An indicator that is also a lead is followed by a step for its shared domains (*Find in Iris*). The first step also
-  appears in *What to check next*, opening its page already narrowed to it.
+  An indicator that is also a lead is followed by a step for its shared domains (*Find in Iris*). The Summary's
+  *Hunt* box names the first one.
 - **The hunt this run would grow**: the five best leads (Pivot Ranking values another domain shares) as branches,
   each with a score and its reasons:
 
@@ -776,7 +772,7 @@ lookups will find.
   this run yet (Iris count), where earlier investigations saw the value and with how many alerts, and, when the Iris
   search was already made on Pivot Ranking, the riskiest of its domains and how many earlier investigations flagged.
   Each branch has *Analyze* (when the app can take the value as a target) and *Find in Iris*; a branch you followed is
-  marked *followed* and links to the Hunt tree. *Analyze the top 3 as one run* analyzes the best target-able leads
+  marked *followed* and links to the Hunt map. *Analyze the top 3 as one run* analyzes the best target-able leads
   together.
 - **Set aside**: leads not worth following, with the reason: shared by more than 500 domains in Iris (shared hosting
   or a service), a CDN edge, a private address, a large DNS provider or parking name server, already analyzed in
@@ -793,10 +789,86 @@ VPNDB verdict, and the earlier investigations of other domains that saw it. Its 
 | IP, host | *Analyze*; *Find in Iris* |
 | Any | *Where else was it seen?* (Recent runs → Indicator Sightings) |
 
-**Hunt → Hunt tree** shows the same suggested hunt for the loaded run above your hunts, as a tree (the Summary's
-section, with its buttons) or a graph: the run, its suggested branches (dashed, with their score; green with the
-run you started when followed) and the *Start here* steps (dotted, orange). The graph view also draws your hunts:
-one node per run, an arrow labelled with the lead that started the next run.
+The Summary keeps only a short **Hunt** box: open alerts to decide, indicators to confirm first, leads worth
+following, the first step, and **Open the Hunt map** (its *This hunt* tab), where all of the hunting work is.
+
+The suggested steps are numbered in one list: the *Start here* indicators first, then the branches (an indicator
+that is both is one step). **Run suggested hunt…** (Hunt map) lists every step in order, ticked, with what
+each does: *Analyze* a target, an *Iris search*, or a JA4X to search by hand on CertsQL (not run). Steps a run
+already followed are not run. Untick what you don't want, then:
+
+- **Run all ticked**: starts **one** new run right away with the ticked targets (at most 10), linked to this one, and
+  makes their Iris searches (results on Pivot Ranking). Certificate steps skip the *review the searches* and *choose
+  what to analyze* screens: their searches run as recognized and the domains and IPs pre-selected there are analyzed.
+  The same goes for *Analyze* on a step (Hunt map, Summary, Details). You stay on the page: the map grows with the
+  new run and its next steps.
+- **Guide me, one step at a time**: a banner on the Hunt map (and the Summary) shows the next step, with *Run this
+  step*, *Skip* and *Stop*. Each step's run is linked to the run the hunt started from.
+
+Nothing runs before you click; every run uses API quota as a normal Analyze or Iris search does.
+
+### Hunt map
+
+**Hunt → Hunt map** is where a hunt is seen and steered. *This hunt* picks a hunt (the loaded run's comes first),
+shows where it stands and draws it:
+
+| On the map | What it shows |
+| --- | --- |
+| Run (box) | Its targets, when, how many domains; what it added to the hunt (new domains, new alerts and how many are High or Critical; grey when it added little); its alerts by severity and its two most common alert types; whether its new domains share infrastructure with the starting point (*linked to start: 4 Certificate, 1 IP*, or a red outline and *no link to start: drifted*). The loaded run is outlined in blue. A later run linked to the start also gets a dotted line back to it |
+| Open step (dashed) | A step the run suggested that no run of the hunt has followed: its number, type and value, score, Iris count, the open alerts that name it (and the worst), their alert types, how many of your domains have it. Orange: *start here*; grey: a lead |
+| Done step (green ✓) | A step followed, with an arrow on to the run it started. Steps that had already led to this run are one box (*✓ N steps repeated from before*). A run started some other way is linked with what led to it |
+
+**A step is only ever open once in a hunt.** Values any run of the hunt analyzed or started from (targets, and the
+certificates a run came from) are never suggested again, as a *Start here* step or as a lead, so *Run suggested hunt*
+can't go round in circles.
+
+**Hunt status** (above the map):
+
+| Status | When |
+| --- | --- |
+| Growing | The newest run still adds domains or new kinds of alerts |
+| Converging | The newest run added 2 new domains or fewer and no new kind of alert: following more steps is unlikely to find much |
+| Done | No open step is left, or a hunt limit is reached (*Hunt limits*: runs deep, default 4; domains in the hunt, default 100) |
+| Closed | You closed the hunt with a verdict |
+
+When the hunt is converging or done, the *Hunt result* opens and *Run suggested hunt* says so (you can still run
+more). **Highlight alerts** picks a severity (*High or worse*) or an alert type: the runs with such alerts and the
+open steps they name are outlined in red, the rest dimmed, so you can see whether a detection runs through the whole
+hunt or one branch.
+
+**Hunt result**: the **cluster** (the starting domains, and every domain the hunt found that shares a value with them,
+with what links it), the **core indicators** (values two or more cluster domains share: the best detections to keep),
+**alerts by type** across the hunt, and the runs (new domains, alerts, link to the start). Under it:
+
+- **Close hunt**: a verdict (Malicious cluster, Suspicious, Benign, Inconclusive) and a note, kept with the hunt's
+  first run; *Reopen* removes it.
+- **Download hunt report (HTML)**: the result as one page (print it to PDF).
+- **Use in the case report**: opens Data Export with the result as the case report's summary.
+- **Watch these domains**: adds the cluster as a watched target list (Runs & Diffs → Watched Lists).
+
+Each run keeps its suggested steps when you analyze it or load it, so the map still shows a run's open steps after
+you move on. Under the map, **Next steps from the loaded run** has, in order: **Alert decisions** (open, investigating, benign
+and malicious alerts, domains marked malicious), **What to check next** (each with a button to the right page),
+*Run suggested hunt…*, step chips to pick (one step: *Details*, *Analyze*, *Find in Iris*; several: *Run N picked
+steps*), the **Suggested hunt** with each step's reasons, look-ahead and buttons, the leads set aside, and **More
+leads from Pivot Ranking**. *Runs of this hunt* picks a run for *Run again*, *Load offline copy* and
+*Open in Runs & Diffs*. The path to the loaded run is one short line: each run's first target and how many steps led
+to it.
+
+*Combined hunts* shows several hunts on one map. The hunts that share values with the loaded hunt are listed first,
+with what they share (for example *shares 18 Certificate, 12 IP, 5 Web Tracker*), and the two closest are picked with
+it; single runs count as hunts too. Each hunt is drawn in its own frame, top-down, side by side; dashed cyan lines join
+runs of different hunts that recorded the same certificate, IP, name server, tracker or email, or analyzed the same
+domain (*18 Cert · 12 IP*; the strongest three per pair of hunts). Under the map: the *Highlight alerts* filter,
+*Connections between the hunts* (each link with its values), a **Combined result** (the cluster linked to any of the
+hunts' starting points, core indicators, alerts by type, *Watch these domains*) and **Join them into one hunt**: pick
+the main hunt and each other hunt's first run is attached to the run of the main hunt it shares the most with (a
+bold purple arrow, *Joined: shares …*). From then on they are one hunt everywhere. On *This hunt*, **Join to another
+hunt** does the same for the hunt shown, and each joined run has **Detach**, which gives it back its own hunt.
+
+*All investigations* is the timeline of every saved run on its target list's lane: arrows where a run was started
+from a lead in another, dashed lines where two target lists found the same IP, name server, certificate, JA4X,
+tracker or email on different domains. Click a run for its links and actions.
 
 ### Watched target lists
 
@@ -816,7 +888,7 @@ bundle; the section also lists the Iris Investigate searches for the strong and 
 
 The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Recent runs**, **Overview** (Summary, Domain profile, Alerts),
 **Infrastructure** (DNS & Hosting, VPNDB, Tor network, CNAME Chains, Certificates), **Hunt** (Pivot Ranking, Hostname Inventory,
-Subdomain Triage, Hunting graph, Hunt tree), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
+Subdomain Triage, Hunt map), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
 **Data sources**, **Settings**, **Account** and **Help**. Red and yellow banners at the top of every page warn when a product this app uses has used up (or nearly) its monthly quota or expires soon. With *Analyst mode* off, Hunt,
 Raw Records and Lookup Queries are left out.
 
@@ -826,7 +898,7 @@ Raw Records and Lookup Queries are left out.
 | IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as CLI, curl and SDK code; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run |
 | CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as curl and Python code; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
 | Recent runs | *Recent runs*: the newest saved runs as a timeline, cards or a table (filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open in Runs & Diffs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
-| Summary | KPIs, hunt trail, every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains), analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits), top alerts, hunt status, the use-case plan with checkboxes, *What to check next* with a button to the right page (filtered where useful), leads to follow, linked domains, run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health), what's new since the last analysis and *Watch this list* |
+| Summary | KPIs, hunt trail, every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains), analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits), top alerts, the use-case plan with checkboxes, a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*), linked domains, run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health), what's new since the last analysis and *Watch this list* |
 | Domain profile | One domain: risk and DIF, why this score, your verdict, one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons, suppressions, run diff, exports, confirmed indicators, DomainTools risk evidence |
 | VPNDB | Which VPN or proxy provider operates behind an IP, prefix or ASN (each tab opens with *How to read this*): domain → provider → exit flow, domain × category heatmap, providers, exit countries, exposure timeline against VPNDB's weekly history, Iris cross-check (domain count, pivot value, disagreements), neighbouring ranges and hosting networks, other domains on dedicated exits (DNSDB) with *Analyze*, CIDR address grids and range cards; select any IP for its full card (verdict, whole VPNDB answer, history, where the run saw it, Tor share) |
@@ -837,8 +909,7 @@ Raw Records and Lookup Queries are left out.
 | Pivot Ranking | Every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it; add values to the targets or find their domains in Iris |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
-| Hunting graph | Every saved run on its target list's lane over time; arrows where a run was started from a lead in another, dashed lines where two target lists found the same IP, name server, certificate, JA4X, tracker or email on different domains (CDN IPs, large DNS providers and values in more than 5 lists left out). Filter the link types, click a run for its links and *Run again* / *Load offline copy* / *Open in Runs & Diffs*. Reads saved runs only, no API calls |
-| Hunt tree | The loaded run's suggested hunt (as on the Summary) and every hunt you ran (its first run, then each run started from one of its leads, with *via* what led there and *Analyze again*), as a tree or a graph; with no run loaded and no hunts, an example |
+| Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure |
 | Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Offline Datasets with it selected, to give it a name |
 | Offline Datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename, delete and how many are kept |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
@@ -849,7 +920,7 @@ Raw Records and Lookup Queries are left out.
 
 ## A suggested triage workflow
 
-1. Start on the **Summary**: work through *What to check next*. If the status line reports errors, open **Data
+1. Read the **Summary**, then open the **Hunt map** and work through *What to check next*. If the status line reports errors, open **Data
    sources** first; missing sources mean missing detections.
 2. Check the **KPI banner** and the **Unique Infrastructure Profiles** count against the number of domains.
 3. In the alert list, start with **Group by: Finding**, Severity *Critical* and *High*, Confidence *High* and *Medium*.
@@ -860,7 +931,7 @@ Raw Records and Lookup Queries are left out.
    In **CNAME Chains**, filter on *Dead end* and the takeover-prone, dynamic DNS and free hosting service types,
    and chase the chains that are still *Not chased*.
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
-   **Leads to follow** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
+   suggested hunt's steps and leads on the **Hunt map** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
    Check a new indicator against earlier investigations on **Recent runs → Indicator Sightings**.
 8. Re-run later and use **Only first detected in this run** and **Changes Since Last Run** to focus on what changed.
 
