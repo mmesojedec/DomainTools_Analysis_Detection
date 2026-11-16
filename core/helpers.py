@@ -240,3 +240,4 @@ def lookup_name(text):
     if not isinstance(text, str):
         return text
     return text.replace(" Supplement", " Lookup").replace(" supplement", " lookup")
+

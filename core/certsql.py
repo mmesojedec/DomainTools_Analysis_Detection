@@ -2,11 +2,13 @@
 CertsQL search: a Certificate Search query written in CertsQL (one predicate per line, AND on its own line between
 clauses) finds certificates; the domains and IPs they name become tables to pick the targets of an analysis run from.
 
-The field and operator rules follow the Certificates API (technology preview) user guide and its latest release notes
-(ja4x; part fields `.local_part` / `.domain` / `.host` / `.scheme`; `within`, `contains_ip` and `overlaps_range` on IP
-range fields, which no longer take equals / in; `arc_begins_with` on OIDs; `matches_element` blocks; at least one
-predicate that is not negated): an invalid field-and-operator combination, a wrong operand type or a query over the
-limits is answered with HTTP 400, so they are caught here first.
+The field and operator rules follow the Certificates API (technology preview) user guide of November 13, 2026 (ja4x;
+part fields `.local_part` / `.domain` / `.host` / `.scheme`, which take only equals / does_not_equal; `within` for
+relative dates; `contains_ip` and `overlaps_range` on IP range fields, which no longer take equals / in;
+`arc_begins_with` on extension_oids and certificate_policy.policy_oid; `matches_element` blocks on multi-value fields
+and on certificate_policy / signed_certificate_timestamp; at least one predicate that is not negated): an invalid
+field-and-operator combination, a wrong operand type or a query over the limits is answered with HTTP 400, so they
+are caught here first.
 """
 import difflib
 import ipaddress
@@ -29,15 +31,17 @@ PRESENCE = ("exists", "does_not_exist")
 TEXT = ("begins_with", "does_not_begin_with", "ends_with", "does_not_end_with", "contains", "does_not_contain")
 AFFIX = TEXT[:4]
 RANGE = ("greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal", "between")
-IP_RANGE = ("within", "contains_ip", "overlaps_range")   # IP range fields: the range lies in / holds / overlaps
+IP_RANGE = ("contains_ip", "overlaps_range")   # IP range fields: the stored range holds the address / overlaps
+RELATIVE = ("within",)                         # date fields: "the last 30 days", "the next 6 months"
 OID_PREFIX = ("arc_begins_with",)                      # OID fields: whole arcs, "1.3.6.1" matches 1.3.6.1.x, not 1.3.6.10
 ELEMENT = ("matches_element", "does_not_match_element")   # `field matches_element (` … `)`: one element matches all
-OPERATORS = EQUALITY + MEMBERSHIP + PRESENCE + TEXT + RANGE + IP_RANGE + OID_PREFIX + ELEMENT
+OPERATORS = EQUALITY + MEMBERSHIP + PRESENCE + TEXT + RANGE + RELATIVE + IP_RANGE + OID_PREFIX + ELEMENT
 BASE = EQUALITY + MEMBERSHIP + PRESENCE   # every top-level field (booleans: no membership)
 NEGATED = frozenset(("does_not_equal", "not_in", "does_not_exist", "does_not_begin_with", "does_not_end_with",
                      "does_not_contain", "does_not_match_element"))
 JA4X = re.compile(r"^[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$")
 _OID = re.compile(r"^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*$")
+_WINDOW = re.compile(r"^the\s+(last|next)\s+[1-9][0-9]*\s+(second|minute|hour|day|week|month|year)s?$", re.IGNORECASE)
 
 # --- field catalog: field -> value type ----------------------------------------------------------------------------
 _TYPES = {
@@ -71,12 +75,18 @@ _AFFIX_TEXT = {"issuer_locality", "subject_locality", "issuer_state_or_province"
                "issuer_dc", "subject_dc"}
 _RANGED = {"validity_not_before", "validity_not_after", "validity_duration_days", "public_key_bits", "san_count",
            "san_ip_v4", "san_ip_v6"}
+_ARC = {"extension_oids"}   # (and the subfield certificate_policy.policy_oid); not extended_key_usage_oids
+# Array fields that take a `matches_element (` … `)` block: multi-value fields (inner predicates name `value`, or a
+# part such as `domain`) and arrays of nested objects (inner predicates name their subfields).
+ELEMENT_ARRAYS = ("san_dns", "san_ip_v4", "san_ip_v6", "san_uri", "san_upn", "san_krb5_principal",
+                  "san_permanent_identifier", "san_smtp_utf8_mailbox", "san_xmpp_jid", "subject_email_address",
+                  "certificate_policy", "signed_certificate_timestamp")
 
 
 def _top_level_operators(field):
     kind = FIELD_TYPES[field]
     if kind == "nested":
-        return PRESENCE + ELEMENT
+        return PRESENCE + (ELEMENT if field in ELEMENT_ARRAYS else ())
     allowed = EQUALITY + PRESENCE if kind == "boolean" else BASE
     if field in _FULL_TEXT:
         allowed += TEXT
@@ -84,9 +94,11 @@ def _top_level_operators(field):
         allowed += AFFIX
     if field in _RANGED:
         allowed += RANGE
-    if kind == "oid":
+    if kind == "date":
+        allowed += RELATIVE
+    if field in _ARC:
         allowed += OID_PREFIX
-    if kind in ("email", "uri"):   # multi-value with part fields: bind parts to the same address
+    if field in ELEMENT_ARRAYS:
         allowed += ELEMENT
     return allowed
 
@@ -109,17 +121,19 @@ SUBFIELDS = {   # nested-object subfield -> (value type, operators)
                     ("dn", EQUALITY + PRESENCE)),
     "name_constraints.critical": ("boolean", EQUALITY + PRESENCE),
     "signed_certificate_timestamp.log_id": ("keyword", ("equals", "in", "exists")),
-    "signed_certificate_timestamp.timestamp": ("date", ("equals",) + RANGE + ("exists",)),
+    "signed_certificate_timestamp.timestamp": ("date", ("equals",) + RANGE + RELATIVE + ("exists",)),
     "signed_certificate_timestamp.version": ("integer", ("equals", "in", "exists")),
 }
-# Part fields: one part of an email address (local_part, domain) or a URI (host, scheme), as `field.part`. URI fields
-# differ in which parts they have: a name-constraint URI is a host pattern, so it has no scheme.
-_PART_OPERATORS = {"local_part": ("text", _LIST + TEXT), "domain": ("dns", _LIST + TEXT),
-                   "host": ("dns", _LIST + TEXT), "scheme": ("enum", _LIST)}
+# Part fields: one part of an email address (local_part, domain) or a URI (host, scheme), as `field.part`; a part takes
+# only equals / does_not_equal. Only san_uri has a scheme part.
+_PART_OPERATORS = {"local_part": ("text", EQUALITY), "domain": ("dns", EQUALITY), "host": ("dns", EQUALITY),
+                   "scheme": ("enum", EQUALITY)}
 _PARTS = {
-    **dict.fromkeys(("subject_email_address", "san_upn", "san_smtp_utf8_mailbox"), ("local_part", "domain")),
-    **dict.fromkeys(("san_uri", "certificate_policy.cps_uris"), ("host", "scheme")),
-    **dict.fromkeys(("name_constraints.permitted_uri", "name_constraints.excluded_uri"), ("host",)),
+    **dict.fromkeys(("subject_email_address", "san_upn", "san_smtp_utf8_mailbox", "name_constraints.permitted_email",
+                     "name_constraints.excluded_email"), ("local_part", "domain")),
+    "san_uri": ("host", "scheme"),
+    **dict.fromkeys(("certificate_policy.cps_uris", "name_constraints.permitted_uri", "name_constraints.excluded_uri"),
+                    ("host",)),
 }
 PART_FIELDS = {f"{field}.{part}": _PART_OPERATORS[part] for field, parts in _PARTS.items() for part in parts}
 FIELDS = {**{field: (kind, _top_level_operators(field)) for field, kind in FIELD_TYPES.items()}, **SUBFIELDS,
@@ -127,13 +141,18 @@ FIELDS = {**{field: (kind, _top_level_operators(field)) for field, kind in FIELD
 ELEMENT_FIELDS = tuple(field for field, (_, operators) in FIELDS.items() if "matches_element" in operators)
 
 
-# Certificate Search sorts every match by one certificate field before paging (text, multi-value and nested fields
-# are not sortable): field -> (label, (wording of descending, wording of ascending)). sha256 ascending is the API default.
+# Certificate Search sorts every match by one certificate field before paging (multi-value and nested fields are not
+# sortable; the API also sorts on locality and state): field -> (label, (wording of descending, of ascending)).
+# sha256 ascending is the API default; any other field is answered with invalid_sort_field.
 SORT_FIELDS = {
     "validity_not_before": ("Issue date", ("Newest first", "Oldest first")),
     "validity_not_after": ("Expiry date", ("Latest expiry first", "Soonest expiry first")),
     "validity_duration_days": ("Validity length", ("Longest first", "Shortest first")),
     "public_key_bits": ("Key size", ("Largest first", "Smallest first")),
+    "issuer_organization": ("Issuer organization", ("Z → A", "A → Z")),
+    "issuer_common_name": ("Issuer common name", ("Z → A", "A → Z")),
+    "subject_organization": ("Subject organization", ("Z → A", "A → Z")),
+    "subject_common_name": ("Subject common name", ("Z → A", "A → Z")),
     "sha256": ("SHA-256", ("f → 0", "0 → f (API default)")),
 }
 SORT_ORDERS = ("desc", "asc")
@@ -169,7 +188,8 @@ _LINE = re.compile(r"^\s*(\S+)\s+(\S+)(?:\s+(.*\S))?\s*$")
 
 
 def examples(today=None):
-    """Example queries, with dates relative to `today` (CertsQL has no relative dates)."""
+    """Example queries, with dates counted from `today` (written out rather than `within`, which the live API may not
+    accept yet)."""
     today = today or date.today()
     ago_30, ago_365, in_30 = (today - timedelta(days=30)).isoformat(), (today - timedelta(days=365)).isoformat(), \
         (today + timedelta(days=30)).isoformat()
@@ -292,8 +312,11 @@ def _operand_problem(field, kind, operator, value, line):
         return f"`{line}`: `arc_begins_with` takes a dotted OID prefix of whole arcs, e.g. `\"1.3.6.1.4.1\"`."
     if operator == "contains_ip" and not _is_ip(value):
         return f"`{line}`: `contains_ip` takes one IP address, e.g. `\"10.1.2.3\"`."
-    if operator in ("within", "overlaps_range") and not _is_network(value):
-        return f"`{line}`: `{operator}` takes an IP range in CIDR notation, e.g. `\"10.0.0.0/8\"`."
+    if operator == "overlaps_range" and not _is_network(value):
+        return f"`{line}`: `overlaps_range` takes an IP range in CIDR notation, e.g. `\"10.0.0.0/8\"`."
+    if operator == "within" and not _WINDOW.match(str(value).strip()):
+        return (f"`{line}`: `within` takes a window relative to now, `\"the last N unit\"` or `\"the next N unit\"` "
+                "(seconds, minutes, hours, days, weeks, months, years), e.g. `\"the next 30 days\"`.")
     return None
 
 
@@ -320,11 +343,22 @@ def _not_allowed(line, field, kind, operator, allowed):
                 f"query a subfield with a dotted name (e.g. `{next(s for s in SUBFIELDS if s.startswith(field + '.'))}`).")
     elif operator in ELEMENT:
         hint = f" `{operator}` works on {', '.join(ELEMENT_FIELDS)}."
-    elif operator == "within" and kind == "date":
-        hint = " `within` is for IP ranges; for a date window use `between [\"YYYY-MM-DD\", \"YYYY-MM-DD\"]`."
+    elif operator == "within":
+        hint = " `within` is for dates (`validity_not_before`, `validity_not_after`), e.g. `\"the last 30 days\"`."
     elif kind == "ip_range":
-        hint = " IP range fields take `within` / `overlaps_range` with a CIDR, or `contains_ip` with an address."
+        hint = " IP range fields take `overlaps_range` with a CIDR, or `contains_ip` with an address."
+    elif operator == "arc_begins_with":
+        hint = " `arc_begins_with` works on extension_oids and certificate_policy.policy_oid."
     return f"`{line}`: {field} does not support `{operator}`. Allowed: {', '.join(allowed)}.{hint}"
+
+
+def _element_values(parent):
+    """Inside a `matches_element` block on a multi-value field (san_dns, …), `value` is one element: it takes the
+    field's own operators, except another block."""
+    if parent not in ELEMENT_ARRAYS or FIELD_TYPES.get(parent) == "nested":
+        return {}
+    kind, allowed = FIELDS[parent]
+    return {f"{parent}.value": (kind, tuple(op for op in allowed if op not in ELEMENT))}
 
 
 def _predicate_problem(line, parent=None):
@@ -336,13 +370,14 @@ def _predicate_problem(line, parent=None):
     field, operator, operand = match.group(1).lower(), match.group(2).lower(), match.group(3)
     if parent:
         field = f"{parent}.{field}"
-    if field not in FIELDS:
-        names = [name for name in FIELDS if not parent or name.startswith(parent + ".")]
+    fields = {**FIELDS, **_element_values(parent)} if parent else FIELDS
+    if field not in fields:
+        names = [name for name in fields if not parent or name.startswith(parent + ".")]
         close = difflib.get_close_matches(field, names, n=1)
         close = [name[len(parent) + 1:] for name in close] if parent else close
         where = f" in {parent}" if parent else ""
         return f"`{line}`: unknown field `{match.group(1)}`{where}" + (f" (did you mean `{close[0]}`?)" if close else "") + "."
-    kind, allowed = FIELDS[field]
+    kind, allowed = fields[field]
     if operator not in OPERATORS:
         close = difflib.get_close_matches(operator, OPERATORS, n=1)
         return f"`{line}`: unknown operator `{operator}`" + (f" (did you mean `{close[0]}`?)" if close else "") + "."
@@ -442,6 +477,26 @@ RELEASE_KEYWORDS = ("ja4x", "within", "contains_ip", "overlaps_range", "arc_begi
                     "does_not_match_element", ".local_part", ".domain", ".host", ".scheme")
 
 
+# The Certificate Search error codes (HTTP 400) of the user guide -> what to do about them.
+CODE_HINTS = {
+    "unknown_field": "A field, subfield or part doesn't exist: check the name against the CertsQL field catalog (only "
+                     "`san_uri` has a `.scheme` part).",
+    "operator_not_supported": "The field doesn't take this operator; the message lists the ones it does.",
+    "invalid_value": "The value doesn't fit the field: a `within` window is `\"the last N days\"` / `\"the next N days\"`, "
+                     "a scheme is bare (`https`, not `https:`), numbers and true / false go without quotes.",
+    "parse_error": "The query structure is invalid: one predicate per line, closed quotes, and no block inside a "
+                   "`matches_element` block.",
+    "invalid_header": "The first line must be the version line `# CertsQL-1.0`.",
+    "unknown_version": "Use the version line `# CertsQL-1.0`.",
+    "expansive_query": "Every predicate is negated: add one that isn't, e.g. `san_dns ends_with \".example.com\"`.",
+    "ored_inner_clause": "Inside a `matches_element` block, put `AND` between the predicates (lines without it are "
+                         "OR'ed, which a block doesn't allow).",
+    "invalid_sort_field": "The API can't sort on this field: choose another *Sort by*.",
+    "invalid_cursor": "The continuation cursor no longer fits this query and sort: search again from the first page.",
+    "invalid_request": "A request value is out of bounds (the page size is 1 to 500, and the query can't be empty).",
+}
+
+
 def error_hint(error, query=""):
     """What to do about a Certificate Search answer that is about the query itself, or ''."""
     text = str(error or "")
@@ -455,6 +510,9 @@ def error_hint(error, query=""):
         return ("The API did not recognize a keyword: every field and operator is lowercase snake_case "
                 "(`san_dns ends_with`), and the fields and operators of the latest CertsQL release (`ja4x`, "
                 "`within`, `matches_element`, …) may not be live on the API yet.")
+    for code, hint in CODE_HINTS.items():
+        if f"({code})" in text or f"code: {code}" in text:
+            return hint
     if re.search(r"\b50[234]\b", text) or "timed out" in text.lower() or "Connection error" in text:
         return ("The Certificates API (technology preview) is not answering right now; the query itself may be fine. "
                 "Try again in a few minutes. Successful searches are cached, so a retry costs nothing for them.")

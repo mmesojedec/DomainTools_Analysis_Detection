@@ -49,7 +49,9 @@ def test_problems_catch_what_the_certificates_api_rejects():
         'san_dns in []': "non-empty JSON array",
         'issuer_country equals "USA"': "two letters",
         'issuer_locality contains "Paris"': "does not support `contains`",
-        'validity_not_after within "the next 30 days"': "for a date window use `between",
+        'validity_not_after within "next 30 days"': "the next N unit",
+        'public_key_bits within "the last 3 days"': "`within` is for dates",
+        'name_constraints.permitted_ip_ranges within "10.0.0.0/8"': "does not support `within`",
         'certificate_policy.cps_uris ends_with "/cps.pdf"': "does not support `ends_with`",
         'name_constraints.permitted_ip_ranges equals "10.0.0.0/8"': "IP range fields take",
         'name_constraints.permitted_ip_ranges in ["10.0.0.0/8"]': "does not support `in`",
@@ -59,9 +61,15 @@ def test_problems_catch_what_the_certificates_api_rejects():
         'ja4x contains "2166164053c1"': "does not support `contains`",
         'extension_oids arc_begins_with "1.3.6."': "dotted OID prefix",
         'san_dns arc_begins_with "1.3.6"': "does not support `arc_begins_with`",
+        'extended_key_usage_oids arc_begins_with "1.3.6"': "works on extension_oids",
+        'subject_email_address.domain ends_with ".example.com"': "does not support `ends_with`",
+        'san_upn.local_part in ["admin"]': "does not support `in`",
+        'certificate_policy.cps_uris.scheme equals "https"': "unknown field",
         'san_uri.port equals "443"': "unknown field `san_uri.port`",
         'name_constraints.permitted_uri.scheme equals "https"': "unknown field",
-        'san_dns matches_element (': "works on",
+        'basic_constraints matches_element (\n is_ca equals true\n)': "does not support `matches_element`",
+        'san_dns matches_element (\n  value begins_with "www."\nAND\n  value arc_begins_with "1"\n)':
+            "does not support `arc_begins_with`",
         'certificate_policy matches_element "x"': "opens a block",
         'sha256 does_not_equal "00"': "at least one predicate that is not negated",
         'subject_organization does_not_exist true': "not negated",
@@ -69,10 +77,10 @@ def test_problems_catch_what_the_certificates_api_rejects():
     for body, expected in cases.items():
         found = check(body)
         assert len(found) == 1 and expected in found[0], (body, found)
-    block = 'certificate_policy matches_element (\n  policy_oid equals "2.23.140.1.2.1"\nAND\n  cps_uris.host ends_with ' \
+    block = 'certificate_policy matches_element (\n  policy_oid equals "2.23.140.1.2.1"\nAND\n  cps_uris.host equals ' \
             '"letsencrypt.org"\n)\nAND\nsan_dns contains "login"'
     assert check(block) == []   # AND inside the block stays in it; subfields are relative to the block's field
-    assert check('san_uri does_not_match_element (\n  scheme equals "http"\nAND\n  host ends_with ".corp"\n)\n'
+    assert check('san_uri does_not_match_element (\n  scheme equals "http"\nAND\n  host equals "corp.example"\n)\n'
                   'AND\nis_self_signed equals true') == []
     assert ["unknown field `policy_id` in certificate_policy (did you mean `policy_oid`?)" in i
             for i in check('certificate_policy matches_element (\n  policy_id equals "x"\n)')] == [True]
@@ -80,13 +88,17 @@ def test_problems_catch_what_the_certificates_api_rejects():
     assert "at least one predicate" in check('certificate_policy matches_element (\n)')[0]
     assert "not negated" in check('certificate_policy does_not_match_element (\n  policy_oid equals "x"\n)')[0]
     for ok in ('ja4x in ["000000000000_4f24da86fad6_bf0f0589fc03", "2166164053c1_2166164053c1_30d204a01551"]',
-               'name_constraints.permitted_ip_ranges within "10.0.0.0/8"',
+               'validity_not_after within "the next 30 days"', 'validity_not_before within "The last 1 Week"',
+               'signed_certificate_timestamp.timestamp within "the last 6 months"',
                'name_constraints.permitted_ip_ranges contains_ip "2001:db8::1"',
                'name_constraints.excluded_ip_ranges overlaps_range "192.168.0.0/16"',
                'extension_oids arc_begins_with "1.3.6.1.4.1.11129"',
                'certificate_policy.policy_oid arc_begins_with "2.23.140.1"',
-               'subject_email_address.domain ends_with ".example.com"', 'san_upn.local_part equals "admin"',
-               'san_uri.scheme in ["http", "ftp"]', 'name_constraints.permitted_uri.host ends_with ".corp"',
+               'subject_email_address.domain equals "example.com"', 'san_upn.local_part equals "admin"',
+               'san_uri.scheme equals "https"', 'name_constraints.permitted_uri.host equals "corp.example"',
+               'name_constraints.permitted_email.domain equals "example.com"',
+               'san_dns matches_element (\n  value begins_with "www."\nAND\n  value ends_with ".example.com"\n)',
+               'subject_email_address matches_element (\n  local_part equals "admin"\nAND\n  domain equals "a.com"\n)',
                'sha256 does_not_equal "00"\nsan_dns ends_with ".a.com"'):   # one positive line is enough
         assert check(ok) == [], ok
     for ok in ('basic_constraints.max_path_len between [0, 1]', 'signed_certificate_timestamp exists true',
@@ -104,6 +116,8 @@ def test_error_hints():
     assert "This query uses" not in certsql.error_hint(unknown, 'san_dns contains "withinbrand"')
     assert certsql.error_hint("HTTP 400: 'contains' operand must be between 3 and 63 characters")
     assert certsql.error_hint("timeout") == ""
+    assert "`AND` between" in certsql.error_hint("Bad request (HTTP 400): implicit OR in block (ored_inner_clause)")
+    assert "Sort by" in certsql.error_hint("HTTP 400: cannot sort on san_dns (invalid_sort_field)")
     assert "not answering" in certsql.error_hint("RetryError: too many 502 error responses")
     assert "not answering" in certsql.error_hint("Server error (HTTP 502): The upstream service is currently unavailable.")
 
@@ -159,8 +173,8 @@ def test_api_error_messages_are_kept():
 
         def json(self):
             return self.body
-    assert certificates._error_message(Response({"error": {"code": "invalid_operand", "message": "too short"}})) \
-        == ": too short"
+    assert certificates._error_message(Response({"error": {"code": "invalid_value", "message": "too short"}})) \
+        == ": too short (invalid_value)"   # the code is kept, so the page can say what to do about it
     assert certificates._error_message(Response({"detail": [{"msg": "limit must be <= 500"}]})) == ": limit must be <= 500"
     assert certificates._error_message(Response([])) == ""
     assert certificates._error_message(Response({"error": "The upstream service is currently unavailable."})) \
@@ -204,4 +218,4 @@ def test_sort_is_a_field_and_an_order():
     assert certsql.sort_text(None) == "SHA-256, the API default"
     for field, (_label, words) in certsql.SORT_FIELDS.items():
         assert field in certsql.FIELD_TYPES and len(words) == 2, field   # a real top-level field, both directions worded
-        assert certsql.FIELD_TYPES[field] in ("date", "integer", "keyword"), field
+        assert certsql.FIELD_TYPES[field] in ("date", "integer", "keyword", "text"), field   # the guide's sortable fields

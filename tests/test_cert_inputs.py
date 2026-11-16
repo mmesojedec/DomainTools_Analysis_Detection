@@ -148,6 +148,25 @@ def test_certificate_events_send_a_one_year_window():
     assert 365 <= days <= 366 and payloads[0]["hostname"] == "a.com"
 
 
+def test_certificate_events_cursor_pages_keep_the_first_window():
+    payloads = []
+    window = {"start_time": "2025-11-16T00:00:00", "end_time": "2026-11-16T10:00:00"}
+
+    def fake_post(path, payload, api_key):
+        payloads.append(dict(payload))
+        more = len(payloads) == 1
+        return {"events": [{"sha256": "x"}] * payload["limit"], "time_window": window,
+                "pagination": {"has_more": more, "next_cursor": "c1" if more else None}}, None
+
+    with mock.patch.object(certificates, "_post", fake_post), mock.patch.object(certificates, "load_cert_api_key", lambda: "k"):
+        result = certificates._fetch_paginated_events("Cert Events (IP)", "1.2.3.4", "events/ip", {"ip": "1.2.3.4"},
+                                                      "events", 12000)
+    assert payloads[0]["limit"] == 10000 and "end_time" not in payloads[0]   # one call up to the API maximum
+    assert payloads[1]["cursor"] == "c1" and payloads[1]["limit"] == 2000
+    assert (payloads[1]["start_time"], payloads[1]["end_time"]) == (window["start_time"], window["end_time"])
+    assert result.record_count == 12000
+
+
 def test_offline_round_trip_keeps_seeds(tmp_path, monkeypatch):
     from core import offline
     monkeypatch.setattr(offline, "OFFLINE_DIR", tmp_path)

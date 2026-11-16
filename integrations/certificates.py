@@ -19,7 +19,8 @@ from integrations.credentials import CERT_API_MISSING, load_cert_api_key
 from integrations.http import FetchResult, describe_exception, describe_http_status, get_session
 
 CERT_API_BASE_URL = "https://api.domaintools.com/v1/certificates"
-PAGE_SIZE = 500
+PAGE_SIZE = 500            # Certificate Search: certificates per request (API maximum)
+EVENTS_PAGE_SIZE = 10000   # Certificate Events: events per request (API maximum; default 500)
 REQUEST_TIMEOUT = 30
 
 
@@ -46,14 +47,15 @@ def _post(endpoint_path, payload, api_key):
 
 
 def _error_message(resp):
-    """': message' from the API's error body ({"error": {"message"}} or a 422 {"detail": [...]}), or ''."""
+    """': message (code)' from the API's error body ({"error": {"message", "code"}} or a 422 {"detail": [...]}), or ''."""
     try:
         body = resp.json()
     except ValueError:
         return ""
     error = body.get("error") if isinstance(body, dict) else None
     if isinstance(error, dict) and error.get("message"):
-        return f": {error['message']}"
+        code = str(error.get("code") or "")
+        return f": {error['message']}" + (f" ({code})" if code and code not in error["message"] else "")
     if isinstance(error, str) and error:   # e.g. 502 {"error": "The upstream service is currently unavailable."}
         return f": {error}"
     detail = body.get("detail") if isinstance(body, dict) else None
@@ -171,7 +173,10 @@ def events_start_time(days=CERT_EVENTS_LOOKBACK_DAYS, now=None):
 
 
 def _fetch_paginated_events(source, target, endpoint_path, base_payload, container_key, max_records, empty_note=None):
-    """Paginator for /v1/certificates/events/{hostname, ip, sha256} using pagination.next_cursor."""
+    """
+    Paginator for /v1/certificates/events/{hostname, ip, sha256} using pagination.next_cursor. The cursor pages resend
+    the first answer's effective window (start and end): without an explicit end the API would resolve it again.
+    """
     base_payload = {"start_time": events_start_time(), **base_payload}   # resent with every cursor page
     api_key = load_cert_api_key()
     if not api_key:
@@ -179,7 +184,7 @@ def _fetch_paginated_events(source, target, endpoint_path, base_payload, contain
 
     events, cursor, has_more = [], None, False
     while len(events) < max_records:
-        payload = dict(base_payload, limit=min(PAGE_SIZE, max_records - len(events)))
+        payload = dict(base_payload, limit=min(EVENTS_PAGE_SIZE, max_records - len(events)))
         if cursor:
             payload["cursor"] = cursor
         data, error = _post(endpoint_path, payload, api_key)
@@ -189,6 +194,9 @@ def _fetch_paginated_events(source, target, endpoint_path, base_payload, contain
         if not page:
             break
         events.extend(page)
+        window = data.get("time_window") or {}
+        if window.get("start_time") and window.get("end_time"):
+            base_payload.update(start_time=window["start_time"], end_time=window["end_time"])
         pagination = data.get("pagination", {})
         has_more = bool(pagination.get("has_more") and pagination.get("next_cursor"))
         if not has_more:

@@ -927,15 +927,15 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
    | Text operators (`begins_with`, `ends_with`, `contains`, and their `does_not_` forms) only on names and organizations: `san_dns`, common names, organizations, organizational units, Kerberos / permanent identifier / XMPP SANs; locality, state and DC take only `begins_with` / `ends_with` | `sha256 contains "ab12"` |
    | `contains` takes 3 to 63 characters, and matches within one DNS label | `san_dns contains "lo"` |
    | Range operators (`greater_than`, `less_than`, `…_or_equal`, `between [min, max]`) only on dates, `validity_duration_days`, `public_key_bits`, `san_count`, `san_ip_v4`, `san_ip_v6` | `public_key_bits less_than "2048"` (a number goes without quotes) |
-   | Nested objects (`basic_constraints`, `certificate_policy`, `name_constraints`, `signed_certificate_timestamp`) take only `exists true` / `does_not_exist true`; query a subfield with a dotted name | `basic_constraints.is_ca equals false` |
+   | Nested objects (`basic_constraints`, `certificate_policy`, `name_constraints`, `signed_certificate_timestamp`) take only `exists true` / `does_not_exist true` (and a `matches_element` block on `certificate_policy` / `signed_certificate_timestamp`); query a subfield with a dotted name | `basic_constraints equals true` |
    | `exists` / `does_not_exist` take `true`; negative operators only match a field that is present | `subject_organization does_not_exist true` finds certificates without one |
    | Every query needs at least one predicate that isn't negated (negated: `does_not_…`, `not_in`, `does_not_match_element`), so a query can't match almost every certificate | `sha256 does_not_equal "…"` on its own |
    | `ja4x` (the certificate's JA4X fingerprint) takes `equals`, `does_not_equal`, `in`, `not_in`, `exists`, `does_not_exist`, with three 12-character lowercase hex parts joined by `_` | `ja4x contains "2166"` |
-   | Part fields: `.local_part` and `.domain` on email fields (`subject_email_address`, `san_upn`, `san_smtp_utf8_mailbox`); `.host` and `.scheme` on `san_uri` and `certificate_policy.cps_uris`; only `.host` on the name-constraint URIs | `san_uri.port equals "443"` |
-   | IP range fields (`name_constraints.permitted_ip_ranges`, `…excluded_ip_ranges`) take `within` and `overlaps_range` with a CIDR, `contains_ip` with an address, and `exists` / `does_not_exist`; no longer `equals` / `does_not_equal` / `in` / `not_in` | `name_constraints.permitted_ip_ranges equals "10.0.0.0/8"` |
-   | `arc_begins_with` on OID fields (`extension_oids`, `extended_key_usage_oids`, `certificate_policy.policy_oid`) matches whole arcs: `"1.3.6.1"` matches `1.3.6.1.5`, not `1.3.6.10` | `san_dns arc_begins_with "1.3"` |
-   | `matches_element` / `does_not_match_element` bind predicates to the same element of a nested object or of an email / URI field: end the line with `(`, write the predicates with fields relative to it (`AND` lines allowed), close with `)` on its own line | `certificate_policy matches_element "x"` |
-   | `within` is for IP ranges only; for a date window use `between` | `validity_not_after within "the next 30 days"` |
+   | Part fields take only `equals` / `does_not_equal`: `.local_part` and `.domain` on email fields (`subject_email_address`, `san_upn`, `san_smtp_utf8_mailbox`, the name-constraint emails); `.host` on `san_uri`, `certificate_policy.cps_uris` and the name-constraint URIs; `.scheme` only on `san_uri` | `subject_email_address.domain ends_with ".com"`, `san_uri.port equals "443"` |
+   | IP range fields (`name_constraints.permitted_ip_ranges`, `…excluded_ip_ranges`) take `overlaps_range` with a CIDR, `contains_ip` with an address, and `exists` / `does_not_exist` | `name_constraints.permitted_ip_ranges equals "10.0.0.0/8"` |
+   | `within` matches a date window relative to now, `"the last N unit"` or `"the next N unit"` (seconds to years), on `validity_not_before`, `validity_not_after` and `signed_certificate_timestamp.timestamp` | `validity_not_after within "next 30 days"` |
+   | `arc_begins_with` on `extension_oids` and `certificate_policy.policy_oid` matches whole arcs: `"1.3.6.1"` matches `1.3.6.1.5`, not `1.3.6.10` | `extended_key_usage_oids arc_begins_with "1.3"` |
+   | `matches_element` / `does_not_match_element` bind predicates to the same element: on `certificate_policy` and `signed_certificate_timestamp` (predicates name subfields) and on the multi-value SAN and email fields (predicates name `value`, or a part such as `domain`). End the line with `(`, put the predicates on the next lines with `AND` between them, close with `)` on its own line | `certificate_policy matches_element "x"` |
    | Limits: 32 clauses, 256 lines in a clause, 1,024 lines, 1,000 values in an `in` array, 64 KB | |
 
    A `matches_element` block: one policy entry must have both the DV OID and a CPS on Let's Encrypt's host.
@@ -945,7 +945,7 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
    certificate_policy matches_element (
      policy_oid equals "2.23.140.1.2.1"
    AND
-     cps_uris.host ends_with "letsencrypt.org"
+     cps_uris.host equals "cps.letsencrypt.org"
    )
    AND
    san_dns ends_with ".example.com"
@@ -956,8 +956,21 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
    *UNKNOWN_KEYWORD*; the hint under the error names which of them the query used. In the meantime, query
    subfields with dotted names, one per clause.
 
+   A block on a multi-value field: one SAN must both start with `www.` and end with `.example.com`.
+
+   ```text
+   # CertsQL-1.0
+   san_dns matches_element (
+     value begins_with "www."
+   AND
+     value ends_with ".example.com"
+   )
+   ```
+
    *Sort by* offers only fields the API accepts for sorting (issue date, expiry date, validity length, key size,
-   SHA-256): the API now rejects a sort on any other field.
+   issuer and subject organization and common name, SHA-256): the API rejects a sort on any other field
+   (`invalid_sort_field`). When the API rejects a query, the error shows its code (`unknown_field`,
+   `operator_not_supported`, `invalid_value`, `ored_inner_clause`, …) and a hint on what to change.
 
 3. Set **Certificates to fetch** (pages of 500, up to 5,000), **Sort by** and **Order**, and **Pre-select the most
    named**. Then click **Search**. The

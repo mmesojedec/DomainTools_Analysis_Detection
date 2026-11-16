@@ -141,7 +141,8 @@ def render_certsql_page():
         st.session_state[SORT_KEY], st.session_state[ORDER_KEY] = DEFAULT_SORT   # also replaces an old one-box choice
     st.selectbox("Start from an example", [""] + list(sample), key=EXAMPLE_KEY, on_change=_load_example,
                  format_func=lambda name: name or "Choose an example to replace the query…",
-                 help="Dates in the examples are relative to today (CertsQL has no relative dates).")
+                 help="Dates in the examples are counted from today and written out, so they work before the "
+                      "API accepts `within` (\"the last 30 days\").")
     text = query_editor("certsql", QUERY_KEY, "CertsQL query", help=QUERY_HELP)
     query = normalize(text)
     issues = problems(query)

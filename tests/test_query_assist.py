@@ -4,7 +4,7 @@ import pytest
 
 from core import certsql, irisql, query_assist
 
-_VALUES = {"contains_ip": "10.1.2.3", "within": "10.0.0.0/8", "overlaps_range": "10.0.0.0/8", "arc_begins_with": "1.3.6.1"}
+_VALUES = {"contains_ip": "10.1.2.3", "within": "the last 30 days", "overlaps_range": "10.0.0.0/8", "arc_begins_with": "1.3.6.1"}
 _JA4X = "2166164053c1_2166164053c1_30d204a01551"
 
 
@@ -15,8 +15,8 @@ def _fill(template, operator, field=""):
         return "1"
     if text == "[]":
         return "[1, 2]" if operator == "between" else "[1]"
-    if text.startswith("("):   # a matches_element block: one predicate on a part or subfield of `field`
-        sub = next(name for name in certsql.FIELDS if name.startswith(field + "."))[len(field) + 1:]
+    if text.startswith("("):   # a matches_element block: one predicate on a subfield of `field`, or on `value`
+        sub = next((name for name in certsql.SUBFIELDS if name.startswith(field + ".")), field + ".value")[len(field) + 1:]
         return text.replace("\n  \n", f"\n  {sub} exists true\n")
     value = _JA4X if field == "ja4x" else _VALUES.get(operator, "abc")
     return text.replace('""', f'"{value}"')
@@ -47,9 +47,12 @@ def test_catalogs_follow_the_rule_tables():
     assert "EXACTLY_MATCH" not in {op["name"] for op in iris["NAMESERVER_DOMAIN"]["operators"]}
     certs = {f["name"]: f for f in query_assist.catalog("certsql")["fields"]}
     assert set(certs) == set(certsql.FIELDS) and "basic_constraints.is_ca" in certs
-    assert [op["name"] for op in certs["basic_constraints"]["operators"]] == list(certsql.PRESENCE + certsql.ELEMENT)
+    assert [op["name"] for op in certs["basic_constraints"]["operators"]] == list(certsql.PRESENCE)
+    assert [op["name"] for op in certs["certificate_policy"]["operators"]] == list(certsql.PRESENCE + certsql.ELEMENT)
     assert {op["name"] for op in certs["name_constraints.permitted_ip_ranges"]["operators"]} == \
-        {"within", "contains_ip", "overlaps_range", "exists", "does_not_exist"}
+        {"contains_ip", "overlaps_range", "exists", "does_not_exist"}
+    assert "within" in {op["name"] for op in certs["validity_not_after"]["operators"]}
+    assert [op["name"] for op in certs["san_uri.scheme"]["operators"]] == list(certsql.EQUALITY)
     assert "ja4x" in certs and "san_uri.host" in certs and "subject_email_address.local_part" in certs
     assert "contains" not in {op["name"] for op in certs["sha256"]["operators"]}
     with pytest.raises(ValueError):
