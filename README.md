@@ -7,8 +7,9 @@ threat engine over the combined telemetry.
 
 ![Start page: pick a use case, enter targets in the Targets box and click Analyze](docs/images/start-page.png)
 
-*The Start page: choose a use case (it sets the lookups, limits and analysis window), enter domains, IPs or
-certificates in the Targets box and click **Analyze**. The last run links to the Runs page.*
+*The Start page: enter domains, IPs or certificates in the Targets box and click **Analyze**, or first pick a use
+case (it sets the lookups, limits and analysis window). Next to Analyze: find targets with IrisQL or CertsQL, open
+Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst options.*
 
 ## Documentation
 
