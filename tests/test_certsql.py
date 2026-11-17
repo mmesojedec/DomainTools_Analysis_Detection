@@ -141,7 +141,7 @@ def test_tables_follow_the_certificates_ticked_use():
 def test_commands_carry_the_body_and_no_key_value():
     cmds = certsql.commands(certsql.normalize('is_self_signed equals true'), 100, certsql.sort_term("validity_not_after", "asc"))
     assert "${DT_CERT_API_KEY:-$DT_API_KEY}" in cmds["curl"] and '"limit": 100' in cmds["curl"]
-    assert '"field": "validity_not_after"' in cmds["curl"] and "os.environ" in cmds["Python (requests)"]
+    assert '"field": "validity_not_after"' in cmds["curl"] and "os.environ" in cmds["Python script"]
     assert certsql.query_cost(1200, 500) == 3
 
 

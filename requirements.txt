@@ -17,7 +17,7 @@ tldextract>=5.1.0
 # Interactive Visualizations & Charts
 plotly>=5.18.0
 
-# HTTP Networking & APIs (domain_history and risk_evidence SDK methods; idna for punycode domain names)
+# HTTP Networking & APIs (DomainTools SDK calls such as domain_history; idna for punycode domain names)
 requests>=2.31.0
 idna>=3.4
 urllib3>=2.0.0

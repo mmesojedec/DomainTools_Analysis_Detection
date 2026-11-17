@@ -5,6 +5,7 @@ record Iris reports (when passive DNS did not already show them), and the popula
 import re
 
 from config import POPULAR_RANK_MAX
+from core.correlation import link_strength
 from core.threat_detection.dns_rules import SUSPICIOUS_MX_REGEX
 from integrations.enrichment import extract_web_trackers, unwrap_value
 
@@ -46,10 +47,18 @@ def rule_shared_trackers(ctx):
         linked = sorted(set(ctx.tracker_occurrences.get(f"{tracker['Platform']}: {tracker['Code']}", [])))
         others = [d for d in linked if d != ctx.domain]
         if others:
+            count = tracker.get("Count")
+            strength = link_strength("Web Tracker", count)
+            if strength is None:   # an analytics account on thousands of sites links nothing
+                continue
+            seen = f" Iris sees it on {count:,} domain(s)." if isinstance(count, int) else ""
             ctx.add(
                 "Shared Web Tracker Fingerprint", "High", "T1583.001 (Acquire Infrastructure)",
-                f"Domain shares exact {tracker['Platform']} code '{tracker['Code']}' with other analyzed domains ({', '.join(others)}).",
-                f"Tracker ID: {tracker['Code']}\nShared Across: {', '.join(linked)}",
+                f"Domain shares exact {tracker['Platform']} code '{tracker['Code']}' with other analyzed domains "
+                f"({', '.join(others)}).{seen}",
+                f"Tracker ID: {tracker['Code']}\nShared Across: {', '.join(linked)}"
+                + (f"\nDomains in Iris: {count:,}" if isinstance(count, int) else ""),
+                confidence=None if strength == "strong" else "Low",
             )
             return
 
@@ -89,9 +98,12 @@ def apply_popularity(ctx):
     (strong evidence) are kept as they are.
     """
     rank = (ctx.profile or {}).get("popularity_rank")
-    if not rank or rank > POPULAR_RANK_MAX:
+    zerolisted = "zerolist" in str(ctx.risk_evidence).lower()   # DomainTools lists it as known good
+    if (not rank or rank > POPULAR_RANK_MAX) and not zerolisted:
         return
-    note = f" Context: popular domain (Iris popularity rank {rank:,}), so more likely legitimate."
+    note = (f" Context: popular domain (Iris popularity rank {rank:,}), so more likely legitimate."
+            if rank and rank <= POPULAR_RANK_MAX else
+            " Context: on the DomainTools zerolist (known good), so more likely legitimate.")
     for alert in ctx.alerts:
         alert["Confidence"] = CONFIDENCE_DOWN.get(alert["Confidence"], alert["Confidence"])
         alert["Threat Logic"] = str(alert["Threat Logic"]) + note

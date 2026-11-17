@@ -5,7 +5,7 @@ import streamlit as st
 from config import HOSTNAME_NEW_DAYS
 from core.helpers import md_escape
 from core.hostnames import FLAG_HELP
-from views.common import capped_table, selected_rows, selection_key
+from views.common import capped_table, metric_slots, selected_rows, selection_key
 
 DATE_COLUMNS = ["First Certificate", "Latest Certificate", "Certificate Expires", "pDNS First Seen", "pDNS Last Seen"]
 LINK_DATE_COLUMNS = ["Not Before", "Not After"]
@@ -48,7 +48,7 @@ def render_hostname_lens(ds):
                ("Resolves, no certificate", int(flags.str.contains("no certificate").sum())),
                (f"New ({HOSTNAME_NEW_DAYS} days)", int(flags.str.contains("New").sum())),
                ("Sensitive name", int(flags.str.contains("Sensitive").sum()))]
-    for col, (label, value) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, value, help=FLAG_HELP.get(label.split(" (")[0]))
     _render_inventory_table(ds, inventory, flags)
 

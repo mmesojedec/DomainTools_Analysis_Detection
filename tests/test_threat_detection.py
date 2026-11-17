@@ -25,7 +25,7 @@ def types(result):
 
 def test_unknown_risk_is_evaluated_not_skipped():
     # Regression: a failed risk lookup produced score 0 and silently skipped every domain
-    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.yandex.ru"}])
+    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.cock.li"}])
     result = detect_threat_flags(ev, {"risk_score": 70}, risk_df=pd.DataFrame())
     assert result.unscored_domains == ["a.com"]
     assert result.skipped_domains == []
@@ -33,10 +33,18 @@ def test_unknown_risk_is_evaluated_not_skipped():
 
 
 def test_known_low_risk_is_skipped():
-    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.yandex.ru"}])
+    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.cock.li"}])
     result = detect_threat_flags(ev, {"risk_score": 70}, risk_df=risk_frame("a.com", 10))
     assert result.skipped_domains == ["a.com"]
     assert result.alerts.empty
+
+
+def test_known_low_risk_keeps_standalone_rules():
+    # A fresh lookalike often has a low score; the brand rules still run below the Min Risk Score, the rest do not
+    ev = events([{"Domain": "paypal-login.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.cock.li"}])
+    result = detect_threat_flags(ev, {"risk_score": 70}, risk_df=risk_frame("paypal-login.com", 10), brands=["paypal"])
+    assert result.skipped_domains == ["paypal-login.com"]
+    assert types(result) == {"Combosquatting (Brand + Keyword)", "Mail-Capable Lookalike"}   # MX, no DMARC
 
 
 def test_nan_flags_from_mixed_sources_do_not_alert():
@@ -57,7 +65,18 @@ def test_explicit_precert_and_missing_scts_alert():
     ssl = pd.DataFrame([{"Domain": "a.com", "Hash": "h1", "Source": "DomainTools Cert API", "Common Name": "a.com",
                          "Issuer": "DigiCert", "Is Precertificate": True, "Has Embedded SCTs": False, "Alt Names List": ["a.com"]}])
     result = detect_threat_flags(pd.DataFrame(), {"risk_score": 0}, ssl_df=ssl)
-    assert {"Pre-Certificate Staging (CT Log Only)", "CT Log Evasion / Missing SCTs"} <= types(result)
+    assert "Pre-Certificate Staging (CT Log Only)" in types(result)
+    assert "CT Log Evasion / Missing SCTs" not in types(result)   # a precertificate never embeds SCTs
+
+
+def test_missing_scts_needs_a_public_ca_and_a_final_certificate():
+    final = {"Domain": "a.com", "Hash": "h1", "Source": "DomainTools Cert API", "Common Name": "a.com",
+             "Issuer": "DigiCert", "Is Precertificate": False, "Has Embedded SCTs": False, "Alt Names List": ["a.com"]}
+    found = types(detect_threat_flags(pd.DataFrame(), {"risk_score": 0}, ssl_df=pd.DataFrame([final])))
+    assert "CT Log Evasion / Missing SCTs" in found
+    private = dict(final, Issuer="Corp Internal Issuing CA")
+    found = types(detect_threat_flags(pd.DataFrame(), {"risk_score": 0}, ssl_df=pd.DataFrame([private])))
+    assert "CT Log Evasion / Missing SCTs" not in found and "Non-Public / Private CA Certificate" in found
 
 
 def test_rapid_weaponization_cert_to_dns_gap():
@@ -124,7 +143,7 @@ def test_private_ca_long_validity_is_not_cabf_violation():
 
 
 def test_threat_text_is_not_html_escaped():
-    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.yandex.ru"}])
+    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.cock.li"}])
     enrichment = {"a.com": {"website_title": {"value": "Xtream IPTV Server's Panel"}, "website_response": 200}}
     result = detect_threat_flags(ev, {"risk_score": 0}, enrichment_data=enrichment)
     logic = result.alerts.set_index("Threat Type").loc["Live Pirate Streaming Panel Detected", "Threat Logic"]
@@ -142,6 +161,27 @@ def test_fast_flux_counts_multi_value_rrsets():
     assert "Rapid IP Rotation (Fast-Flux)" in types(result)
     no_flux = detect_threat_flags(ev, {"risk_score": 0, "flux_ips": 6})
     assert "Rapid IP Rotation (Fast-Flux)" not in types(no_flux)
+
+
+def test_fast_flux_counts_each_hostname_apart():
+    # Five subdomains on five hosts is an ordinary site, not one name rotating through five IPs
+    spread = events([{"Domain": "a.com", "RRName": f"s{i}.a.com.", "Date": f"2024-01-0{i + 1}", "Field": "A",
+                      "Value": f"{10 + i * 20}.1.1.1"} for i in range(5)])
+    found = types(detect_threat_flags(spread, {"risk_score": 0, "flux_ips": 5, "flux_networks": 3}))
+    assert not {"Rapid IP Rotation (Fast-Flux)", "Multi-Network Fast-Flux (ASN-Diverse)"} & found
+    one_host = events([{"Domain": "a.com", "RRName": "www.a.com.", "Date": f"2024-01-0{i + 1}", "Field": "A",
+                        "Value": f"{10 + i * 20}.1.1.1"} for i in range(5)])
+    found = types(detect_threat_flags(one_host, {"risk_score": 0, "flux_ips": 5, "flux_networks": 3}))
+    assert {"Rapid IP Rotation (Fast-Flux)", "Multi-Network Fast-Flux (ASN-Diverse)"} <= found
+
+
+def test_dga_judges_short_labels_by_shape():
+    found = types(detect_threat_flags(events([{"Domain": "xk7q2m9zpa.com", "Date": "2024-01-01", "Field": "A",
+                                               "Value": "1.1.1.1"}]), {"risk_score": 0}))
+    assert "DGA / High Entropy Domain" in found
+    found = types(detect_threat_flags(events([{"Domain": "cloudflare.com", "Date": "2024-01-01", "Field": "A",
+                                               "Value": "1.1.1.1"}]), {"risk_score": 0}))
+    assert "DGA / High Entropy Domain" not in found
 
 
 def test_parked_to_weaponized_uses_gaps_recomputed_after_merge():

@@ -84,7 +84,7 @@ def _render_actions(row, pick_run=None):
                 st.button("Pick in Recent runs", key="seen_pick", icon=":material/schedule:", on_click=pick_run,
                           args=(row["id"],), help="Shows this run in the Recent runs tab, with its run actions and "
                                                   "the other indicators it shares")
-            navigation.jump_button("history", "Open in Runs & Diffs", button_key="seen_open",
+            navigation.jump_button("history", "Compare & trends", button_key="seen_open",
                                    state={RECENT_PICK_KEY: row["key"], f"hist_detail_{row['key']}": row["id"]},
                                    icon=":material/history:", help="Opens this run: its details, comparisons and trends")
         else:
@@ -92,7 +92,7 @@ def _render_actions(row, pick_run=None):
                       on_click=request_offline_load, args=(row["id"],),
                       help="Loads this dataset and re-analyzes it with no API calls")
         if row["Kind"] in ANALYZABLE:
-            st.button(f"Analyze {row['Value']} as a new run", key="seen_analyze", icon=":material/play_arrow:",
+            st.button(f"Analyze {row['Value']} now", key="seen_analyze", icon=":material/play_arrow:",
                       on_click=start_hunt, args=([row["Value"]], f"Sightings: {row['Value']}"),
                       help="A new live run on this indicator with the current collection options (makes API queries)")
 
@@ -116,7 +116,7 @@ def render_sightings(pick_run=None):
         frame = search(query, partial, datasets)
     if frame.empty:
         st.warning(f"**{md_escape(normalize(query))}** is not in any saved run"
-                   + (" or offline dataset." if datasets else ".") + " Runs are kept per target list (Runs & Diffs → "
+                   + (" or offline dataset." if datasets else ".") + " Runs are kept per target list (Runs → Compare & trends → "
                    "Manage Runs sets how many), so older ones may have been deleted.", icon=":material/search_off:")
         return
     _render_summary(frame)

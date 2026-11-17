@@ -4,7 +4,8 @@ the page (and filter) where the analyst continues. Most important first.
 """
 import pandas as pd
 
-SEVERITY_RANK = {"Critical": 0, "High": 1, "Medium-High": 2, "Medium": 3, "Low": 4}
+from core.intel_data import SEVERITY_RANK
+
 # alert category -> page that shows its data
 CATEGORY_PAGES = {
     "Certificates": "certs", "DNS Behavior": "dns", "Hosting & DNS Providers": "dns", "Email": "dns",

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # --- BRANDING CONFIGURATION ---
-DT_PRIMARY_DARK = "#1B1F29"
 DT_ORANGE = "#F76509"
 DT_GREEN = "#91D117"
 DT_BLUE = "#4C68FD"
@@ -55,9 +54,11 @@ SEED_MAX_CERTIFICATES = 200         # certificates fetched per certificate input
 SEED_DEFAULT_TARGETS = 10           # derived domains / IPs pre-selected in the certificate input preview
 SEED_MAX_TARGETS = 100              # most derived domains / IPs one run may analyze
 HOSTNAME_NEW_DAYS = 30              # Hostname Inventory: a hostname first seen this recently is flagged "New"
-PIVOT_STRONG_MAX = 500              # Pivot Ranking: a value shared by 2..this many domains in Iris is a strong pivot
-PIVOT_USEFUL_MAX = 10_000           # ... up to this many a useful one; more is weak (shared infrastructure)
-PIVOT_RESULT_LIMIT = 500            # Pivot Ranking: domains fetched per Iris Investigate pivot search (one page)
+PIVOT_STRONG_MAX = 500              # Hunt map → All pivots: a value shared by 2..this many domains in Iris is a strong pivot
+PIVOT_USEFUL_MAX = 10_000
+RARE_LINK_MAX = 50                  # correlation: an IP / name server Iris sees on this few domains links them strongly
+COMMON_LINK_MIN = PIVOT_USEFUL_MAX  # ... and one on more domains than this links nothing (shared hosting, big DNS)           # ... up to this many a useful one; more is weak (shared infrastructure)
+PIVOT_RESULT_LIMIT = 500            # Hunt map → All pivots: domains fetched per Iris Investigate pivot search (one page)
 TRIAGE_BURST_MIN = 5                # Subdomain Triage: hostnames of one domain first seen in the same hour to count as a burst
 CERT_CTL_LIMIT = 500                 # CT log entries fetched per certificate (CT telemetry)
 CT_LOOKUP_DEFAULT_MAX_HASHES = 10    # two lookups per certificate; newest first, shared across domains
@@ -87,12 +88,12 @@ CIDR_ADDRESSES_PER_RANGE = 200       # addresses VPNDB probing exited through in
 MAX_WORKERS = 8                      # lookups run in parallel
 CERT_API_MAX_WORKERS = 4         # SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s
 CERT_RETRY_PAUSE_SECONDS = 5     # pause before failed certificate lookups are retried once, one at a time
-FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups (Settings → Lookup cache)
-# Source groups that can keep cached results for their own lifetime (Settings → Lookup cache)
+FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups (Settings → Storage & cache)
+# Source groups that can keep cached results for their own lifetime (Settings → Storage & cache)
 CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
                 "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB"}
 CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600}   # changes rarely: 7 days; changes often: 6 hours
-# cache lifetime choices on Settings → Lookup cache: label -> seconds (0: no cache)
+# cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache)
 CACHE_LIFETIMES = {"Off": 0, "30 minutes": 1800, "6 hours": 21600, "1 day": 86400, "7 days": 604800,
                    "30 days": 2592000}
 
@@ -123,8 +124,9 @@ class ThresholdSpec:
 THRESHOLD_SPECS = (
     # --- DomainTools Risk ---
     ThresholdSpec("risk_score", "Min Risk Score", 70, 0, 100, 1,
-                  "Domains with a known DomainTools risk score below this value are skipped by the behavioral engine. "
-                  "Domains without a risk score are still evaluated.", "DomainTools Risk"),
+                  "Domains with a known DomainTools risk score below this value get only the rules that stand on their "
+                  "own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X). Domains without a risk score "
+                  "get every rule.", "DomainTools Risk"),
     ThresholdSpec("high_risk_score", "High-Risk Score Cutoff", 70, 0, 100, 1,
                   "Unified/predictive risk score at or above which a domain counts as high risk (KPIs).", "DomainTools Risk"),
     # --- Passive DNS & Domain History ---

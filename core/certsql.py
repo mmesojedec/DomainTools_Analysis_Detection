@@ -22,7 +22,6 @@ from core.cert_inputs import derive_hostnames, derive_targets
 
 HEADER = "# CertsQL-1.0"
 ENDPOINT = "https://api.domaintools.com/v1/certificates/search"
-DOC_NOTE = "Certificates API (technology preview) user guide: CertsQL query language, operators and field catalog"
 
 # --- operators -------------------------------------------------------------------------------------------------------
 EQUALITY = ("equals", "does_not_equal")
@@ -590,12 +589,12 @@ def payload(query, limit, sort=None):
 
 
 def commands(query, limit, sort=None):
-    """The same search as curl and Python code; the key comes from $DT_CERT_API_KEY, else $DT_API_KEY (no values)."""
+    """The same search as a curl command and a Python script; the key comes from $DT_CERT_API_KEY, else $DT_API_KEY (no values)."""
     body = json.dumps(payload(query, limit, sort), indent=2)
     return {
         "curl": f"curl -X POST '{ENDPOINT}' \\\n  -H \"X-Api-Key: ${{DT_CERT_API_KEY:-$DT_API_KEY}}\" -H 'Content-Type: application/json' "
                 f"\\\n  --data-binary @- <<'EOF' | jq .\n{body}\nEOF",
-        "Python (requests)": "import json, os, requests\n\n"
+        "Python script": "import json, os, requests\n\n"
                              f"body = {body}\n"
                              f"response = requests.post({json.dumps(ENDPOINT)}, json=body, timeout=60,\n"
                              "    headers={\"X-Api-Key\": os.environ.get(\"DT_CERT_API_KEY\") or os.environ[\"DT_API_KEY\"]})\n"

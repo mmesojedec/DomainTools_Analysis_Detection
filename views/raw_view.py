@@ -15,6 +15,7 @@ from views.common import (
     capped_table,
     clean_strings,
     format_datetime_columns,
+    metric_slots,
     selected_rows,
     selection_key,
     table,
@@ -112,7 +113,7 @@ def _render_vpndb(ds):
         return
     st.subheader("VPNDB Responses", help="Every VPNDB answer of the run as received, one row per lookup. Select one to "
                                          "see it as tables: its fields, then each list it holds (the bulk results, "
-                                         "a range's addresses, an exit's weekly history ...). Lookup Queries → VPNDB has "
+                                         "a range's addresses, an exit's weekly history ...). Lookup queries → VPNDB has "
                                          "the requests to send again.")
     view = raw[["Endpoint", "Target", "Status", "Records", "Detail", "Cached At"]]
     event = st.dataframe(view, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
@@ -139,7 +140,7 @@ def _render_vpndb(ds):
 
 
 def render_raw_lens(ds):
-    st.markdown("### Analyst Raw Records Review",
+    st.subheader("Records",
                 help="Full raw logs with untruncated payloads and timezone-aligned timestamps.")
     _render_txt(ds)
     _render_certs(ds)
@@ -211,7 +212,7 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
         oldest = summary["Oldest Cached At"].min() if not summary.empty else pd.NaT
         expires = summary["Expires At"].min() if not summary.empty else pd.NaT
         metrics = [
-            ("Cache lifetime", lifetime_label, "Settings → Lookup cache. How long a successful lookup is reused; "
+            ("Cache lifetime", lifetime_label, "Settings → Storage & cache. How long a successful lookup is reused; "
                                                "sources with their own lifetime are listed there"),
             ("From cache", f"{hits:,} of {total:,}", "Lookups of this run served from the cache (no API query)"),
             ("Queried live", f"{total - hits:,}", "Lookups of this run that queried the APIs (now cached too); the "
@@ -221,14 +222,14 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
                                               "queries it again"),
             ("Cache on disk", f"{files:,} · {format_size(size)}", "Cached lookups in dt_cache/ for every target"),
         ]
-        for col, (name, value, help_text) in zip(st.columns(len(metrics)), metrics):
+        for col, (name, value, help_text) in zip(metric_slots(len(metrics)), metrics):
             col.metric(name, value, help=help_text)
         created = pd.to_datetime(run_time, errors="coerce", utc=True)
         if pd.notna(created):
             st.caption(f"For the lookups of the run collected {created.tz_convert(timezone):%Y-%m-%d %H:%M} "
                        f"({timezone}); expiry counts the Cache lifetime (Settings) from when each result was fetched.")
         if lifetime == 0:
-            st.caption("The cache is off (Settings → Lookup cache), so every lookup queries the APIs.")
+            st.caption("The cache is off (Settings → Storage & cache), so every lookup queries the APIs.")
         if not summary.empty:
             view = summary.assign(**{c: _local(summary[c], timezone)
                                      for c in ("Oldest Cached At", "Newest Cached At", "Expires At")},
@@ -262,7 +263,7 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
                 choice = "retry"
         else:
             st.caption("This dataset has no recorded collection settings, so it cannot be re-run from here; use "
-                       "**Analyze** in the sidebar.")
+                       "**Analyze** on the Start page.")
     return choice
 
 
@@ -286,7 +287,7 @@ def render_status_panel(statuses, expanded=False):
         return
     status_df = pd.DataFrame(statuses).drop(columns="Request", errors="ignore")   # requests: Lookup Queries page
     problems = status_df[status_df["Status"].isin(["Error", "Partial"])]
-    label = "Data Source Status"
+    label = "Lookup status (Data sources)"
     if not problems.empty:
         label += f" — {int((problems['Status'] == 'Error').sum())} error(s), {int((problems['Status'] == 'Partial').sum())} partial"
     with st.expander(label, expanded=expanded):

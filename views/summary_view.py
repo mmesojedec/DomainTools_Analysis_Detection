@@ -22,6 +22,7 @@ from core.hunt_stats import (
 )
 from core.hunt_tree import hunt_trail, trail_text
 from core.idn import has_ace, to_unicode
+from core.intel_data import SEVERITY_ICONS
 from core.next_steps import SEVERITY_RANK
 from core.persistence import find_watch, load_all_runs, load_settings, remove_watch, save_watch
 from core.risk_profile import drivers_text, score_drivers
@@ -29,7 +30,7 @@ from core.triage import domain_verdicts, load_triage, open_alerts, triage_counts
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.cache import age_text
 from views import navigation
-from views.alert_tools import HEATMAP_SEVERITY_COLORS, SEVERITY_ORDER
+from views.alert_tools import HEATMAP_SEVERITY_COLORS, SEVERITY_ORDER, THREAT_TYPE_KEY
 from views.anonymizer_view import alerts_button, domain_verdict_text, ip_check_only, render_ip_check, render_networks, selectable_table
 from views.collection_progress import PROGRESS_KEY, render_last_collection
 from views.common import chart, selected_rows, selection_key
@@ -143,7 +144,7 @@ def _render_glance(ds, alerts):
             navigation.open_tab("certs", CERT_TAB_KEY, SELF_SIGNED_TAB)
     _metric(row2[2], "Hostnames", f"{stats['Hostnames']:,}", "hostnames", "Hostname Inventory",
             "Distinct names in passive DNS")
-    _metric(row2[3], "Passive DNS records", f"{stats['Passive DNS records']:,}", "raw", "Raw Records")
+    _metric(row2[3], "Passive DNS records", f"{stats['Passive DNS records']:,}", "raw", "Records")
     _render_vpndb_glance(ds)
 
 
@@ -181,8 +182,10 @@ def _render_hunt_pointer(alerts, leads, start):
     counts = triage_counts(alerts)
     open_count = counts["New"] + counts["Investigating"]
     branches = [lead for lead in leads if not lead["Stop"]]
+    hunt_map = navigation.page("hunt_tree") is not None
     st.subheader("Hunt", help="The hunting work of this run (alert decisions, what to check next, the suggested hunt "
-                              "and the leads to follow) is on the Hunt map, next to the map of the hunt it grows.")
+                              "and the leads to follow) is on the Hunt map, next to the map of the hunt it grows."
+                              + ("" if hunt_map else " The Hunt map is part of Analyst mode (sidebar)."))
     with st.container(border=True):
         parts = [f"**{open_count:,}** open alert(s) to decide" if not alerts.empty else "no alerts",
                  f"**{len(start)}** indicator(s) to confirm first" if start else "",
@@ -192,13 +195,16 @@ def _render_hunt_pointer(alerts, leads, start):
             first = start[0]
             st.caption(f"Start with the {KIND_LABELS.get(first['kind'], first['kind'])} `{first['value']}`: {md_escape(first['why'])}")
         with st.container(horizontal=True):
-            if navigation.page("hunt_tree") is not None and st.button(
+            if hunt_map and st.button(
                     "Open the Hunt map", key="summary_hunt_map", icon=":material/account_tree:", type="primary",
                     help="Next steps, the suggested hunt and leads to follow, with the map of this hunt (no API "
                          "call)"):
                 navigation.open_tab("hunt_tree", "hunt_map_tab", "This hunt")
             if open_count:
                 navigation.link("alerts", label="Review the open alerts")
+        if not hunt_map:
+            st.caption("Turn on *Analyst mode* in the sidebar for the Hunt map: what to check next, the suggested hunt "
+                       "and the leads.")
 
 
 def _render_clusters(correlation):
@@ -211,7 +217,9 @@ def _render_clusters(correlation):
         color = "green" if callout["Strength"] == "Strong" else "blue"
         st.markdown(f":{color}-badge[{callout['Strength']}] **{callout['Size']} domains:** "
                     f"{md_escape(callout['Text'])}")
-    navigation.link("dns", label="Infrastructure clusters and graph")
+    navigation.jump_button("dns", "Infrastructure clusters and graph", {"dns_tab": "Campaign & hosting",
+                                                                        navigation.SCROLL_TAB_KEY: "Campaign & hosting"},
+                           button_key="summary_clusters", type="tertiary", icon=":material/hub:")
 
 
 def _render_domains(profiles, alerts, verdicts, anonymizers=None):
@@ -248,8 +256,17 @@ def _render_top_alerts(alerts):
         st.caption("No active alerts in the analysis window.")
         return
     top = alerts.assign(_r=alerts["Severity"].map(SEVERITY_RANK).fillna(9)).sort_values("_r").head(10)
-    st.dataframe(top[[c for c in ("Domain", "Threat Type", "Severity", "Confidence", "Status", "Category")
-                      if c in top.columns]], hide_index=True, width="stretch")
+    shown = top[[c for c in ("Domain", "Threat Type", "Severity", "Confidence", "Status", "Category")
+                 if c in top.columns]].copy()
+    shown["Severity"] = [f"{SEVERITY_ICONS.get(sev, '')} {sev}" for sev in shown["Severity"]]
+    picked = st.dataframe(shown, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                          key="summary_top_alerts")
+    rows = picked.selection.rows if picked is not None else []
+    if rows:   # a picked alert opens Alerts filtered to its rule (the pick is dropped, so coming back stays here)
+        threat_type = shown.iloc[rows[0]]["Threat Type"]
+        del st.session_state["summary_top_alerts"]
+        navigation.go("alerts", **{THREAT_TYPE_KEY: [threat_type]})
+    st.caption("Pick a row to open Alerts filtered to that finding.")
     navigation.link("alerts", label=f"All {len(alerts):,} alert(s) with their evidence")
 
 
@@ -343,12 +360,12 @@ def _render_since_last_run(view, new_alerts, targets):
                                                             "History and see only what changed.")
     c_watch, c_note = st.columns([1.2, 4], vertical_alignment="center")
     if watch:
-        c_note.caption(f"Watched as **{md_escape(watch['name'])}** (Runs & Diffs → Watched lists).")
+        c_note.caption(f"Watched as **{md_escape(watch['name'])}** (Runs → Compare & trends → Watched lists).")
         if c_watch.button("Stop watching", key="summary_unwatch", icon=":material/visibility_off:"):
             remove_watch(targets)
             st.rerun()
     elif c_watch.button("Watch this list", key="summary_watch", icon=":material/visibility:",
-                        help="Saves the target list so you can rerun it from Runs & Diffs; each rerun shows what is "
+                        help="Saves the target list so you can rerun it from Runs → Compare & trends; each rerun shows what is "
                              "new here."):
         save_watch(", ".join(targets[:3]) + (f" +{len(targets) - 3}" if len(targets) > 3 else ""), targets)
         st.toast("Watching this target list.")
@@ -377,8 +394,8 @@ def render_summary(ctx, window_banner):
     ds, view, profiles = ctx.ds, ctx.view, ctx.profiles
     alerts = view.active
     verdicts = domain_verdicts(load_triage(), ds.selected_domains)
-    st.header("Summary", help="The analysis in numbers: every domain, the analysis details, top alerts, linked "
-                              "domains and what changed since the last analysis. Where the hunt goes next (what to "
+    st.header("Summary", help="The analysis in numbers: every domain, the analysis details, linked domains, top "
+                              "alerts, run statistics and what changed since the last analysis. Where the hunt goes next (what to "
                               "check, the suggested hunt, leads) is on the Hunt map.")
     if ip_check_only(ds):   # IP check use case: VPNDB verdicts only
         render_ip_check(ds, alerts)
@@ -387,18 +404,16 @@ def render_summary(ctx, window_banner):
     window_banner()
     _render_hunt_trail()
     render_kpi_banner(profiles, ctx.thresholds["high_risk_score"])
+    leads, start, _ = plan(ds, alerts)   # also keeps the suggested steps with the run, for the Hunt map
     _render_domains(profiles, alerts, verdicts, ds.anonymizers)
     if ds.prefixes is not None and not ds.prefixes.empty:   # CIDR targets (VPNDB)
         render_networks(ds)
     _render_glance(ds, alerts)
+    _render_clusters(ctx.threats.correlation)
+    _render_hunt_pointer(alerts, leads, start)   # where to go next
     _render_top_alerts(alerts)
+    _render_statistics(ds, alerts)
+    new_alerts = int(view.new_mask.sum()) if view.new_mask is not None else 0
+    _render_since_last_run(view, new_alerts, list(ctx.collected.targets))
     render_use_case_plan()
     render_last_collection()
-
-    new_alerts = int(view.new_mask.sum()) if view.new_mask is not None else 0
-    leads, start, _ = plan(ds, alerts)   # also keeps the suggested steps with the run, for the Hunt map
-    _render_hunt_pointer(alerts, leads, start)
-    _render_clusters(ctx.threats.correlation)
-    _render_statistics(ds, alerts)
-    _render_since_last_run(view, new_alerts, list(ctx.collected.targets))
-

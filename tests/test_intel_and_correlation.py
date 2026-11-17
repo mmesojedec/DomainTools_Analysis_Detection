@@ -171,7 +171,7 @@ def test_lookalike_rule_via_engine():
 
 
 def test_alerts_have_confidence_and_category():
-    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.yandex.ru"}])
+    ev = events([{"Domain": "a.com", "Date": "2024-01-01", "Field": "MX", "Value": "mx.cock.li"}])
     row = detect_threat_flags(ev, {}).alerts.iloc[0]
     assert row["Confidence"] in ("High", "Medium", "Low") and row["Category"] == "Email"
 

@@ -1,5 +1,5 @@
 """
-IrisQL page (top menu, or Data source *IrisQL* in the sidebar): step 1 runs an IrisQL query (Iris Investigate) and lists the matching domains with their basic
+IrisQL page (top menu): step 1 runs an IrisQL query (Iris Investigate) and lists the matching domains with their basic
 facts and hosting IPs; step 2 picks domains and IPs from the list and a use case, and analyzes them as a new run.
 """
 import json
@@ -22,14 +22,16 @@ from core.irisql import (
     selected,
 )
 from core.persistence import load_settings
+from core.query_watch import add_watch, check_watch, list_watches, remove_watch
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.enrichment import fetch_irisql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_editor, set_query
-from views.sidebar import add_to_targets, apply_use_case, start_hunt
+from views.sidebar import apply_use_case, start_hunt
 
 QUERY_KEY = "irisql_query"
+WATCH_OPEN_KEY = "irisql_watches_open"
 EXAMPLE_KEY = "irisql_example"
 STATE_KEY = "irisql_search"   # {"query", "max_results", "sort_by", "result", "domains", "ips", "version"}
 CASE_KEY = "irisql_use_case"
@@ -58,6 +60,61 @@ def _search(query, max_results, sort_by, preselect):
         "query": query, "max_results": int(max_results), "sort_by": sort_by, "result": result,
         "domains": domains, "ips": ip_frame(result.data),
         "version": previous.get("version", 0) + 1}
+
+
+def _check_watch(watch):
+    """Button callback: runs a watched query again and ticks only the domains that are new since the last check."""
+    _search(watch["query"], watch["max_results"], watch["sort_by"], 0)
+    state = st.session_state[STATE_KEY]
+    if state["result"].error:
+        return
+    new, previous = check_watch(watch["name"], list(state["domains"]["Domain"]))
+    frame = state["domains"].copy()
+    frame["Analyze"] = frame["Domain"].isin(new[:SEED_MAX_TARGETS])
+    state.update(domains=frame, watch={"name": watch["name"], "new": new, "previous": previous})
+    state["version"] += 1
+    set_query(QUERY_KEY, watch["query"])
+
+
+def _render_watches():
+    watches = list_watches()
+    if not watches:
+        return
+    with st.expander(f"Watched queries ({len(watches)})", icon=":material/visibility:",
+                     expanded=bool(st.session_state.get(WATCH_OPEN_KEY))):
+        st.caption("Each check runs the query again (Iris Investigate queries, as a search) and ticks only the domains "
+                   "that are new since the last check.")
+        for watch in watches:
+            with st.container(horizontal=True, vertical_alignment="center"):
+                st.markdown(f"**{watch['name']}** · {len(watch.get('seen') or []):,} domains seen · last checked "
+                            f"{str(watch.get('checked', ''))[:16].replace('T', ' ')} UTC")
+                cost = query_cost(watch["max_results"], IRISQL_PAGE_SIZE)
+                st.button("Check now", key=f"watch_check::{watch['name']}", on_click=_check_watch, args=(watch,),
+                          icon=":material/refresh:", help=f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}")
+                st.button("Stop watching", key=f"watch_rm::{watch['name']}", on_click=remove_watch,
+                          args=(watch["name"],), type="tertiary", icon=":material/visibility_off:")
+
+
+def _render_watch_controls(state):
+    """Watch the query of these results, or what a check just found."""
+    found = state.get("watch")
+    if found:
+        since = f" since {str(found['previous'])[:16].replace('T', ' ')} UTC" if found.get("previous") else ""
+        if found["new"]:
+            st.success(f"**{len(found['new']):,} new domain(s)** for *{found['name']}*{since}; they are ticked below.",
+                       icon=":material/fiber_new:")
+        else:
+            st.info(f"No new domains for *{found['name']}*{since}.", icon=":material/check:")
+        return
+    with st.popover("Watch this query", icon=":material/visibility:"):
+        name = st.text_input("Name", value=_label(state["query"])[len("IrisQL: "):][:60], key="watch_name")
+        st.caption("Saves the query with today's domains as seen; *Watched queries* above checks it again later and "
+                   "shows only the new ones.")
+        if st.button("Save watch", key="watch_save", type="primary", disabled=not name.strip()):
+            add_watch(name.strip(), state["query"], state["max_results"], state["sort_by"],
+                      list(state["domains"]["Domain"]))
+            st.session_state[WATCH_OPEN_KEY] = True
+            st.toast(f"Watching '{name.strip()}'.")
 
 
 def _tick(table, how, count=0):
@@ -106,18 +163,13 @@ def _analyze(targets, case_key, state):
     start_hunt(targets, _label(state["query"]), hunt_parent("irisql"))
 
 
-def _add(targets, state):
-    _remember_search(state)
-    add_to_targets(targets)
-
-
 def render_irisql_page():
     st.header("IrisQL", help="Find domains in Iris Investigate with an IrisQL query, then analyze the ones you pick "
                              "with a use case.")
     st.caption("**Step 1:** write an IrisQL query and search: the matching domains are listed with their risk score, "
                "dates, registrar and hosting. **Step 2:** tick the domains and IPs to look into, choose whether to analyze "
-               "the domains, the IPs or both, pick a use case and click Analyze: they are analyzed like targets entered in "
-               "the sidebar.")
+               "the domains, the IPs or both, pick a use case and click Analyze: they are analyzed as a new run, like "
+               "targets entered on the Start page.")
     st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n{EXAMPLES['Domain name contains a word']}")
     st.session_state.setdefault(MAX_KEY, IRISQL_DEFAULT_RESULTS)
     st.session_state.setdefault(PRESELECT_KEY, SEED_DEFAULT_TARGETS)
@@ -145,10 +197,11 @@ def render_irisql_page():
                       "the cache lifetime costs none."):
         with st.spinner("Searching Iris Investigate..."):
             _search(query, max_results, sort_by, int(preselect))
-    with st.expander("The same search outside the app (CLI, curl, Python SDK)", icon=":material/terminal:"):
+    with st.expander("The same search outside the app (DomainTools Python SDK, curl, Python script)", icon=":material/terminal:"):
         for name, command in commands(query, min(int(max_results), IRISQL_PAGE_SIZE), sort_by).items():
             st.markdown(f"**{name}**")
-            st.code(command, language="python" if name == "Python SDK" else "bash")
+            st.code(command, language="python" if name == "Python script" else "bash")
+    _render_watches()
     state = st.session_state.get(STATE_KEY)
     if state:
         st.divider()
@@ -184,6 +237,7 @@ def _render_results(state):
     if not result.data:
         st.info("No domain matches this query.")
         return
+    _render_watch_controls(state)
 
     domains, ips = state["domains"], state["ips"]
     tabs = st.tabs([f"Domains ({len(domains):,})", f"IPs ({len(ips):,})", "Breakdown", "Raw JSON"],
@@ -208,7 +262,7 @@ def _render_results(state):
         st.json(result.data[:20], expanded=False)
         if len(result.data) > 20:
             st.caption(f"The first 20 of {len(result.data):,} records; the download has all of them.")
-    render_analyze_selection("irisql", selected(domains, "Domain"), selected(ips, "IP"), _analyze, _add, state)
+    render_analyze_selection("irisql", selected(domains, "Domain"), selected(ips, "IP"), _analyze, state)
 
 
 def _editor(state, table, frame, column_config):

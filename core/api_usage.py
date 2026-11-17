@@ -71,13 +71,11 @@ def run_usage(statuses):
 
 
 def queries_by_product(statuses):
-    """{product (or service): queries} of a run, for its Runs & Diffs snapshot."""
+    """{product (or service): queries} of a run, for its Runs → Compare & trends snapshot."""
     usage = run_usage(statuses)
     return {row["Product"]: int(row["Queries"]) for row in usage.to_dict("records") if row["Queries"]}
 
 
-def total_queries(statuses):
-    return int(run_usage(statuses)["Queries"].sum()) if statuses else 0
 
 
 def remaining(products, product):

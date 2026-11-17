@@ -5,8 +5,8 @@ import re
 import pandas as pd
 
 from config import SEVERITY_WEIGHTS
-from core.cert_utils import cert_alt_names, cert_is_self_signed, weak_key_mask
-from core.helpers import safe_bool
+from core.cert_utils import cert_alt_names, cert_is_self_signed, issuer_family, weak_key_mask
+from core.helpers import extract_ip_addresses, safe_bool
 from core.intel_data import INFORMATIONAL_RULES
 from integrations.enrichment import unwrap_value
 
@@ -18,6 +18,7 @@ SERVER_CODES = {"CF": "Cloudflare", "AW": "Amazon", "NX": "Nginx", "UN": "Uniden
 VALIDATION_CODES = {"DV": "Domain Validated", "OV": "Organization Validated", "EV": "Extended Validation",
                     "NA": "Validation not reported", "UN": "Unknown validation"}
 ISSUER_CODES = {"LE": "Let's Encrypt", "ZS": "ZeroSSL", "SS": "Self-signed", "UN": "Other / unknown CA"}
+ISSUER_TAGS = {"letsencrypt": "LE", "zerossl": "ZS", "self_signed": "SS"}   # core.cert_utils.issuer_family keys
 KEY_CODES = {"R": "RSA", "E": "EC"}
 APPS_CODES = {
     "EM": "SPF email routing (checked first)",
@@ -47,16 +48,19 @@ _TLS_BLOCK_RE = re.compile(r"^(?P<val>[^-]{1,2}?)(?P<iss>LE|ZS|SS|UN)(?P<dur>\d+
 
 # Risk vector -> (alert pattern on ATT&CK id / threat type, what else raises it)
 VECTOR_RULES = {
-    "DNS Volatility": ("T1568|Flux|Rotation|Parked|Sinkhole", "many IPs in passive DNS"),
-    "Certificate Trust": ("T1588.004|T1573|Certificate|Weak", "self-signed or weak-key certificates"),
-    "Email/Phish Posture": ("T1583.002|T1585.002|Phish|SPF|Mail", "many mail and TXT records"),
-    "App & C2 Footprint": ("T1071|T1008|T1048|T1090.003|T1572|Proxy Exit|Anonymizer Exit|Bare-IP|Payload|JA4X", "C2-style findings, VPN / proxy / Tor hosting"),
-    "Infra Sprawl": ("T1584.001|Sprawl|Nested|Wildcard", "certificates with many names"),
+    "DNS Volatility": ("T1568|Flux|Rotation|Parked|Sinkhole|Churn", "more than 10 IPs in passive DNS"),
+    "Certificate Trust": ("T1588.004|T1573|T1587.003|T1608.003|Certificate|Weak", "self-signed or weak-key certificates"),
+    "Email/Phish Posture": ("T1566|T1583.002|T1585.002|Phish|SPF|Mail|Lure", "mail-related findings only"),
+    "App & C2 Footprint": ("T1071|T1008|T1048|T1090.003|T1572|T1583.003|Proxy Exit|Anonymizer Exit|Bare-IP|Payload|JA4X",
+                           "C2-style findings, VPN / proxy / Tor hosting"),
+    "Infra Sprawl": ("T1584.001|Sprawl|Nested|Wildcard|Cohort|Wave", "findings only"),
 }
+# A vector counts an alert's severity weight times how sure the rule is: a Low-confidence High is not a High
+CONFIDENCE_FACTOR = {"High": 1.0, "Medium": 0.8, "Low": 0.5}
+MANY_IPS = 10   # passive DNS addresses above this add to DNS Volatility (2 points each, up to 20)
 BASE_WEIGHT, VECTOR_WEIGHT = 0.4, 1.5 / len(VECTOR_RULES)   # Unified Risk = 0.4 x base + 1.5 x the vectors' mean
 
 _IP_FIELDS = ["A", "IP", "A RECORD", "AAAA"]
-_MAIL_FIELDS = ["TXT", "SPF", "MX"]
 
 
 def _matching_alerts(dom_alerts, pattern):
@@ -71,7 +75,11 @@ def _matching_alerts(dom_alerts, pattern):
 
 def _max_severity(dom_alerts, pattern):
     matches = _matching_alerts(dom_alerts, pattern)
-    return max((SEVERITY_WEIGHTS.get(s, 0) for s in matches["Severity"]), default=0) if not matches.empty else 0
+    if matches.empty:
+        return 0
+    confidences = matches["Confidence"] if "Confidence" in matches.columns else pd.Series("High", index=matches.index)
+    return round(max(SEVERITY_WEIGHTS.get(s, 0) * CONFIDENCE_FACTOR.get(c, 0.8)
+                     for s, c in zip(matches["Severity"], confidences)))
 
 
 def _base_score(r_df, dom):
@@ -108,25 +116,6 @@ def _hosting_description(ip_count, srv):
     return f"Hosting: {flux_desc} on {host_desc}"
 
 
-def _issuer_description(issuer_raw, is_ss):
-    issuer_lower = issuer_raw.lower()
-    if is_ss:
-        return "Self-Signed"
-    if any(x in issuer_lower for x in ["let's encrypt", "letsencrypt"]):
-        return "Let's Encrypt (Automated ACME)"
-    if "zerossl" in issuer_lower:
-        return "ZeroSSL (Automated ACME)"
-    if any(x in issuer_lower for x in ["pki.goog", "google"]):
-        return "Google Trust Services"
-    if any(x in issuer_lower for x in ["digicert", "thawte", "geotrust"]):
-        return "DigiCert Inc"
-    if any(x in issuer_lower for x in ["sectigo", "comodo"]):
-        return "Sectigo / Comodo"
-    if any(x in issuer_lower for x in ["amazon", "awstrust"]):
-        return "Amazon Trust Services"
-    return issuer_raw[:28] if issuer_raw else "Third-Party Public CA"
-
-
 def _crypto_block_and_description(cert):
     """
     Returns (DIF TLS block, human description, certificate profile) for the primary certificate. The block and the
@@ -136,8 +125,8 @@ def _crypto_block_and_description(cert):
     is_ss = cert_is_self_signed(cert)
     val_raw = str(cert.get("Validation Level") or "unknown").lower()
     issuer_raw = str(cert.get("Issuer") or "").strip()
-    issuer_upper = issuer_raw.upper()
-    iss_tag = "LE" if "LET'S ENCRYPT" in issuer_upper else ("ZS" if "ZEROSSL" in issuer_upper else ("SS" if is_ss else "UN"))
+    family, issuer_label = issuer_family(cert, is_ss)
+    iss_tag = ISSUER_TAGS.get(family, "UN")
     dur_num = pd.to_numeric(cert.get("Duration"), errors="coerce")
     bits_num = pd.to_numeric(cert.get("Public Key Bits"), errors="coerce")
     algo_val = str(cert.get("Public Key Algo") or "RSA").upper()
@@ -150,7 +139,7 @@ def _crypto_block_and_description(cert):
     val_desc = "Self-Signed (Untrusted / Private)" if is_ss else val_labels.get(val_raw, "Standard Validation")
     dur_desc = f"{int(dur_num)}-day validity" if pd.notna(dur_num) else "Unknown validity"
     key_desc = f"{int(bits_num)}-bit {algo_val}" if pd.notna(bits_num) else f"{algo_val} Key"
-    desc = f"TLS: {val_desc} issued by {_issuer_description(issuer_raw, is_ss)} ({dur_desc}, {key_desc})"
+    desc = f"TLS: {val_desc} issued by {issuer_label} ({dur_desc}, {key_desc})"
     return block, desc, profile
 
 
@@ -183,8 +172,11 @@ def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map):
         dom_ssl = s_df[s_df["Domain"] == dom] if not s_df.empty else pd.DataFrame()
         pdns_fields = dom_pdns["Field"].astype(str).str.upper() if not dom_pdns.empty else pd.Series(dtype=str)
 
-        ip_count = dom_pdns.loc[pdns_fields.isin(_IP_FIELDS), "Value"].nunique() if not dom_pdns.empty else 0
-        vec_dns = min(100, _max_severity(dom_alerts, VECTOR_RULES["DNS Volatility"][0]) + min(40, ip_count * 2))
+        # distinct addresses, with multi-address rrsets split (one row can hold several IPs)
+        ip_count = len({ip for value in dom_pdns.loc[pdns_fields.isin(_IP_FIELDS), "Value"].astype(str)
+                        for ip in extract_ip_addresses(value)}) if not dom_pdns.empty else 0
+        vec_dns = min(100, _max_severity(dom_alerts, VECTOR_RULES["DNS Volatility"][0])
+                      + min(20, max(0, ip_count - MANY_IPS) * 2))
 
         raw_crypto_penalty = 0
         if not dom_ssl.empty:
@@ -194,16 +186,12 @@ def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map):
                 raw_crypto_penalty += 40
         vec_certificate = min(100, _max_severity(dom_alerts, VECTOR_RULES["Certificate Trust"][0]) + raw_crypto_penalty)
 
-        txt_count = dom_pdns.loc[pdns_fields.isin(_MAIL_FIELDS), "Value"].nunique() if not dom_pdns.empty else 0
-        vec_email = min(100, _max_severity(dom_alerts, VECTOR_RULES["Email/Phish Posture"][0]) + min(30, txt_count * 5))
+        # mail and TXT record counts are not risk (SaaS verification records grow with legitimate use)
+        vec_email = min(100, _max_severity(dom_alerts, VECTOR_RULES["Email/Phish Posture"][0]))
 
         vec_c2 = min(100, _max_severity(dom_alerts, VECTOR_RULES["App & C2 Footprint"][0]))
 
-        max_sans = 0
-        if not dom_ssl.empty and "SAN Count" in dom_ssl.columns:
-            max_sans = pd.to_numeric(dom_ssl["SAN Count"], errors="coerce").max()
-            max_sans = 0 if pd.isna(max_sans) else max_sans
-        vec_sprawl = min(100, _max_severity(dom_alerts, VECTOR_RULES["Infra Sprawl"][0]) + min(50, max_sans * 2))
+        vec_sprawl = min(100, _max_severity(dom_alerts, VECTOR_RULES["Infra Sprawl"][0]))   # SAN counts: Mega-SAN rule
 
         active_avg = (vec_dns + vec_certificate + vec_email + vec_c2 + vec_sprawl) / 5
         unified_score = min(100, max(base_score, int((base_score * BASE_WEIGHT) + (active_avg * 1.5))))

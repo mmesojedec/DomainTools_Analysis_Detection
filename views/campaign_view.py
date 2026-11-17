@@ -239,4 +239,3 @@ def render_campaign_lens(ds, threats, alerts):
     _render_hosting(ds)
     _render_origin_exposure(ds)
     _render_domain_hopping(ds, threats.hops)
-    st.divider()

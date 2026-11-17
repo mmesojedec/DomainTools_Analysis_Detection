@@ -5,7 +5,8 @@ lookup cache and API credentials.
 import pandas as pd
 import streamlit as st
 
-from core.lookalike import parse_brand_list, parse_official_domains
+from core.allowlist import ALLOWLIST_SETTING, parse_allowlist
+from core.lookalike import lookalike_candidates, lookalike_query, parse_brand_list, parse_official_domains
 from core.persistence import load_settings, save_setting
 from core.use_cases import (
     GLOBAL_DEFAULTS,
@@ -27,6 +28,9 @@ from core.use_cases import (
     remove_profile,
     upsert_profile,
 )
+from views import navigation
+from views.history_view import render_retention_settings
+from views.query_editor import set_query
 from views.sidebar import (
     TOAST_KEY,
     apply_use_case,
@@ -139,20 +143,37 @@ def _case_label(case, overrides):
     return case.title + (" (changed)" if is_customized(case, overrides) else "")
 
 
-def render_use_case_settings():
+SESSION = "__session__"   # Collection options editing the next Analyze, not a saved use case
+
+
+def render_options_tab():
+    """One editor for every set of collection options: the next Analyze (this session), a use case or a profile."""
     saved = load_settings()
     overrides, profiles = saved.get(OVERRIDES_SETTING) or {}, saved.get(PROFILES_SETTING) or []
     cases = all_cases(profiles)
-    st.caption("Every use case on the Start page is a full set of collection options: the **global defaults** (the "
-               "app's built-in options, see Help → Documentation → Reference) with a few changes that suit it. Change a "
-               "use case here and **Save**: the Start page applies your version until you **Reset to default**. "
-               "**Custom profiles** are your own sets of options, listed on the Start page next to the use cases.")
-    keys = [case.key for case in cases]
+    keys = [SESSION] + [case.key for case in cases]
     if st.session_state.get(CASE_SELECT_KEY) not in keys:
-        st.session_state[CASE_SELECT_KEY] = keys[0]
-    labels = {case.key: _case_label(case, overrides) for case in cases}
-    key = st.selectbox("Use case or profile", keys, key=CASE_SELECT_KEY, format_func=labels.get)
-    case = find_case(key, profiles)
+        st.session_state[CASE_SELECT_KEY] = SESSION
+    labels = {SESSION: "The next Analyze (this session)", **{case.key: _case_label(case, overrides) for case in cases}}
+    key = st.selectbox("Editing", keys, key=CASE_SELECT_KEY, format_func=labels.get,
+                       help="The next Analyze: changes hold for this browser session (picking a use case on the Start "
+                            "page sets them). A use case or profile: its saved options, used whenever it is picked; "
+                            "**Save** keeps them in dt_settings.json and the Start page applies your version.")
+    if key == SESSION:
+        render_collection_options()
+        st.markdown("**What the next Analyze looks up, per target domain**")
+        st.dataframe(pd.DataFrame(query_plan({k: st.session_state.get(k) for k in PROFILE_KEYS})).drop(columns="Key"),
+                     hide_index=True, width="stretch")
+    else:
+        render_use_case_settings(find_case(key, profiles), overrides)
+    with st.expander("Create a custom profile", icon=":material/add:"):
+        render_new_profile(cases)
+
+
+def render_use_case_settings(case, overrides):
+    st.caption("Every use case on the Start page is a full set of collection options: the **global defaults** (the "
+               "app's built-in options, see Settings → Documentation → Reference) with a few changes that suit it. Change "
+               "it here and **Save**: the Start page applies your version until you **Reset to default**.")
     current = effective_settings(case, overrides)
     prefix = _prefix(case)
     for option, value in current.items():
@@ -167,7 +188,7 @@ def render_use_case_settings():
         st.selectbox("Analysis window", PROFILE_WINDOWS, key=prefix + WINDOW_KEY,
                      help="The window this use case sets in the sidebar. It filters what the pages show; it does not "
                           "change what is looked up.")
-        render_collection_options(prefix, force_refresh=False)
+        render_collection_options(prefix)
 
     edited = _edited(case)
     unsaved = changed_options(edited, current) or (
@@ -202,7 +223,8 @@ def render_use_case_settings():
                      column_config={"Default": st.column_config.TextColumn(
                          "Default", help="This use case's own limit, before any change on Settings.")})
 
-    st.markdown("**Create a custom profile**")
+
+def render_new_profile(cases):
     c1, c2 = st.columns(2)
     c1.text_input("Name", key="new_profile_name", placeholder="e.g. Quick IP pivot sweep")
     c2.selectbox("Start from", [CURRENT_OPTIONS, *(case.title for case in cases)], key="new_profile_source",
@@ -235,8 +257,47 @@ def render_brand_watchlist():
     c2.markdown("**Official domains (never flagged):** " + (", ".join(f"`{d}`" for d in official) or "none"))
     st.button("Save", key="brands_save", type="primary", on_click=_save_brands,
               disabled=raw == load_settings().get(BRAND_SETTING, ""), icon=":material/save:")
+    if brands:
+        candidates = lookalike_candidates(brands, official)
+        if st.button(f"Hunt lookalikes in IrisQL ({len(candidates)} candidate names)", key="brands_hunt",
+                     icon=":material/manage_search:",
+                     help="Writes an IrisQL query for typos, look-alike characters, other TLDs and brand + phishing "
+                          "word names of your brands, and opens it on the IrisQL page. Nothing is searched until you "
+                          "click Search there (one Iris Investigate query)."):
+            from views.irisql_view import QUERY_KEY  # the IrisQL page imports the settings helpers
+            set_query(QUERY_KEY, lookalike_query(candidates))
+            navigation.go("irisql")
     st.caption("Separate from this list, Subdomain Triage and the CNAME rules use a built-in list of brands phishing "
-               "kits often impersonate (Microsoft, PayPal, DHL, ...); it is listed in Help → Documentation → Reference.")
+               "kits often impersonate (Microsoft, PayPal, DHL, ...); it is listed in Settings → Documentation → Reference.")
+
+
+ALLOW_EDIT_KEY = "allowlist_edit"
+
+
+def _save_allowlist():
+    save_setting(ALLOWLIST_SETTING, st.session_state.get(ALLOW_EDIT_KEY, ""))
+    st.session_state[TOAST_KEY] = "Saved the allowlist. The detections use it now."
+
+
+def render_allowlist():
+    st.caption("Your own (or otherwise known-good) infrastructure. Allowlisted values never link analyzed domains into "
+               "clusters, and alerts whose evidence names one are kept at **Low** confidence with the reason. Saved in "
+               "dt_settings.json and used at once, with no new lookups.")
+    st.session_state.setdefault(ALLOW_EDIT_KEY, load_settings().get(ALLOWLIST_SETTING, ""))
+    st.text_area("Allowlist (comma or one per line)", key=ALLOW_EDIT_KEY, height=140,
+                 placeholder="ns:corp-dns.example\n203.0.113.0/24\nAS64500\norg:Example Corp\ntracker:G-ABC123\n"
+                             "registrar:MarkMonitor",
+                 help="IP addresses and ranges, `AS` numbers, `ns:` name servers (a bare host name works too), "
+                      "`org:` certificate subject organizations, `tracker:` web tracker IDs, `registrar:` registrars. "
+                      "Lines starting with # are ignored.")
+    raw = st.session_state[ALLOW_EDIT_KEY]
+    parsed = parse_allowlist(raw)
+    parts = [(len(parsed.networks), "IP ranges"), (len(parsed.asns), "ASNs"), (len(parsed.name_servers), "name servers"),
+             (len(parsed.orgs), "organizations"), (len(parsed.trackers), "trackers"),
+             (len(parsed.registrars), "registrars")]
+    st.markdown("**Recognized:** " + (", ".join(f"{n} {label}" for n, label in parts if n) or "nothing yet"))
+    st.button("Save allowlist", key="allowlist_save", type="primary", on_click=_save_allowlist,
+              disabled=raw == load_settings().get(ALLOWLIST_SETTING, ""), icon=":material/save:")
 
 
 def render_settings():
@@ -244,22 +305,20 @@ def render_settings():
                                "profiles, the brand watchlist and the cache lifetime are saved in dt_settings.json. "
                                "Collection options apply to the next Analyze; thresholds and the brand watchlist "
                                "re-run the detections at once.")
-    tabs = st.tabs(["Collection options", "Use cases & profiles", "Detection thresholds", "Brand watchlist",
-                    "Lookup cache", "API credentials"])
+    tabs = st.tabs(["Collection options", "Detection thresholds", "Brands & allowlist", "Storage & cache",
+                    "API credentials"])
     with tabs[0]:
-        st.caption("The options of the next **Analyze**. Picking a use case or profile on the Start page sets them; "
-                   "changes here apply to this session only (save them as a profile on the next tab to keep them).")
-        render_collection_options()
-        st.markdown("**What the next Analyze looks up, per target domain**")
-        st.dataframe(pd.DataFrame(query_plan({key: st.session_state.get(key) for key in PROFILE_KEYS})).drop(columns="Key"),
-                     hide_index=True, width="stretch")
+        render_options_tab()
     with tabs[1]:
-        render_use_case_settings()
-    with tabs[2]:
         render_threshold_controls()
-    with tabs[3]:
+    with tabs[2]:
+        st.subheader("Brand watchlist")
         render_brand_watchlist()
-    with tabs[4]:
+        st.subheader("Infrastructure allowlist")
+        render_allowlist()
+    with tabs[3]:
         render_cache_settings()
-    with tabs[5]:
+        st.divider()
+        render_retention_settings()
+    with tabs[4]:
         render_credential_status()

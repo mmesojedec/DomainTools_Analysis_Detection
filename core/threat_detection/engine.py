@@ -5,6 +5,7 @@ import pandas as pd
 
 from config import DEFAULT_THRESHOLDS
 from core.alert_grouping import merge_duplicate_alerts
+from core.allowlist import parse_allowlist
 from core.anonymizers import by_ip, tor_exit_lookups, vpndb_lookups
 from core.caa import extract_domain_caa_policy
 from core.cname import build_cname_map
@@ -14,12 +15,30 @@ from core.network_intel import build_ip_intel
 from core.pdns_features import add_event_gaps
 from core.threat_detection.anonymizer_rules import ANONYMIZER_RULES, shared_exit_alerts
 from core.threat_detection.cname_rules import CNAME_RULES, shared_cname_alerts
+from core.threat_detection.compound_rules import (
+    COMPOUND_RULES,
+    bulk_registration_alerts,
+    campaign_wave_alerts,
+    malicious_link_alerts,
+)
 from core.threat_detection.context import ALERT_COLUMNS, MAX_IOC_LINES, DomainContext, evidence_record, fmt_ts
 from core.threat_detection.dns_rules import DNS_RULES, rule_dga_entropy
 from core.threat_detection.enrichment_rules import ENRICHMENT_RULES, apply_popularity, build_tracker_occurrences
 from core.threat_detection.intel_rules import INTEL_RULES
+from core.threat_detection.lifecycle_rules import LIFECYCLE_RULES
 from core.threat_detection.ssl_rules import run_ssl_rules
 from integrations.enrichment import extract_iris_profile
+
+# Rules still kept for domains below the Min Risk Score: their evidence stands on its own (brand lookalikes, takeover
+# risk, CAA breaches, known C2 certificate fingerprints), and new or own domains often have a low risk score
+GATE_EXEMPT_RULES = frozenset({
+    "Phishing Kit Staging", "Mail-Capable Lookalike", "Lure Subdomain",
+    "Homoglyph / IDN Brand Impersonation", "Typosquatting Lookalike", "Combosquatting (Brand + Keyword)",
+    "Brand in Subdomain", "Brand Name on Alternate TLD",
+    "Dangling CNAME (Subdomain Takeover Risk)", "Unverified CNAME to Takeover-Prone Service",
+    "Unauthorized CA Certificate Issuance (CAA Breach)", "Wildcard Issuance Forbidden by CAA Policy",
+    "Known C2 Certificate Fingerprint (JA4X)",
+})
 
 
 @dataclass
@@ -115,7 +134,7 @@ def _hop_alerts(contexts, hops):
 def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrichment_data=None,
                         cert_events_df=None, ip_observations=None, brands=(), official_domains=(),
                         history_gaps=False, window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None,
-                        vpndb_context=None):
+                        vpndb_context=None, verdicts=None, allowlist=None):
     """
     Evaluates DNS/pDNS/Domain History events, SSL/TLS certificates, Iris enrichment, and cross-domain
     correlations per domain on raw UTC timestamps. Returns a ThreatResult.
@@ -156,17 +175,18 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     cname_map = build_cname_map(events, cname_chases)
     cname_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in cname_map.groupby("Domain")} if not cname_map.empty else {}
 
-    contexts = {}
+    contexts, gated_alerts = {}, []
     for domain in sorted(candidates):
         is_ip = is_ip_address(domain)
         risk_display, numeric_risk, evidence = risk_lookup.get(domain, ("N/A", None, "None"))
 
+        gated = False
         if not is_ip:
             if numeric_risk is None:
                 result.unscored_domains.append(domain)
             elif numeric_risk < min_risk:
                 result.skipped_domains.append(domain)
-                continue
+                gated = True
 
         dom_events = events_by_domain.get(domain, pd.DataFrame(columns=events.columns))
         ctx = DomainContext(
@@ -199,15 +219,23 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         if not dom_events.empty:
             for rule in DNS_RULES + CNAME_RULES:
                 rule(ctx)
-        for rule in ENRICHMENT_RULES + INTEL_RULES + ANONYMIZER_RULES:
+        for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES:
             rule(ctx)
         run_ssl_rules(ctx)
-        apply_popularity(ctx)
+        if gated:
+            for rule in COMPOUND_RULES:   # a lookalike's compounds (mail-capable, kit staging) count here too
+                rule(ctx)
+            apply_popularity(ctx)
+            # Below the Min Risk Score only the rules whose evidence stands on its own are kept: a new lookalike or
+            # an own domain with a takeover / CAA problem often has a low score
+            gated_alerts.extend(alert for alert in ctx.alerts if alert["Threat Type"] in GATE_EXEMPT_RULES)
+            continue
 
         result.evaluated_domains.append(domain)
         contexts[domain] = ctx
 
-    result.correlation = correlate(collect_artifacts(events, ssl_df, enrichment_data, ip_intel))
+    allowlist = parse_allowlist(allowlist) if isinstance(allowlist, str) else allowlist
+    result.correlation = correlate(collect_artifacts(events, ssl_df, enrichment_data, ip_intel, allowlist))
     _cluster_alerts(contexts, result.correlation)
     result.hops = detect_domain_hops(ip_observations, thresholds["hop_days"], ip_intel=ip_intel)
     if window_start is not None and not result.hops.empty:
@@ -215,8 +243,21 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     _hop_alerts(contexts, result.hops)
     shared_cname_alerts(contexts, cname_map, cname_rdata)
     shared_exit_alerts(contexts)
+    malicious_link_alerts(contexts, result.correlation, verdicts)
+    bulk_registration_alerts(contexts)
+    campaign_wave_alerts(contexts)
+    for ctx in contexts.values():
+        for rule in COMPOUND_RULES:   # last: they read the flags every other rule set
+            rule(ctx)
+        apply_popularity(ctx)   # after the cross-domain alerts, so they are downgraded on popular domains too
 
-    alerts = [alert for ctx in contexts.values() for alert in ctx.alerts]
+    alerts = gated_alerts + [alert for ctx in contexts.values() for alert in ctx.alerts]
+    if allowlist:
+        for alert in alerts:
+            hit = allowlist.in_text(f"{alert['Threat Logic']}\n{alert['Triggering IOCs']}")
+            if hit:
+                alert["Confidence"] = "Low"
+                alert["Threat Logic"] = f"{alert['Threat Logic']} Names allowlisted infrastructure ({hit}): kept at Low confidence."
 
     if alerts:
         # Rules evaluated per certificate / record can fire several times per domain: one alert per (domain, rule)

@@ -63,16 +63,16 @@ COLLECTION_DEFAULTS = {
     "opt_force_refresh": False,
 }
 WINDOW_KEY = "analysis_window"
-OPTION_LABELS = {
+OPTION_LABELS = {   # the one name of each option: Settings widgets, Start cards, the Reference tables
     "opt_dnsdb_limit": "DNSDB result limit per domain",
     "opt_txt": "TXT lookup", "opt_txt_records": "Latest TXT records per domain",
     "opt_caa": "CAA lookup", "opt_cname": "CNAME lookup",
-    "opt_pivot": "Pivot on hosting IPs", "opt_pivot_max": "Max IPs to pivot on",
-    "opt_pdns_incremental": "Incremental passive DNS", "opt_history_mode": "Domain History period",
-    "opt_history_days": "Domain History period (days)", "opt_history_max": "Domain History changes per domain",
-    "opt_vpndb": "VPN / proxy / Tor check (VPNDB)", "opt_vpndb_only": "Only the VPNDB IP check",
-    "opt_vpndb_max_ips": "VPNDB: hosting IPs per run", "opt_vpndb_details": "VPNDB: full verdicts per run",
-    "opt_vpndb_context": "VPNDB: neighbourhood and leads",
+    "opt_pivot": "Pivot on hosting IPs (domain hopping)", "opt_pivot_max": "Max IPs to pivot on",
+    "opt_pdns_incremental": "Incremental passive DNS (only new records)", "opt_history_mode": "Domain History period",
+    "opt_history_days": "Domain History days", "opt_history_max": "Max changes per domain",
+    "opt_vpndb": "Check hosting IPs for VPN, residential proxy and Tor", "opt_vpndb_only": "Only the VPNDB IP check",
+    "opt_vpndb_max_ips": "VPNDB hosting IPs per run", "opt_vpndb_details": "VPNDB full verdicts per run",
+    "opt_vpndb_context": "VPNDB neighbourhood and leads",
     "opt_ct": "CT log & co-occurrence telemetry", "opt_ct_max": "Max certificates for CT lookups",
     "opt_seed_preselect": "Certificate inputs: pre-selected targets", "opt_force_refresh": "Force refresh",
     WINDOW_KEY: "Analysis window",

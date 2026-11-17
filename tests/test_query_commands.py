@@ -15,7 +15,7 @@ ALL = [*certsql.commands(CERTS, 500, certsql.sort_term("validity_not_before", "d
 
 @pytest.mark.parametrize("label,code", ALL)
 def test_every_command_is_valid_shell_or_python(label, code):
-    if label.startswith("Python"):
+    if label == "Python script":
         ast.parse(code)
         assert "print(json.dumps(" in code and "USERNAME, KEY" not in code   # readable output, keys from env
     elif shutil.which("bash"):
@@ -33,7 +33,7 @@ def test_curl_pipes_the_answer_to_jq_and_still_sends_the_body():
 
 
 def test_python_body_is_the_query_sent():
-    code = certsql.commands(CERTS, 500)["Python (requests)"]
+    code = certsql.commands(CERTS, 500)["Python script"]
     names = {}
     exec(code.split("response =")[0], names)   # stop before the request
     assert names["body"] == certsql.payload(CERTS, 500)

@@ -170,6 +170,35 @@ def test_recent_page_links_a_shared_indicator_to_its_sightings(monkeypatch):
     assert at.session_state["recent_selected"] == "20261104T100000000000Z"   # the newest sighting: run C
 
 
+def test_runs_table_shows_one_row_per_list_until_show_all_runs(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    import core.persistence as persistence
+    from views import recent_view
+    monkeypatch.setattr(persistence, "load_all_runs", runs)
+    monkeypatch.setattr(recent_view, "load_all_runs", runs)
+    monkeypatch.setattr(recent_view, "list_offline_datasets", lambda: [])
+
+    def page():
+        import streamlit as st
+
+        from views import recent_view
+        st.session_state.setdefault("recent_view", "Table")
+        recent_view.render_recent_page("UTC")
+
+    at = AppTest.from_function(page).run(timeout=30)
+    assert not at.exception
+    assert len(at.dataframe[0].value) == 3 and "Newest run" in at.dataframe[0].value.columns   # lists A, B, C
+    at.toggle(key="recent_all_runs").set_value(True).run(timeout=30)
+    assert len(at.dataframe[0].value) == 4 and "Run" in at.dataframe[0].value.columns   # every run
+    key = next(row["key"] for row in run_views.recent_overview(runs(), 4) if row["runs_of_list"] == 2)
+    at.session_state["recent_list"] = key   # a card's Show all runs
+    at.run(timeout=30)
+    assert len(at.dataframe[0].value) == 2
+    at.toggle(key="recent_all_runs").set_value(False).run(timeout=30)
+    assert "recent_list" not in at.session_state and len(at.dataframe[0].value) == 3
+
+
 def test_hunt_map_page_shows_the_hunts_and_the_timeline_of_all_investigations(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
@@ -197,3 +226,12 @@ def test_hunt_map_page_shows_the_hunts_and_the_timeline_of_all_investigations(mo
     at.session_state["hunt_map_tab"] = "All investigations"
     at.run(timeout=30)
     assert not at.exception and len(at.get("plotly_chart")) == 1
+
+
+
+def test_cards_show_each_target_list_once_with_all_its_runs():
+    rows = [{"id": "a3", "key": "A"}, {"id": "b2", "key": "B"}, {"id": "a2", "key": "A"}, {"id": "b1", "key": "B"},
+            {"id": "a1", "key": "A"}, {"id": "c1", "key": "C"}]
+    cards = run_views.group_by_list(rows)
+    assert [(c["id"], [r["id"] for r in c["repeats"]]) for c in cards] == [
+        ("a3", ["a3", "a2", "a1"]), ("b2", ["b2", "b1"]), ("c1", ["c1"])]

@@ -26,19 +26,22 @@ from core.hunt_result import (
     start_links,
     top_types,
 )
-from core.hunt_tree import hunt_members, hunt_root, hunt_tree
+from core.hunt_tree import collapse_repeats, hunt_members, hunt_root, hunt_tree
 from core.hunt_tree import hunt_trail as _trail
+from core.intel_data import SEVERITY_COLORS_ON_DARK
 from core.offline import list_offline_datasets
 from core.persistence import load_all_runs, save_hunt_result, save_watch
 from core.run_history import format_created
+from core.use_cases import find_case
 from views import navigation
+from views.common import empty_state
 from views.history_view import _offline_by_run, render_run_actions
 from views.hunt_actions import current_run_id
 from views.hunt_run_view import render_guide, render_picked, run_dialog
 from views.hunting_graph_view import render_hunting_graph
 
 TAB_KEY = "hunt_map_tab"
-THIS_TAB, COMBINED_TAB, ALL_TAB = "This hunt", "Combined hunts", "All investigations"
+THIS_TAB, COMBINED_TAB, ALL_TAB, PIVOTS_TAB = "This hunt", "Combined hunts", "All investigations", "All pivots"
 HUNT_KEY = "hunt_map_hunt"
 RUN_KEY = "hunt_map_run"
 FILTER_KEY = "hunt_map_filter"
@@ -46,14 +49,24 @@ DEPTH_KEY, DOMAINS_KEY = "hunt_limit_depth", "hunt_limit_domains"
 VERDICTS = ("Malicious cluster", "Suspicious", "Benign", "Inconclusive")
 OPEN_LOADED, OPEN_OTHER, DONE_SHOWN = 6, 3, 4   # open steps drawn under the loaded run / other runs; done steps
 SEVERITIES = (("Critical", "Crit"), ("High", "High"), ("Medium-High", "Med-High"), ("Medium", "Med"), ("Low", "Low"))
-SEVERITY_COLORS = {"Critical": "#ff6b6b", "High": "#ffa94d", "Medium-High": "#ffd43b", "Medium": "#c0c0c0",
-                   "Low": "#9e9e9e"}
+SEVERITY_COLORS = SEVERITY_COLORS_ON_DARK
 RANK = {name: rank for rank, (name, _) in enumerate(SEVERITIES)}
 FILL = {"run": "#2f2f2f", "loaded": "#1f3b57", "done": "#1b5e20", "Branch": "#36404d", "Start": "#5d3a10"}
 HEADER = ('digraph { graph [rankdir=LR, bgcolor="transparent", nodesep=0.18, ranksep=0.45]; '
           'node [shape=box, style="rounded,filled", fontname="Courier", fontsize=9, fontcolor="white", '
           'color="#555555", penwidth=0.6, margin="0.08,0.04"]; '
           'edge [color="#888888", arrowsize=0.5, penwidth=0.8, fontname="Courier", fontsize=8, fontcolor="#aaaaaa"];')
+# Map options (This hunt → Map options): what each box shows, the layout and the size on the page
+DETAILS = {"gain": "New domains & alerts", "types": "Top alert types", "link": "Link to the start",
+           "lookup": "Lookup details (use case, window, options, API queries, what led to it)",
+           "done": "Followed steps"}
+DEFAULT_DETAILS = ("gain", "types", "link", "done")   # hunt_map_dot's default: everything but the lookup details
+MAP_DETAILS = ("gain", "link", "done")                # the page's default: compact boxes
+LAYOUTS = {"Auto": None, "Left to right": "LR", "Top to bottom": "TB"}
+AUTO_LR_RUNS = 3          # Auto: left to right up to this many runs, then top to bottom (a long chain stays readable)
+SIZES = ("Fit", "Fill width")
+MAP_DETAILS_KEY, MAP_LAYOUT_KEY, MAP_SIZE_KEY, MAP_OPEN_KEY = ("hunt_map_details", "hunt_map_layout",
+                                                               "hunt_map_size", "hunt_map_open")
 LEGEND = ("Boxes are runs: targets, when, what the run added to the hunt (new domains and alerts), its alerts and "
           "top alert types, and whether its new domains share infrastructure with the starting point (red outline: "
           "drifted, nothing shared). Dashed boxes are steps still open: orange *start here* (an indicator the alerts "
@@ -100,23 +113,60 @@ def _types_line(snapshot):
     return " · ".join(f"{_short(kind, 22)} ×{count}" for kind, count in types)
 
 
-def _run_label(snapshot, timezone, loaded, gain=None, link=None, root=False):
-    """A run: targets, when and how many domains, what it added to the hunt, its alerts, link to the start."""
+def lookup_lines(snapshot):
+    """What a run looked up: its use case and window, its main collection options, the API queries it made and
+    what led to it (lines for the map's *Lookup details*)."""
+    options = snapshot.get("options") or {}
+    case = find_case(options.get("use_case")) if options.get("use_case") else None
+    window = snapshot.get("window") or options.get("analysis_window")
+    first = " · ".join(filter(None, [case.title if case else "", window]))
+    if options.get("opt_vpndb_only"):
+        parts = ["VPNDB IP check only"]
+    else:
+        parts = [f"DNSDB {int(options['opt_dnsdb_limit']):,}" if options.get("opt_dnsdb_limit") else "",
+                 f"CT {options.get('opt_ct_max')}" if options.get("opt_ct") else "",
+                 "VPNDB" if options.get("opt_vpndb") else "",
+                 f"IP pivots {options.get('opt_pivot_max')}" if options.get("opt_pivot") else ""]
+    queries = snapshot.get("queries") or {}
+    spent = sum(queries.values())
+    lines = [first, " · ".join(filter(None, parts)),
+             f"{spent:,} API quer{'y' if spent == 1 else 'ies'}: " + ", ".join(
+                 f"{_short(name, 18)} {count:,}" for name, count in sorted(queries.items(), key=lambda kv: -kv[1])[:3]
+                 if count) if spent else ""]
+    via = (snapshot.get("parent") or {}).get("via")
+    if via:
+        lines.append("via " + _short(via, 40))
+    return [line for line in lines if line]
+
+
+def _repeat_line(runs, timezone):
+    """'4 runs of these targets · first 11-17 08:00': a box standing for a run and its reruns."""
+    return _e(f"{len(runs)} runs of these targets · first "
+              f"{format_created(runs[0].get('created'), timezone, fmt='%m-%d %H:%M')}")
+
+
+def _run_label(snapshot, timezone, loaded, gain=None, link=None, root=False, details=DEFAULT_DETAILS, runs=None):
+    """A run: targets, when and how many domains, what it added to the hunt, its alerts, link to the start (and the
+    other `details`, see DETAILS)."""
     targets = list(snapshot.get("targets") or [])
     rows = [f"<B>{_e(_targets(snapshot))}</B>",
             _e(f"{format_created(snapshot.get('created'), timezone, fmt='%m-%d %H:%M')} · {len(targets)} domain(s)")]
+    if runs:
+        rows.append(f'<FONT COLOR="#b0bec5">{_repeat_line(runs, timezone)}</FONT>')
     if root:
         rows.append('<FONT COLOR="#90caf9">starting point</FONT>')
-    elif gain is not None:
+    elif gain is not None and "gain" in details:
         color = "#8bc34a" if gain["new_domains"] > CONVERGE_DOMAINS or gain["new_types"] else "#bdbdbd"
         rows.append(f'<FONT COLOR="{color}">' + _e(f"+{gain['new_domains']} new domain(s) · +{gain['new_alerts']} new "
                                                     f"alert(s)" + (f" ({gain['new_high']} High+)" if gain["new_high"]
                                                                    else "")) + "</FONT>")
     rows.append(_alerts_line(snapshot))
-    types = _types_line(snapshot)
+    types = _types_line(snapshot) if "types" in details else ""
     if types:
         rows.append(f'<FONT POINT-SIZE="8" COLOR="#cfcfcf">{_e(types)}</FONT>')
-    if link is not None and not root:
+    if "lookup" in details:
+        rows += [f'<FONT POINT-SIZE="8" COLOR="#b0bec5">{_e(line)}</FONT>' for line in lookup_lines(snapshot)]
+    if link is not None and not root and "link" in details:
         rows.append(f'<FONT COLOR="#90caf9">{_e("linked to start: " + link_text(link))}</FONT>' if link else
                     '<FONT COLOR="#ff8a80">no link to start: drifted</FONT>')
     if loaded:
@@ -191,12 +241,22 @@ def run_items(members, live_items=None, loaded_id=None):
     return result
 
 
-def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highlight=None):
+def map_direction(layout, runs):
+    """Graphviz rankdir of a map layout (LAYOUTS); Auto turns a hunt of more than AUTO_LR_RUNS runs top to bottom."""
+    return LAYOUTS.get(layout) or ("LR" if runs <= AUTO_LR_RUNS else "TB")
+
+
+def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highlight=None, details=DEFAULT_DETAILS,
+                 direction="LR", open_limit=OPEN_LOADED):
     """
     Graphviz DOT of one hunt: its runs (what each added, its alerts, its link to the first run), the steps each run
     left open (dashed) and the ones followed (✓, on to the run they started). `members`: hunt_members();
-    `live_items`: the loaded run's current steps (plan_items()); `highlight`: ("type" | "severity", value).
+    `live_items`: the loaded run's current steps (plan_items()); `highlight`: ("type" | "severity", value);
+    `details`: what the boxes show (DETAILS keys); `direction`: "LR" or "TB"; `open_limit`: open steps drawn under
+    the loaded run (other runs: at most OPEN_OTHER; 0 draws none).
     """
+    members, repeats, alias = collapse_repeats(members)   # reruns of the same targets: one box
+    loaded_id = alias.get(loaded_id, loaded_id)
     snapshots = [snapshot for _, snapshot, _ in members]
     by_id = {snapshot["id"]: snapshot for snapshot in snapshots}
     root = snapshots[0]
@@ -212,7 +272,7 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
         for item in items:
             if item["done"]:
                 done_into.setdefault(item["child"]["id"], set()).add(norm(item["value"]))
-    lines = [HEADER]
+    lines = [HEADER.replace("rankdir=LR", f"rankdir={direction}")]
 
     def dim(hit):
         return "" if hit or not highlight else ', fontcolor="#777777", fillcolor="#1c1c1c", color="#333333"'
@@ -226,9 +286,9 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
             link is not None and not link else ""
         if hit:
             border = ', color="#ff5252", penwidth=2.5'
-        lines.append(f'"run::{run_id}" [label={_run_label(snapshot, timezone, loaded, gains.get(run_id), link, not depth)}'
+        lines.append(f'"run::{run_id}" [label={_run_label(snapshot, timezone, loaded, gains.get(run_id), link, not depth, details, repeats.get(run_id))}'
                      f', fillcolor="{FILL["loaded" if loaded else "run"]}"{border}{dim(hit)}];')
-        if depth > 1 and link:
+        if depth > 1 and link and "link" in details:
             lines.append(f'"run::{root["id"]}" -> "run::{run_id}" [style=dotted, color="#6d8fb3", constraint=false, '
                          f'arrowhead=none, label="{_e("shares " + link_text(link, 2))}", fontcolor="#6d8fb3"];')
         items = steps[run_id]
@@ -238,7 +298,7 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
         for item in done:
             by_child.setdefault(item["child"]["id"], []).append(item)
         parent_id = (snapshot.get("parent") or {}).get("id")
-        for child_id, group in by_child.items():
+        for child_id, group in (by_child.items() if "done" in details else ()):
             repeated = [item for item in group if parent_id and norm(item["value"]) in done_into.get(run_id, set())]
             group = [item for item in group if item not in repeated]
             if repeated:   # steps that had already led to this run: one box, not the same steps all over again
@@ -267,7 +327,7 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
                 lines.append(f'"run::{run_id}" -> "run::{child["id"]}" [color="{"#ab47bc" if joined else "#43a047"}", '
                              + ("style=bold, " if joined else "") + f'label="{_e(("" if joined else "✓ ") + _short(via, 34))}"];')
         open_ = [item for item in items if not item["done"]]
-        limit = OPEN_LOADED if loaded else OPEN_OTHER
+        limit = int(open_limit) if loaded else min(int(open_limit), OPEN_OTHER)
         for item in open_[:limit]:
             node = f"open::{run_id}::{item['id']}"
             item_hit = highlight and matches(highlight, item=item)
@@ -276,11 +336,16 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
                          f'style="rounded,filled,dashed", color="{color}"' + (", penwidth=2" if item_hit else "")
                          + f"{dim(item_hit)}];")
             lines.append(f'"run::{run_id}" -> "{node}" [style=dashed, color="#777777"];')
-        if len(open_) > limit:
+        if len(open_) > limit and limit:
             node = f"open::{run_id}::more"
             lines.append(f'"{node}" [label="+{len(open_) - limit} more open step(s)", style="rounded,dashed", '
                          'fontcolor="#aaaaaa"];')
             lines.append(f'"run::{run_id}" -> "{node}" [style=dashed, color="#777777"];')
+        if direction == "TB" and open_[:limit]:   # top to bottom: a run's open steps on its own row, beside it
+            row = [f'"open::{run_id}::{item["id"]}"' for item in open_[:limit]]
+            row += [f'"open::{run_id}::more"'] if len(open_) > limit else []
+            lines.append(f'{{rank=same; "run::{run_id}"; {"; ".join(row)}}}')
+            lines += [f'{a} -> {b} [style=invis];' for a, b in zip([f'"run::{run_id}"'] + row, row)]   # in order
     return "\n".join(lines + ["}"])
 
 
@@ -350,6 +415,35 @@ def _render_filter(snapshots, key=FILTER_KEY):
     return "type", choice.rsplit(" (", 1)[0]
 
 
+def _map_options():
+    state = st.session_state
+    details = [key for key in state.get(MAP_DETAILS_KEY, MAP_DETAILS) if key in DETAILS]
+    return (tuple(details), state.get(MAP_LAYOUT_KEY, "Auto"), state.get(MAP_SIZE_KEY, SIZES[0]),
+            int(state.get(MAP_OPEN_KEY, OPEN_LOADED)))
+
+
+def _render_map_options():
+    """*Map options*: what the boxes show (add the lookup details as the hunt grows), the layout and the size."""
+    state = st.session_state
+    state.setdefault(MAP_DETAILS_KEY, list(MAP_DETAILS))
+    state.setdefault(MAP_LAYOUT_KEY, "Auto")
+    state.setdefault(MAP_SIZE_KEY, SIZES[0])
+    state.setdefault(MAP_OPEN_KEY, OPEN_LOADED)
+    with st.popover("Map options", icon=":material/tune:", width="stretch"):
+        st.multiselect("Show on the map", list(DETAILS), key=MAP_DETAILS_KEY, format_func=DETAILS.get,
+                       help="Each run's box always shows its targets, when it ran, how many domains and its alerts. "
+                            "Add *Lookup details* to see what each run looked up and how it was reached.")
+        st.number_input("Open steps under the loaded run", 0, 20, key=MAP_OPEN_KEY,
+                        help=f"Other runs show at most {OPEN_OTHER}. 0 hides the open steps (the list below the "
+                             "map still has them).")
+        st.segmented_control("Layout", list(LAYOUTS), key=MAP_LAYOUT_KEY, required=True,
+                             help=f"Auto: left to right up to {AUTO_LR_RUNS} runs, then top to bottom so a long "
+                                  "hunt stays readable.")
+        st.segmented_control("Size", SIZES, key=MAP_SIZE_KEY, required=True,
+                             help="Fit: the map's own size, shrunk to the page when it is wider. Fill width: "
+                                  "stretched to the page width (large for a small hunt).")
+
+
 def _render_limits():
     with st.popover("Hunt limits", icon=":material/tune:"):
         st.number_input("Runs deep", 2, 12, key=DEPTH_KEY, help="The hunt is done at this many runs from the start")
@@ -413,9 +507,10 @@ def _render_result(members, root_key, root, status, timezone, label):
             if closed and st.button("Reopen", key="hunt_reopen", icon=":material/undo:"):
                 save_hunt_result(root_key, root["id"], None)
                 st.rerun()
-            report = hunt_report_html(f"Hunt: {label}", result, runs, status, verdict if closed else None, note)
-            st.download_button("Download hunt report (HTML)", report.encode("utf-8"), "hunt_report.html", "text/html",
-                               icon=":material/download:", on_click="ignore")
+            st.download_button("Download hunt report (HTML)",
+                               lambda: hunt_report_html(f"Hunt: {label}", result, runs, status,
+                                                        verdict if closed else None, note).encode("utf-8"),
+                               "hunt_report.html", "text/html", icon=":material/download:", on_click="ignore")
             if st.button("Use in the case report", key="hunt_case", icon=":material/description:",
                          help="Opens Data Export with this result as the case report's summary"):
                 st.session_state["report_notes"] = case_summary(label, result, status, verdict, note)
@@ -423,9 +518,9 @@ def _render_result(members, root_key, root, status, timezone, label):
             domains = [row["Domain"] for row in result["cluster"]]
             if domains and st.button(f"Watch these {len(domains)} domains", key="hunt_watch",
                                      icon=":material/visibility:",
-                                     help="Adds the cluster as a watched target list (Runs & Diffs → Watched Lists)"):
+                                     help="Adds the cluster as a watched target list (Runs → Compare & trends → Watched Lists)"):
                 save_watch(f"Hunt: {label}", domains)
-                st.toast(f"Watching {len(domains)} domains: Runs & Diffs → Watched Lists")
+                st.toast(f"Watching {len(domains)} domains: Runs → Compare & trends → Watched Lists")
 
 
 def case_summary(label, result, status, verdict, note):
@@ -440,7 +535,7 @@ def case_summary(label, result, status, verdict, note):
 
 
 def _render_run_picker(members, timezone):
-    """Pick a run of the hunt: its alerts and actions (Run again, Load offline copy, Open in Runs & Diffs)."""
+    """Pick a run of the hunt: its alerts and actions (Run again, Load offline copy, Compare & trends)."""
     names = {f"{_targets(snapshot)} · {format_created(snapshot.get('created'), timezone, fmt='%m-%d %H:%M')}":
              (key, snapshot) for key, snapshot, _ in members}
     name = st.pills("Run", list(names), key=RUN_KEY, label_visibility="collapsed",
@@ -542,8 +637,15 @@ def _render_this_hunt(timezone, ctx):
     columns[3].metric("Linked to start", len(result["cluster"]), help="Domains of the start, and every domain the "
                                                                        "hunt found that shares a value with them")
     columns[4].metric("Open next steps", len(open_steps), help="Of the newest run, not followed anywhere in the hunt")
-    highlight = _render_filter(snapshots)
-    st.graphviz_chart(hunt_map_dot(members, timezone, loaded_id if in_hunt else None, live, highlight))
+    c_filter, c_options = st.columns([5, 1], vertical_alignment="bottom")
+    with c_filter:
+        highlight = _render_filter(snapshots)
+    with c_options:
+        _render_map_options()
+    details, layout, size, open_limit = _map_options()
+    st.graphviz_chart(hunt_map_dot(members, timezone, loaded_id if in_hunt else None, live, highlight, details,
+                                   map_direction(layout, len(members)), open_limit),
+                      width="stretch" if size == "Fill width" else "content")   # Fit: its own size, shrunk to the page
     st.caption(LEGEND)
     from views.hunt_combine_view import render_join_controls  # it imports this module
     render_join_controls(runs, members)
@@ -561,11 +663,12 @@ def _render_this_hunt(timezone, ctx):
 
 
 def render_hunt_map(timezone="UTC", ctx=None):
-    st.subheader("Hunt map", help="Read from the loaded run and the saved runs (dt_runs/); nothing here makes an API "
-                                  "call until you click a step's button.")
+    st.header("Hunt map", help="Read from the loaded run and the saved runs (dt_runs/); nothing here makes an API "
+                               "call until you click a step's button.")
     st.caption("Where your hunt stands and where to go next: every run, the steps each one suggested (open, or done "
                "and linked to the run they started), and the loaded run's next steps to run.")
-    tabs = st.tabs([THIS_TAB, COMBINED_TAB, ALL_TAB], key=TAB_KEY, on_change="rerun")
+    tabs = st.tabs([THIS_TAB, COMBINED_TAB, ALL_TAB, PIVOTS_TAB], key=TAB_KEY, on_change="rerun")
+    navigation.scroll_to_tab()
     if tabs[0].open is not False:
         with tabs[0]:
             _render_this_hunt(timezone, ctx)
@@ -576,3 +679,10 @@ def render_hunt_map(timezone="UTC", ctx=None):
     if tabs[2].open is not False:
         with tabs[2]:
             render_hunting_graph(timezone, header=False)
+    if tabs[3].open is not False:
+        with tabs[3]:
+            if ctx is None or ctx.ds is None:
+                empty_state("No analysis loaded: the pivots are the values the loaded run's domains share.", "home")
+            else:
+                from views.pivot_view import render_pivot_lens  # it imports the hunt actions, which import this page
+                render_pivot_lens(ctx.ds)

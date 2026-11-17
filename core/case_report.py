@@ -9,12 +9,9 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from core.run_history import SEVERITY_ORDER
+from core.intel_data import CONFIDENCE_ORDER, SEVERITY_COLORS, SEVERITY_ORDER
 from integrations.enrichment import extract_iris_profile
 
-CONFIDENCE_ORDER = ["High", "Medium", "Low"]
-SEVERITY_COLORS = {"Critical": "#b91c1c", "High": "#dc2626", "Medium-High": "#ea580c", "Medium": "#d97706",
-                   "Low": "#2563eb"}
 PROFILE_COLUMNS = ["Domain", "Unified Risk", "Base Domain Risk Score", "Alerts", "DIF Breakdown"]
 EVIDENCE_CHARS = 700            # evidence text kept per alert (the rest is in the app and the data export)
 CSS = """

@@ -238,15 +238,12 @@ def test_guided_hunt_banner_skips_and_stops_and_picked_steps_offer_one_run():
     assert "hunt_guide" not in at.session_state
 
 
-def test_analyze_on_a_picked_step_starts_the_run_after_the_target_box_is_drawn(monkeypatch):
+def test_analyze_on_a_picked_step_starts_the_run(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     def page():
-        import streamlit as st
 
         from views.hunt_run_view import render_picked
-        from views.sidebar import TARGETS_KEY
-        st.sidebar.text_area("Targets", key=TARGETS_KEY)   # drawn before the step's buttons, as in the app
         item = {"id": "c", "step": 1, "source": "Start", "kind": "Certificate", "value": "ab" * 32,
                 "action": "Analyze", "target": "sha256:" + "ab" * 32, "search": "", "score": 50, "why": "1 alert",
                 "done": False}
@@ -267,3 +264,47 @@ def test_more_leads_leaves_out_what_the_suggested_hunt_lists(monkeypatch):
     monkeypatch.setattr(hunt_next_view, "dataset_pivots", lambda ds: None)
     monkeypatch.setattr(hunt_next_view, "top_leads", lambda pivots: leads)
     assert hunt_next_view.more_leads(None, {"ab", "1.2.3.4"})["Value"].tolist() == ["x@y.com"]
+
+
+def test_map_options_choose_the_details_layout_and_open_steps():
+    from views.hunt_map_view import hunt_map_dot, lookup_lines, map_direction
+    step = {"id": "s1", "step": 1, "source": "Branch", "kind": "IP", "value": "45.13.20.7", "target": "45.13.20.7",
+            "search": "", "score": 50, "why": "", "done": False, "types": ["Fast-Flux DNS"]}
+    root = {"id": "r1", "created": "2026-11-02T09:10:00Z", "targets": ["a.com"], "window": "Last 30 days",
+            "options": {"use_case": "triage", "opt_dnsdb_limit": 5000, "opt_ct": True, "opt_ct_max": 10},
+            "queries": {"Iris Investigate": 1, "DNSDB": 4},
+            "alerts": [{"Domain": "a.com", "Threat Type": "Fast-Flux DNS", "Severity": "High"}], "plan": [step]}
+    child = {"id": "r2", "created": "2026-11-02T09:25:00Z", "targets": ["b.com"], "alerts": [],
+             "parent": {"id": "r1", "via": "Analyze now: c.com"}}
+    assert lookup_lines(root) == ["Triage a suspicious domain · Last 30 days", "DNSDB 5,000 · CT 10",
+                                  "5 API queries: DNSDB 4, Iris Investigate 1"]
+    assert lookup_lines(child) == ["via Analyze now: c.com"]
+    members = [("k", root, 0), ("k", child, 1)]
+    compact = hunt_map_dot(members, details=("gain",), direction="TB", open_limit=0)
+    assert "rankdir=TB" in compact and "Fast-Flux" not in compact and "DNSDB 5,000" not in compact
+    assert "linked to start" not in compact and "no link to start" not in compact and "open::" not in compact
+    full = hunt_map_dot(members, details=("gain", "types", "link", "lookup", "done"))
+    assert "rankdir=LR" in full and "DNSDB 5,000 · CT 10" in full and "via Analyze now" in full
+    assert '"run::r1" -> "open::r1::45.13.20.7"' in full
+    assert map_direction("Auto", 3) == "LR" and map_direction("Auto", 4) == "TB" and map_direction("Top to bottom", 1) == "TB"
+
+
+def test_reruns_of_the_same_targets_are_one_box_on_the_map():
+    from core.hunt_tree import collapse_repeats
+    from views.hunt_map_view import hunt_map_dot
+    targets = ["7h1r0.cc", "spr7tsc.cc"]
+    r1 = {"id": "r1", "created": "2026-11-17T08:00:00Z", "targets": targets, "alerts": []}
+    r2 = {"id": "r2", "created": "2026-11-17T09:00:00Z", "targets": targets, "alerts": [],
+          "parent": {"id": "r1", "via": "Run again"}}
+    r3 = {"id": "r3", "created": "2026-11-17T10:00:00Z", "targets": list(reversed(targets)),
+          "alerts": [{"Domain": "7h1r0.cc", "Threat Type": "Fast-Flux DNS", "Severity": "High"}],
+          "parent": {"id": "r2", "via": "Same targets again"}}
+    r4 = {"id": "r4", "created": "2026-11-17T11:00:00Z", "targets": ["other.cc"], "alerts": [],
+          "parent": {"id": "r3", "via": "Analyze now: other.cc"}}
+    members, repeats, alias = collapse_repeats([("k", r1, 0), ("k", r2, 1), ("k", r3, 2), ("k", r4, 3)])
+    assert [(s["id"], d) for _, s, d in members] == [("r1", 0), ("r4", 1)]
+    assert [s["id"] for s in repeats["r1"]] == ["r1", "r2", "r3"] and alias["r3"] == "r1"
+    assert members[0][1]["alerts"] == r3["alerts"] and members[1][1]["parent"]["id"] == "r1"   # newest results
+    dot = hunt_map_dot([("k", r1, 0), ("k", r2, 1), ("k", r3, 2), ("k", r4, 3)], loaded_id="r3")
+    assert dot.count('[label=<<TABLE') == 2 and "3 runs of these targets" in dot and "● loaded" in dot
+    assert '"run::r1" -> "run::r4"' in dot and "run::r2" not in dot

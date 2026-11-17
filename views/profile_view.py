@@ -13,7 +13,9 @@ from core.triage import DOMAIN, STATUS_HELP, STATUSES, load_triage, set_status, 
 from integrations.enrichment import extract_iris_profile
 from views import navigation
 from views.anonymizer_view import CATEGORY_BADGES, alerts_button, selectable_table
+from views.common import metric_slots
 from views.history_cap import render_history_cap_notice
+from views.query_editor import set_query
 
 LATEST_PER_TYPE = 5
 
@@ -100,6 +102,29 @@ def _render_vpndb(ds, domain, current_ips, window_ips):
         navigation.link("vpndb", label="Every checked IP (VPNDB page)", container=c_dns)
 
 
+def _render_actions(domain):
+    """One row of next moves for the domain: where else it was seen, IrisQL / CertsQL searches, a copyable name."""
+    from views.certsql_view import QUERY_KEY as CERTSQL_KEY  # the query pages import this page's helpers
+    from views.irisql_view import QUERY_KEY as IRISQL_KEY
+    from views.recent_view import open_sightings
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if st.button("Where else seen", key="profile_seen", icon=":material/visibility:", type="tertiary",
+                     help="Runs → Indicator Sightings for this domain (local files, no API query)"):
+            open_sightings(domain)
+        if st.button("Similar names in IrisQL", key="profile_irisql", icon=":material/manage_search:", type="tertiary",
+                     help="Opens IrisQL with a query for domains whose name contains this domain's name; edit it, then "
+                          "Search (one Iris Investigate query)"):
+            set_query(IRISQL_KEY, f'# IrisQL-1.0\nDOMAIN CONTAINS "{domain.split(".")[0]}"')
+            navigation.go("irisql")
+        if st.button("Its certificates in CertsQL", key="profile_certsql", icon=":material/badge:", type="tertiary",
+                     help="Opens CertsQL with a query for certificates naming this domain or its subdomains; Search "
+                          "there runs it"):
+            set_query(CERTSQL_KEY, f'# CertsQL-1.0\nsan_dns ends_with ".{domain}"\nsan_dns equals "{domain}"')
+            navigation.go("certsql")
+        with st.popover("Copy", icon=":material/content_copy:"):
+            st.code(domain, language="text")
+
+
 def render_profile(ctx):
     ds, view, profiles = ctx.ds, ctx.view, ctx.profiles
     domains = list(ds.selected_domains)
@@ -128,7 +153,7 @@ def render_profile(ctx):
         ("Hostnames with a CNAME", f"{mine['Hostname'].nunique():,}" if not mine.empty else "0", "In the analysis window"),
         ("Certificates", f"{certs['Hash'].nunique() if 'Hash' in certs else len(certs):,}", "In the analysis window"),
     ]
-    for col, (label, value, help_text) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value, help_text) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, value, help=help_text)
     if profile is not None and profile.get("DIF Breakdown"):
         st.caption(f"**DIF** `{profile['DIF Fingerprint']}` — {profile['DIF Breakdown']}")
@@ -137,6 +162,7 @@ def render_profile(ctx):
         if drivers:
             st.caption("**Why this score:** " + md_escape(drivers_text(drivers)))
     _render_verdict(domain)
+    _render_actions(domain)
 
     iris = extract_iris_profile(ds.enrichment.get(domain, {}))
     c_reg, c_host = st.columns(2)

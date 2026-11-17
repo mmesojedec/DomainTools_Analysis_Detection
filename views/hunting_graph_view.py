@@ -64,7 +64,7 @@ def render_hunting_graph(timezone="UTC", header=True):
                                   help="Leave out runs with no arrow and no dashed line.")
     nodes, edges = graph_data(all_runs, int(max_runs), set(kinds), linked_only)
     if not nodes:
-        st.info("None of these runs are linked yet. Start a run from a lead (Summary, Certificates, Pivot Ranking) or "
+        st.info("None of these runs are linked yet. Start a run from a lead (Summary, Certificates, All pivots) or "
                 "turn off *Only linked runs* to see them all.")
         return
     labels = _list_labels(all_runs)

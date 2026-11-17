@@ -16,7 +16,7 @@ ATT&CK mapping), see the [User Guide](USER_GUIDE.md).
 
 - **Python 3.11 or newer.** The credentials file is read with the standard library `tomllib`. Tested with
   Python 3.14, Streamlit 1.66, pandas 3.0, Plotly 7.1 and `domaintools_api` 2.10.
-- **Streamlit 1.66 or newer** (`requirements.txt`): the Data Export page builds its files only when you click
+- **Streamlit 1.66 or newer** (`requirements.txt`): the Export & report page builds its files only when you click
   Download, and the IrisQL / CertsQL query editor is a Streamlit custom component (`st.components.v2`). The
   editor's CodeMirror 5 library ships with the app in `views/assets/codemirror` (MIT license there): nothing extra
   to install, and no internet access needed for it.

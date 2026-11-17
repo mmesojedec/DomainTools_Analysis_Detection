@@ -8,8 +8,9 @@ from contextlib import nullcontext
 import pandas as pd
 import streamlit as st
 
-from config import SEED_MAX_TARGETS
+from config import SEED_MAX_TARGETS, SETTINGS_FILE, SUPPRESSIONS_FILE, TRIAGE_FILE
 from core.account import unavailable_stages
+from core.allowlist import ALLOWLIST_SETTING
 from core.api_usage import queries_by_product
 from core.cert_inputs import idn_conversions, parse_inputs, run_key_labels
 from core.dataset import build_dataset
@@ -19,6 +20,7 @@ from core.persistence import (
     apply_suppressions,
     collect_run_artifacts,
     load_runs,
+    load_settings,
     load_suppressions,
     new_alert_mask,
     runs_before,
@@ -28,7 +30,7 @@ from core.persistence import (
 from core.risk_profile import generate_digital_risk_profile
 from core.run_history import alert_lifecycle, diff_artifacts, first_detected_mask, format_created, resolved_since
 from core.threat_detection import detect_threat_flags
-from core.triage import attach_status, load_triage
+from core.triage import attach_status, calibrate_alerts, domain_verdicts, load_triage, rule_feedback
 from core.window import resolve_window
 from integrations.account import account_products
 from integrations.cache import clear_all_caches, prune_cache, refreshing
@@ -47,17 +49,16 @@ from views.certsql_view import render_certsql_page
 from views.cname_view import render_cname_lens
 from views.collection_progress import PROGRESS_KEY, live_progress
 from views.collection_progress import summary as collection_summary
-from views.common import install_copy_fallback, render_window_banner
+from views.common import empty_state, install_copy_fallback, render_window_banner
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
-from views.history_view import OFFLINE_SAVED_KEY, render_offline_datasets, render_run_history
+from views.history_view import render_offline_datasets, render_run_history
 from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
 from views.hunt_map_view import render_hunt_map
-from views.infra_view import render_infra_lens
+from views.infra_view import INFRA_TABS, render_infra_tab
 from views.irisql_view import ORIGIN_KEY as IRISQL_ORIGIN_KEY
 from views.irisql_view import render_irisql_page
-from views.pivot_view import render_pivot_lens
 from views.profile_view import render_profile
 from views.query_view import render_query_lens
 from views.quota_banner import render_quota_banners
@@ -67,25 +68,17 @@ from views.risk_view import render_risk_lens
 from views.seed_view import render_seed_preview, render_seed_provenance, render_seed_query_step
 from views.settings_view import brand_watchlist, render_settings
 from views.sidebar import (
-    DATA_MODE_KEY,
     HUNT_KEY,
-    LAST_PAGE_KEY,
-    LIVE_MODE,
-    OFFLINE_ARRIVE_KEY,
-    OFFLINE_MODE,
-    OFFLINE_SELECT_KEY,
-    QUERY_MODES,
     LookupSettings,
     current_thresholds,
     init_state,
     is_analyst,
-    render_analysis_window,
+    pending_lookup,
+    render_analyst_options,
     render_apex_notice,
     render_global_filters,
     render_idn_notice,
     render_logo,
-    render_lookup_controls,
-    render_timezone_selector,
     run_options,
     show_pending_toast,
 )
@@ -120,14 +113,21 @@ CACHE_HASH_FUNCS = {pd.DataFrame: _frame_digest}
 @st.cache_data(show_spinner=False, max_entries=16, hash_funcs=CACHE_HASH_FUNCS)
 def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip_observations, brands, official_domains,
                       window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None, exit_weeks=None,
-                      neighbour_ranges=None, hosting_asns=None, tor_overview=None):
+                      neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist=""):
     return detect_threat_flags(
         events, thresholds, risk_df=risk, ssl_df=ssl, enrichment_data=enrichment, cert_events_df=cert_events,
         ip_observations=ip_observations, brands=brands, official_domains=official_domains,
         history_gaps=True, window_start=window_start, cname_chases=cname_chases, cname_rdata=cname_rdata,
         anonymizers=anonymizers, vpndb_context={"exit_weeks": exit_weeks, "neighbour_ranges": neighbour_ranges,
                                                 "hosting_asns": hosting_asns, "tor_overview": tor_overview},
+        verdicts=verdicts, allowlist=allowlist,
     )
+
+
+def analyst_inputs():
+    """What the analyst's files add to the detections: domain verdicts (Malicious ones link their cluster) and the
+    infrastructure allowlist text."""
+    return {"verdicts": domain_verdicts(load_triage()), "allowlist": load_settings().get(ALLOWLIST_SETTING, "")}
 
 
 def vpndb_frames(ds):
@@ -143,7 +143,7 @@ def count_alerts_outside_window(ds, thresholds, windowed_alerts, suppressions):
     full = run_threat_engine(ds.events_all_utc, thresholds, ds.risk, ds.ssl_all_utc, ds.enrichment, ds.cert_hostnames_all,
                              ds.ip_observations, *brand_watchlist(), cname_chases=ds.cname_chases, cname_rdata=ds.cname_rdata,
                              anonymizers=ds.anonymizers,
-                             **vpndb_frames(ds))
+                             **vpndb_frames(ds), **analyst_inputs())
     full_active, _ = apply_suppressions(full.alerts, suppressions)
     if full_active.empty:
         return 0, full_active
@@ -270,7 +270,7 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
         errors = sum(1 for row in collected.statuses if row["Status"] == "Error")
         done = f"Collection complete: {collection_summary(st.session_state[PROGRESS_KEY])}"
         status.update(
-            label=f"{done} ({errors} source error(s) - see Data Source Status)" if errors else done,
+            label=f"{done} ({errors} source error(s) - see the Data sources page)" if errors else done,
             state="error" if errors and not collected.has_data else "complete",
             expanded=False,
         )
@@ -352,7 +352,8 @@ def build_alert_view(threats):
         runs_seen = lifecycle["Runs Seen"].to_dict()
         active["First Detected"] = pd.to_datetime([first.get(k) for k in keys], utc=True).tz_localize(None)
         active["Runs Seen"] = [runs_seen.get(k, 1) for k in keys]
-        active = attach_status(active, load_triage())
+        triage = load_triage()
+        active = calibrate_alerts(attach_status(active, triage), rule_feedback(triage))
     return AlertView(
         active=active, suppressed=suppressed, suppressions=suppressions, previous_snapshot=previous,
         new_mask=new_alert_mask(active, previous),
@@ -399,8 +400,7 @@ def save_offline_now():
         update_offline_manifest(manifest["id"], run_id=st.session_state.current_run_id)
     else:
         st.session_state.offline_pending_id = manifest["id"]
-    st.toast(f"Offline copy saved ({format_size(manifest['size_bytes'])}): Data source → Offline dataset, or Run "
-             "History → Offline datasets.")
+    st.toast(f"Offline copy saved ({format_size(manifest['size_bytes'])}): Data → Saved datasets.")
 
 
 def render_origin_banner():
@@ -473,18 +473,36 @@ def build_context(collected, timezone, window, thresholds, step=lambda label: No
     selected_domains, selected_dh, selected_pdns, host_focus = render_global_filters(collected)
     step("Building the timelines, passive DNS and certificate tables...")
     ds = reuse_dataset(collected, selected_domains, selected_dh, selected_pdns, timezone, window, host_focus)
+    # Detections, alert view and risk profiles depend only on the dataset, the thresholds and the analyst's files
+    # (settings: brand watchlist; suppressions; triage): reused across reruns and pages until one of them changes
+    key = (id(ds), repr(sorted(thresholds.items())), _mtimes(), id(st.session_state.get("previous_snapshot")),
+           id(st.session_state.get("run_history_before")), id(st.session_state.get("run_artifacts")))
+    memo = st.session_state.get(CONTEXT_MEMO_KEY)
+    if memo and memo[0] == key and memo[1] is ds and not st.session_state.get("snapshot_pending"):
+        return dataclasses.replace(memo[2], timezone=timezone, window=window, collected=collected)
     step("Running the detection rules...")
     threats = run_threat_engine(ds.events_utc, thresholds, ds.risk, ds.ssl_utc, ds.enrichment, ds.cert_hostnames,
                                 ds.ip_observations, *brand_watchlist(), window.start,
                                 cname_chases=ds.cname_chases, cname_rdata=ds.cname_rdata, anonymizers=ds.anonymizers,
-                             **vpndb_frames(ds))
+                                **vpndb_frames(ds), **analyst_inputs())
     step("Comparing with earlier runs and building the risk profiles...")
     view = build_alert_view(threats)
     profiles = build_risk_profiles(ds.selected_domains, view.active.drop(columns=["Evidence"], errors="ignore"), ds.risk,
                                    ds.ssl, ds.pdns, ds.enrichment)
     save_pending_snapshot(view, profiles, ds.host_focus)
     outside = count_alerts_outside_window(ds, thresholds, view.active, view.suppressions)
-    return Context(timezone, window, thresholds, collected, ds, threats, view, profiles, outside)
+    context = Context(timezone, window, thresholds, collected, ds, threats, view, profiles, outside)
+    st.session_state[CONTEXT_MEMO_KEY] = (key, ds, context)   # holding `ds` keeps its id from being reused
+    return context
+
+
+CONTEXT_MEMO_KEY = "context_memo"
+
+
+def _mtimes():
+    """Modification times of the files the analysis reads (settings, suppressions, triage decisions)."""
+    return tuple(path.stat().st_mtime_ns if path.exists() else 0
+                 for path in (SETTINGS_FILE, SUPPRESSIONS_FILE, TRIAGE_FILE))
 
 
 def _pending_step(key, page):
@@ -514,20 +532,22 @@ def render_status_chip():
     statuses = pd.DataFrame(collected.statuses) if collected.statuses else pd.DataFrame(columns=["Status", "Detail"])
     cached = int(statuses["Detail"].astype(str).str.contains("From cache").sum()) if "Detail" in statuses else 0
     errors, partial = int((statuses["Status"] == "Error").sum()), int((statuses["Status"] == "Partial").sum())
-    c_text, c_save, c_link = st.columns([4.2, 1.8, 1], vertical_alignment="center")
-    if origin.get("mode") == "live" and not origin.get("offline_id"):
-        c_save.button("Save offline copy", key="save_offline_now", on_click=save_offline_now, type="tertiary",
+    with st.container(horizontal=True, vertical_alignment="center", gap="small"):   # wraps on narrow screens
+        st.caption(f"{where} · {', '.join(collected.targets[:4])}{' …' if len(collected.targets) > 4 else ''} · "
+                   f"{CTX.window.label} · {len(statuses):,} lookups, {cached:,} from cache"
+                   + (f" · :red[{errors} error(s)]" if errors else "") + (f" · :orange[{partial} partial]" if partial else ""))
+        with st.popover("Targets", icon=":material/content_copy:", help="Copy the analyzed targets"):
+            st.code("\n".join(collected.targets), language="text")
+        if origin.get("mode") == "live" and not origin.get("offline_id"):
+            st.button("Save offline copy", key="save_offline_now", on_click=save_offline_now, type="tertiary",
                       icon=":material/save:",
                       help="Saves everything this run collected, with the lookups made since (CNAME chases ...), to "
                            "dt_offline/ (local, git-ignored), so it can be re-analyzed later without API calls.")
-    elif origin.get("mode") == "live":
-        c_save.caption(":material/check: Offline copy saved")
+        elif origin.get("mode") == "live":
+            st.caption(":material/check: Offline copy saved")
+        navigation.link("sources", label="Data sources")
     if st.session_state.get(OFFLINE_SAVE_ERROR):
         st.error(f"Offline copy could not be saved: {st.session_state.pop(OFFLINE_SAVE_ERROR)}")
-    c_text.caption(f"{where} · {', '.join(collected.targets[:4])}{' …' if len(collected.targets) > 4 else ''} · "
-                   f"{CTX.window.label} · {len(statuses):,} lookups, {cached:,} from cache"
-                   + (f" · :red[{errors} error(s)]" if errors else "") + (f" · :orange[{partial} partial]" if partial else ""))
-    navigation.link("sources", label="Data sources", container=c_link)
     if CTX.ds.host_focus:
         st.info("**Hostname focus:** " + md_escape("; ".join(f"{apex}: {', '.join(hosts)}"
                                                            for apex, hosts in CTX.ds.host_focus.items()))
@@ -548,9 +568,9 @@ def data_page(render):
                 render_status_panel(collected.statuses, expanded=True)
                 st.warning("Analysis completed, but no telemetry or historical data was returned for the provided targets.")
             else:
-                st.info("No analysis loaded yet. Enter targets in the sidebar and click **Analyze**, or load an offline "
-                        "dataset.")
-            navigation.link("home", label="Pick a use case on the Start page")
+                empty_state("No analysis loaded yet. Enter targets on the Start page and click "
+                            "**Analyze**, or load a saved dataset.", "home", "Go to the Start page")
+                navigation.link("offline", label="Saved datasets")
             return
         render_status_chip()
         render()
@@ -566,10 +586,23 @@ def page_alerts():
     render_risk_lens(CTX.ds, CTX.profiles, CTX.threats, CTX.thresholds, CTX.view)
 
 
+DNS_TAB_KEY = "dns_tab"
+
+
 def page_dns():
+    st.header(navigation.title("dns"), help="Domain History and passive DNS over time, subdomains and IP clusters, web "
+                                            "trackers and TXT fingerprints, and the campaign and hosting view.")
     render_anonymizer_summary(CTX.ds)
-    render_infra_lens(CTX.ds)
-    render_campaign_lens(CTX.ds, CTX.threats, CTX.view.active)
+    names = [*INFRA_TABS, "Campaign & hosting"]
+    tabs = st.tabs(names, key=DNS_TAB_KEY, on_change="rerun")
+    navigation.scroll_to_tab()
+    for tab, name in zip(tabs, names):   # only the open tab is drawn (about 17 charts on one scroll otherwise)
+        if tab.open is not False:
+            with tab:
+                if name == "Campaign & hosting":
+                    render_campaign_lens(CTX.ds, CTX.threats, CTX.view.active)
+                else:
+                    render_infra_tab(CTX.ds, name)
 
 
 def page_sources():
@@ -583,38 +616,34 @@ def page_sources():
     render_seed_provenance(CTX.collected)
 
 
-def page_save():
-    """Top menu *Save offline copy*: saves the run on screen (no API calls), then opens Offline Datasets with it
-    selected so it can be named."""
-    collected = st.session_state.get("collected")
-    origin = st.session_state.get("data_origin") or {}
-    st.header("Save offline copy")
-    if collected is None:
-        st.info("Nothing to save yet: analyze some targets first. Saved datasets are listed under Manage Data → "
-                "Offline Datasets.")
-        navigation.link("offline", label="Open Offline Datasets")
-        return
-    if origin.get("mode") == "live" and not origin.get("offline_id"):
-        save_offline_now()
-    error = st.session_state.pop(OFFLINE_SAVE_ERROR, None)
-    if error:
-        st.error(f"The offline copy could not be saved: {error}")
-        return
-    dataset_id = origin.get("offline_id") or (origin.get("manifest") or {}).get("id")
-    navigation.go("offline", **({OFFLINE_SELECT_KEY: dataset_id, OFFLINE_SAVED_KEY: dataset_id} if dataset_id else {}))
-
-
 def page_history():
     collected = st.session_state.get("collected")
     render_run_history(run_key(collected) if collected is not None else None, CTX.timezone,
                        st.session_state.get("current_run_id"))
 
 
+EVIDENCE_TAB_KEY = "evidence_tab"
+
+
+def page_evidence():
+    st.header(navigation.title("evidence"), help="What the run collected, as received, and every lookup it made as a "
+                                                 "query or command to reuse outside the app.")
+    names = ["Records", "Lookup queries"]
+    tabs = st.tabs(names, key=EVIDENCE_TAB_KEY, on_change="rerun")
+    navigation.scroll_to_tab()
+    if tabs[0].open is not False:
+        with tabs[0]:
+            render_raw_lens(CTX.ds)
+    if tabs[1].open is not False:
+        with tabs[1]:
+            render_query_lens(CTX.collected, st.session_state.get("run_created"))
+
+
 PAGE_FUNCTIONS = {
     "home": page_home,
     "irisql": render_irisql_page,
     "certsql": render_certsql_page,
-    "recent": lambda: render_recent_page(CTX.timezone),
+    "recent": lambda: render_recent_page(CTX.timezone, page_history),
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),
     "alerts": data_page(page_alerts),
@@ -623,18 +652,15 @@ PAGE_FUNCTIONS = {
     "tor": data_page(lambda: render_tor_page(CTX.ds)),
     "cname": data_page(lambda: render_cname_lens(CTX.ds, CTX.collected)),
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
-    "pivots": data_page(lambda: render_pivot_lens(CTX.ds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
-    "hunt_tree": lambda: render_hunt_map(CTX.timezone, CTX),
+    "hunt_tree": lambda: (render_status_chip() if CTX.ds is not None else None, render_hunt_map(CTX.timezone, CTX)),
     "sources": data_page(page_sources),
-    "raw": data_page(lambda: render_raw_lens(CTX.ds)),
-    "queries": data_page(lambda: render_query_lens(CTX.collected, st.session_state.get("run_created"))),
+    "evidence": data_page(page_evidence),
     "export": data_page(lambda: render_export_lens(CTX.ds, CTX.collected, CTX.view.active.reset_index(drop=True),
-                                                   CTX.profiles, st.session_state.get("run_created"))),
-    "history": page_history,
+                                                   CTX.profiles, st.session_state.get("run_created"),
+                                                   CTX.threats.correlation)),
     "offline": render_offline_datasets,
-    "save": page_save,
     "settings": render_settings,
     "account": render_account_page,
     "docs": lambda: render_doc_page(st.query_params.get("doc"), st.query_params.get("topic", "")),
@@ -653,32 +679,16 @@ def main():
             nav.run()
         return
     render_docs_link()
-    query_pages = {page: mode for mode, page in QUERY_MODES.items()}   # irisql -> IrisQL, certsql -> CertsQL
-    last_page = st.session_state.get(LAST_PAGE_KEY)
-    if st.session_state.pop(OFFLINE_ARRIVE_KEY, False):   # sent to Offline Datasets by Data source → Offline dataset
-        st.session_state[DATA_MODE_KEY] = OFFLINE_MODE
-    elif nav.url_path in query_pages and nav.url_path != last_page:   # Data source follows the query pages:
-        st.session_state[DATA_MODE_KEY] = query_pages[nav.url_path]      # selected on one, back to live off it
-    elif last_page in query_pages and nav.url_path not in query_pages \
-            and st.session_state.get(DATA_MODE_KEY) == query_pages[last_page]:
-        st.session_state[DATA_MODE_KEY] = LIVE_MODE
-    elif st.session_state.get(LAST_PAGE_KEY) == "offline" and nav.url_path != "offline" \
-            and st.session_state.get(DATA_MODE_KEY) == OFFLINE_MODE:   # Offline dataset lives on Offline Datasets
-        st.session_state[DATA_MODE_KEY] = LIVE_MODE
-    st.session_state[LAST_PAGE_KEY] = nav.url_path
-
-    settings = render_lookup_controls(navigation.page("settings"))
+    settings = pending_lookup()
     settings = st.session_state.pop(RERUN_KEY, None) or settings   # a re-run asked for on the Data sources page
-    hunt = st.session_state.pop(HUNT_KEY, None)   # "Analyze as a new run" on a lead: targets are in the box already
+    hunt = st.session_state.pop(HUNT_KEY, None)   # "Analyze now" on a lead: its targets are set already
     direct = bool(hunt and hunt.get("direct"))   # a suggested-hunt step: no certificate review screens
     if hunt and not settings.run and settings.mode == "live" and settings.raw_input.strip():
         settings = dataclasses.replace(settings, run=True)
         st.session_state[HUNT_PARENT_KEY] = {"id": hunt.get("id"), "via": hunt.get("via")}
     elif settings.run:
         st.session_state.pop(HUNT_PARENT_KEY, None)
-    st.sidebar.divider()
-    window_choice = render_analysis_window()
-    timezone = render_timezone_selector()
+    window_choice, timezone = render_analyst_options(navigation.page("settings"))
     window = resolve_window(window_choice.preset, window_choice.custom_range, timezone)
     st.session_state.window_label = window.label
     thresholds = current_thresholds()
@@ -694,6 +704,8 @@ def main():
             run_collection(settings, direct=direct)
         if st.session_state.get("collected") is not before and not st.session_state.get("seed_queries") \
                 and not direct:
+            if (st.session_state.get(HUNT_PARENT_KEY) or {}).get("id") and navigation.page("hunt_tree") is not None:
+                navigation.open_tab("hunt_tree", "hunt_map_tab", "This hunt")   # a run that grows a hunt: its map
             navigation.go("summary")   # a new analysis opens on its Summary (a hunt step stays on the Hunt map)
     render_apex_notice(st.session_state.get("apex_conversions"))
     render_idn_notice(st.session_state.get("idn_conversions"))

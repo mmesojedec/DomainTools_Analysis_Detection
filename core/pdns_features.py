@@ -4,13 +4,6 @@ import pandas as pd
 PDNS_COLUMNS = ["Domain", "RRName", "Field", "Value", "Count", "Source", "Bailiwick", "First Seen", "Last Seen"]
 
 
-def to_naive_utc(series, unit=None):
-    """Parses any datetime-like series (ISO strings, epochs, tz-aware/naive) into tz-naive UTC."""
-    if unit:
-        parsed = pd.to_datetime(pd.to_numeric(series, errors="coerce"), unit=unit, errors="coerce", utc=True)
-    else:
-        parsed = pd.to_datetime(series, errors="coerce", utc=True)
-    return parsed.dt.tz_localize(None)
 
 
 def add_tempo_features(df, date_col="Date"):

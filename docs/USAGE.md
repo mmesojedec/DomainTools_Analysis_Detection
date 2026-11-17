@@ -4,7 +4,7 @@ How to run an analysis, work with offline datasets, and fix common problems. Ins
 first ([Installation](INSTALLATION.md)); to read the results, see the [User Guide](USER_GUIDE.md). For an overview of what each run collects and in which
 order, see [Workflows](WORKFLOWS.md); for the investigations it supports, see [Use Cases](USE_CASES.md).
 
-All guides can also be read in the app: **Help → Documentation** in the top menu, or the **Documentation** link at
+All guides can also be read in the app: **Settings → Documentation** in the top menu, or the **Documentation** link at
 the top of the sidebar (a new browser tab), with a topic tree on the left (every guide and its sections) and a search box that searches all guides at
 once. Diagrams are drawn there; drawing them needs internet access (Mermaid is loaded from a CDN), and without it
 their text is shown.
@@ -18,7 +18,7 @@ their text is shown.
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
-- [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)
+- [Runs and Indicator Sightings](#runs-and-indicator-sightings)
 - [Account](#account)
 - [Offline datasets](#offline-datasets)
 - [Where local data is stored](#where-local-data-is-stored)
@@ -26,29 +26,32 @@ their text is shown.
 
 ## The app at a glance
 
-The **menu at the top** groups every page; the **sidebar** holds what you need while working (targets, Analyze,
-analysis window, timezone, view filters).
+The **menu at the top** groups every page; the **sidebar** holds what you need while working (**Analyst options**: the
+selected use case and options, analysis window, display options; then the view filters). Targets are entered on the
+**Start** page.
 
 | Menu | Pages |
 | --- | --- |
-| **Start** | *Start*: pick a use case (see below) |
-| **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick |
+| **Start** | *Start*: enter targets and click **Analyze**, or pick a use case first (see below) |
+| **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick; watch a query for new domains |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
-| **Recent runs** | *Recent runs* (the newest saved runs as a timeline, cards or a table) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed), as two tabs (see [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)) |
+| **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
-| **Hunt** | *Pivot Ranking* · *Hostname Inventory* · *Subdomain Triage* · *Hunt map* |
-| **Evidence** | *Raw Records* · *Lookup Queries* |
-| **Manage Data** | *Save offline copy*: saves the run on screen as an offline dataset and opens *Offline Datasets* to name it · *Offline Datasets*: load, rename and delete saved datasets (see [Offline datasets](#offline-datasets)) · *Data Export* · *Runs & Diffs* (saved runs, comparisons, trends) |
-| **Data sources** | *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
-| **Settings** | *Settings*: collection options, use cases & profiles, detection thresholds, brand watchlist, lookup cache, API credentials |
-| **Account** | *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) |
-| **Help** | *Documentation*: these guides |
+| **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* |
+| **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
+| **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: case report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
+| **Settings** | *Settings*: tabs *Collection options*, *Detection thresholds*, *Brands & allowlist*, *Storage & cache*, *API credentials* · *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) · *Documentation*: these guides |
+
+Start, IrisQL, CertsQL and Runs are plain links in the menu; the others open a dropdown (*Evidence*, right after *Hunt*, has one page).
 
 Each page has its own address (e.g. `/cname`), so the browser's Back button and bookmarks work. What each page shows
 is in [Pages](USER_GUIDE.md#pages).
 
-- **Start** asks *What do you want to do?* Eight use cases: *Triage a suspicious domain*, *Map related
+- **Start** has the **Targets** box with **Analyze** (the only place to enter targets), three links: **Find targets
+  with IrisQL**, **Find targets with CertsQL** and **Runs & Sightings** (see [Runs and Indicator
+  Sightings](#runs-and-indicator-sightings)), and the **Save offline copy** checkbox. The last run is named below them. Then it asks *What do you want to do?*
+  Eight use cases: *Triage a suspicious domain*, *Map related
   infrastructure*, *Hunt C2 infrastructure*, *Subdomain takeover check*, *Phishing & lookalikes*, *Monitor
   changes*, *Check IP addresses (VPN, proxy, Tor)*, *Report & export evidence*. Each card shows its title, a short description and the **Analysis window** it sets in the sidebar (it
   filters what the pages show, not what is looked up). Expand **See more details** on a card for:
@@ -62,98 +65,107 @@ is in [Pages](USER_GUIDE.md#pages).
   **Use this** only changes settings (the collection options and the window); enter the targets and click
   **Analyze**. Your own saved profiles are listed below the use cases. See [Use cases and
   profiles](#use-cases-and-profiles).
-
-  Under the intro, three links: **Run lookups with IrisQL**, **Run lookups with CertsQL** and **Recent runs &
-  Sightings** (see [Recent runs and Indicator Sightings](#recent-runs-and-indicator-sightings)), with the last run
-  named below them.
 - **IrisQL** (next to Start in the menu) finds the targets for you: an IrisQL query lists the matching domains from
   Iris Investigate, and the ones you tick (and their IPs) are analyzed with the use case you pick. See [IrisQL](#irisql).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
   the domains and IPs they name that you tick are analyzed. See [CertsQL](#certsql).
-- **Summary** opens after every Analyze or dataset load. From top to bottom:
+- **Summary** opens after every Analyze or dataset load. A run that continues a hunt (started from a lead) opens on
+  *Hunt map → This hunt* instead. From top to bottom:
   - the **hunt trail** when this run was started from another run's lead (see [Hunting](USER_GUIDE.md#hunting-triage-status-leads-and-the-hunt-map));
-  - the risk numbers, then every **domain** with its verdict, open alerts and **risk drivers** (select one to open
-    its profile; a **Unicode** column is added for internationalized domains; with VPNDB verdicts a **VPNDB** column
-    says how many of its checked IPs are VPN, proxy or Tor exits and whose, e.g. `1 of 58 IPs: Residential proxy
-    birdproxies`);
+  - the risk numbers (KPI banner);
+  - every **domain** with its verdict, open alerts and **risk drivers** (select one to open its profile; a
+    **Unicode** column is added for internationalized domains; with VPNDB verdicts a **VPNDB** column says how many
+    of its checked IPs are VPN, proxy or Tor exits and whose, e.g. `1 of 58 IPs: Residential proxy birdproxies`);
   - **Analysis Details**: alerts per severity, domains, IPs, ASNs, name servers, certificates, self-signed
-    certificates, hostnames and passive DNS records, each with a link to the page that lists them (*Self-Signed tab*
-    opens the Certificates page at that tab), and with VPNDB verdicts a **VPNDB** row:
-    IPs checked, VPN / proxy exits, residential proxy exits and Tor relays / exits, with the exits listed in an
-    expander (shared ones counted);
-  - **Top alerts**: the ten most severe alerts with their triage status;
-  - the use-case plan, when the run was started from a use case;
+    certificates, hostnames and passive DNS records, each with a link to the page that lists them (*Self-Signed
+    tab* opens the Certificates page at that tab), and with VPNDB verdicts a **VPNDB** row: IPs checked, VPN /
+    proxy exits, residential proxy exits and Tor relays / exits, with the exits listed in an expander (shared ones
+    counted);
+  - **Linked domains**: the infrastructure clusters in one sentence each;
   - **Hunt**: one box with the open alerts to decide, the indicators to confirm first and the leads worth
     following, the first step, and **Open the Hunt map**. The hunting work itself (alert decisions, *What to check
     next*, the [Suggested hunt](USER_GUIDE.md#suggested-hunt) and more leads) is on the Hunt map, under the map;
-  - **Linked domains**: the infrastructure clusters in one sentence each;
+  - **Top alerts**: the ten most severe alerts with their triage status. Pick a row to open Alerts filtered to that
+    finding;
   - **Run statistics**: alerts by category, the top shared hosting networks, registrars, name servers and
     certificate issuers, activity per week, lifecycle (newest domain, domains and certificates expiring within 30
     days) and data health;
   - **What's new since the last analysis**: new alerts and new IPs, name servers, MX, certificates, trackers and
-    hostnames, with *Watch this list*.
-- **Domain profile** shows one domain on one screen: risk and DIF, *Why this score*, your verdict on the domain,
-  one card per source: **Registration** and **Hosting** (Iris Investigate: registrar and dates, current IPs with ASN,
+    hostnames, with *Watch this list*;
+  - the use-case plan, when the run was started from a use case;
+  - **Lookups of the last Analyze** (see *Collection progress* below).
+- **Domain profile** shows one domain on one screen: risk and DIF, *Why this score*, your verdict on the domain, an
+  action row, and one card per source: **Registration** and **Hosting** (Iris Investigate: registrar and dates, current IPs with ASN,
   ISP and country, name servers) and **VPNDB** (which VPN or proxy provider operates behind each IP: every checked IP of the domain with
   where it was seen, category, provider, confidence, sharing, IOC value, Tor role, network and country, exits first),
   its alerts, latest DNS records, CNAME chains, newest certificates and latest Domain History changes, with links to
-  the full pages.
+  the full pages. The action row has:
+  - **Where else seen**: *Runs → Indicator Sightings* for the domain (local files, no API query);
+  - **Similar names in IrisQL**: opens IrisQL with `DOMAIN CONTAINS "<name>"`; edit it, then **Search** (one Iris
+    Investigate query);
+  - **Its certificates in CertsQL**: opens CertsQL with a query for certificates naming the domain or its
+    subdomains; **Search** there runs it;
+  - **Copy**: the domain name, ready to copy.
 - A one-line **status** at the top of every data page names the data (live run or offline dataset), the targets, the
   window and how the lookups went (from cache, errors, partial), with a link to *Data sources*. On a live run it also has **Save offline copy** (see [Offline datasets](#offline-datasets)).
-- **Help → Documentation** opens these guides; each topic picked in the left tree (or with ← / →) opens at its top.
-- **Analyst mode** (top of the sidebar, on by default): off shows a simpler set of pages for a quick review (no Hunt
-  group, no Raw Records or Lookup Queries) and hides the record type filters.
+- **Settings → Documentation** opens these guides; each topic picked in the left tree (or with ← / →) opens at its top.
+- **Analyst mode** (sidebar → **Analyst options**, on by default): off shows a simpler set of pages for a quick review (no
+  Hunt group, no Evidence page) and hides the record type filters.
 
 ### A typical session
 
 1. **Start**: pick the use case that matches your question (optional), e.g. *Subdomain takeover check*.
-2. **Sidebar**: enter the targets (domains, IPs or certificates), check the *Options* line (change them under
-   *Settings* if needed) and click **Analyze**. Or choose *Offline dataset* and load a saved one. Don't have the
-   targets yet? Choose **Data source → IrisQL** or **CertsQL** (or open them from the menu), search, and analyze the domains you pick.
-3. **Summary** opens: read the key numbers, then **Open the Hunt map** and work through **What to check next**; each
+2. **Targets**: enter the targets (domains, IPs or certificates) in the Targets box on the Start page, check the
+   options line in the sidebar (change them under *Settings* if needed) and click **Analyze**. Or load a saved dataset on **Data →
+   Saved datasets**. Don't have the targets yet? Open **IrisQL** or **CertsQL** from the menu, search, and analyze
+   the domains you pick.
+3. **Summary** opens: read the key numbers, then **Open the Hunt map** (Analyst mode) and work through **What to check next**; each
    button opens the page that shows it.
 4. **Domain profile** for the domain that matters, then the detail pages it links to: **Alerts** for the evidence,
    **CNAME Chains** to chase chains, **Certificates**, **DNS & Hosting**.
 5. Mark what you reviewed: a status per alert group on **Alerts**, a verdict per domain on its profile. Follow a lead
    with *Analyze* to start the next run of the hunt.
-6. **Data Export** (and **Lookup Queries**) to hand the findings over, including the *Confirmed indicators* of what
-   you marked Malicious; **Runs & Diffs** next time, to see what changed.
+6. **Export & report** (and **Evidence → Lookup queries**) to hand the findings over, including the *Confirmed
+   indicators* of what you marked Malicious; **Runs → Compare & trends** next time, to see what changed.
 
 ### Use cases and profiles
 
 - **Global defaults**: the collection options the app starts with. Each use case is the global defaults with a few
   changes that suit it.
-- **Change a use case**: *Settings → Use cases & profiles*. Pick the use case, change its options or window, and
-  **Save**. The Start page then applies your version until you click **Reset to default**. **Save and use now** also
-  applies it to the next Analyze.
-- **Custom profiles**: on the same tab, **Create a custom profile** with a name and a description, starting from the
-  current collection options or from a use case. Change its options and **Save**. It appears on the Start page under
-  *Your profiles*; **Delete profile** removes it.
+- **Editing** (top of *Settings → Collection options*) picks what you change:
+  - **The next Analyze (this session)**: the options the next Analyze uses. Changes last for the browser session;
+    picking a use case on the Start page sets them.
+  - **A use case or profile**: its saved options and window, used whenever it is picked.
+- **Change a use case**: pick it under *Editing*, change its options or window, and **Save**. The Start page then
+  applies your version until you click **Reset to default**. **Save and use now** also applies it to the next
+  Analyze. **Discard changes** drops unsaved edits.
+- **Custom profiles**: under *Editing*, the **Create a custom profile** expander takes a name and a description,
+  starting from the current collection options or from a use case. Pick the new profile under *Editing*, change its
+  options and **Save**. It appears on the Start page under *Your profiles*; **Delete profile** removes it.
 - The tab shows, for the options you are editing, what a run looks up per domain and the limit of each lookup.
-- Use case changes and profiles are saved in `dt_settings.json`. *Settings → Collection options* (what the next
-  Analyze uses) lasts for the browser session; the sidebar names the selected use case and says *(options changed
-  since)* when they no longer match it.
+- Use case changes and profiles are saved in `dt_settings.json`. The sidebar names the selected use case and says
+  *(changed)* when the options no longer match it.
 
 What each use case sets, the global defaults and every fixed limit are in the [Reference](REFERENCE.md#use-cases-and-profiles).
 
-Change the analysis window or timezone in the sidebar at any point: every page is recalculated from the data already
+Change the analysis window or the display timezone in the sidebar at any point: every page is recalculated from the data already
 collected, with no API calls.
 
 ## Running an analysis
 
-The sidebar, top to bottom; collection options are on the **Settings** page.
+Targets are entered in the **Targets** box on the **Start** page; the sidebar holds the **Analyst options** and the
+view filters; collection options are on the **Settings** page. There is no data source choice: **IrisQL** and **CertsQL** are pages in the menu, and a saved dataset is loaded with **Load offline
+dataset** on *Data → Saved datasets*.
 
 ### 1. Lookups
 
 | Control | What it does |
 | --- | --- |
-| **Data source** | *Live lookups* opens the **Start** page and queries the DomainTools APIs for the targets you enter (only when you click it: leaving the IrisQL, CertsQL or Offline Datasets page switches the option back to *Live lookups* without moving you). *IrisQL* opens the IrisQL page, where an IrisQL query finds the targets first and the ones you pick are analyzed with live lookups (see [IrisQL](#irisql)); the option stays selected while you are on that page, and leaving it switches back to *Live lookups*. *CertsQL* does the same with the CertsQL page, where a CertsQL query finds certificates and the domains and IPs they name (see [CertsQL](#certsql)). *Offline dataset* opens **Manage Data → Offline Datasets**: pick a dataset and click **Load offline dataset** to re-analyze data saved from an earlier live run, with no API calls (leaving that page switches back to *Live lookups*). |
-| **Targets: domains, IPs, or certificates** | One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses go to every source; CIDR ranges (`104.21.59.0/24`) go to VPNDB only ([CIDR ranges](#cidr-ranges)). Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
-| **Save offline copy** | Also saves everything this run collects to `dt_offline/` for later re-analysis. Forgot to tick it? Click **Save offline copy** on the status line at the top of any page after the run. |
-| **Show international domains in Unicode** | Shows punycode names (`xn--bcher-kva.de`) as Unicode (`bücher.de`) in every table, text and chart, on every page; also in *Offline dataset* mode. Display only: see [International domains](#international-domains). |
+| **Targets: domains, IPs, or certificates** | The **Targets** box on the Start page. One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses go to every source; CIDR ranges (`104.21.59.0/24`) go to VPNDB only ([CIDR ranges](#cidr-ranges)). Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
+| **Save offline copy** | In the Start page Targets box, after the links *Find targets with IrisQL*, *Find targets with CertsQL* and *Runs & Sightings*. Also saves everything this run collects to `dt_offline/` for later re-analysis. Forgot to tick it? Click **Save offline copy** on the status line at the top of any page after the run. |
 | **Analyze** | Collects data and runs the detection engine, then opens the Summary. With certificate inputs, it first shows [two review steps](#certificate-inputs): the searches, then the domains / IPs to analyze. |
-| **Use case** / **Options** | The use case or profile picked on the Start page (*options changed since* when you changed them afterwards), and one line naming the collection options of the next run, with *Change collection options* (the Settings page). |
-| **API credentials** | One line saying how many services have credentials; the full matrix, and a form to enter keys, is under *Settings → API credentials* (see [API Credentials panel](INSTALLATION.md#api-credentials-panel)). |
+| **Use case** / **Options** | Sidebar, *Analyst options → Selection*. The use case or profile picked on the Start page (*changed* when you changed its options afterwards), and one line naming the collection options of the next run, with *Change collection options* (the Settings page). |
+| **API credentials** | Sidebar, *Analyst options → Selection*. One line saying how many services have credentials; the full matrix, and a form to enter keys, is under *Settings → API credentials* (see [API Credentials panel](INSTALLATION.md#api-credentials-panel)). |
 
 **Collection progress.** While Analyze runs, its status box shows a progress bar with the share done and the time
 elapsed, and one line per lookup of the run (the lookups of the use case card). Finished lookups come first, in the
@@ -165,7 +177,7 @@ one retry), the records returned and how long it ran
 Iris Investigate and the certificates run at the same time as passive DNS, so several lines run at once. The TXT, CAA and CNAME lookups show how many domains needed them; when the
 main passive DNS lookup already returned everything, they are skipped with *Not needed*. CT telemetry is skipped
 when the certificate search found no certificates, IP pivots when there is no public, non-CDN hosting IP. Once
-done, the Summary keeps the list in **Lookups of the last Analyze** (collapsed), with a table of every result that
+done, the Summary keeps the list in **Lookups of the last Analyze** (at the bottom), with a table of every result that
 came from the cache: lookup, target, when it was fetched, its age and when it expires; the Data sources page still has
 every single lookup's status. Between the end of the collection and the first page, *Analyzing the collected
 data* shows the steps that turn the lookups into the pages: the tables, the detection rules, the comparison with
@@ -188,35 +200,48 @@ global defaults:
 | Passive DNS | TXT lookup | On | One extra TXT-only pDNS query per domain (DNSDB `*.name/TXT`, plus `name/TXT` if that hits its limit). The main query's limit is often filled by A/NS/CNAME records before any TXT appears; this keeps TXT fingerprinting and the SPF / tunneling detections working. It only runs for domains whose main lookup hit its limit, since a complete main lookup already holds every TXT record. |
 | Passive DNS | Latest TXT records per domain | 10 | How many TXT records the TXT lookup keeps (latest by last-seen time). |
 | Passive DNS | CAA lookup | On | Queries each domain's CAA record directly, so the CAA verdict does not depend on the pDNS limit. It only runs for domains whose main lookup hit its limit; otherwise the main lookup already holds the CAA records. |
-| Passive DNS | CNAME lookup | On | Queries CNAME records of the domain and its subdomains (DNSDB `*.name/CNAME`, up to 5,000 records, plus `name/CNAME` if that hits its limit) for domains whose main lookup hit its limit. Busy domains fill the limit with A / NS / SOA records and daily repeats, so the main lookup holds only a few of their CNAMEs (nytimes.com: 10 hostnames). DNSDB CNAME lookups, chases and reverse CNAME lookups are aggregated (`aggr=t`): one record per hostname and target with its first and last seen, as in the DNSDB Scout table, instead of one per time slice. Data Source Status lists the domains where it was not needed. |
+| Passive DNS | CNAME lookup | On | Queries CNAME records of the domain and its subdomains (DNSDB `*.name/CNAME`, up to 5,000 records, plus `name/CNAME` if that hits its limit) for domains whose main lookup hit its limit. Busy domains fill the limit with A / NS / SOA records and daily repeats, so the main lookup holds only a few of their CNAMEs (nytimes.com: 10 hostnames). DNSDB CNAME lookups, chases and reverse CNAME lookups are aggregated (`aggr=t`): one record per hostname and target with its first and last seen, as in the DNSDB Scout table, instead of one per time slice. The Data sources page lists the domains where it was not needed. |
 | Passive DNS | Pivot on hosting IPs (domain hopping) | Off | DNSDB reverse lookups on each domain's current non-CDN IPs, to find other domains that used them. One extra query per IP. |
 | Passive DNS | Max IPs to pivot on | 10 | Caps the pivots above. |
-| Passive DNS | Incremental passive DNS (only records seen since the last offline copy) | Off (on in *Monitor changes*) | For target lists you analyze again and again. When an offline copy of the same targets exists (same DNSDB limit), DNSDB returns only the records seen since a day before that copy, and the copy's older records are added; a record seen again replaces its earlier version. Each target is still one DNSDB query, but the result limit holds new records instead of old ones, and the lookup is faster. Without a copy the lookup is complete, as usual; the status row of each incremental lookup names the copy. Save an offline copy of each run so the next one builds on it. DNSDB Scout only. |
-| Domain History | Domain History period, Days, Max changes | Latest changes, Max changes 1,000 (custom, 90 days, in *Monitor changes*) | Which changes Domain History fetches for each domain. It is separate from the sidebar's analysis window, which only filters what the pages show. **Latest changes, up to Max changes** (default): the newest changes, up to *Max changes*; short histories come in full. **Analysis window, up to Max changes**: only the changes inside the window picked in the sidebar when you click Analyze (a custom range counts from its first day; *All time*: no period). **Custom number of days, up to Max changes**: the last N days (*Days*, 365 by default), more or less than the window. **All time, no limit**: every change (stops at 50,000 as a safeguard); domains with long histories take many queries and longer to collect and process. **Max changes**: 1,000 by default, 100 to 20,000; above 1,000 the Settings tab warns that collection and processing get slower. Domain History returns the newest changes first, 100 per query. A domain that reaches *Max changes* has more changes: the Summary (Data health), the Domain Profile and *Raw Records → Domain History Logs* name those domains (only the ones the Global View Filters select). On the Domain Profile and Raw Records, **Fetch the rest** fetches their history again (all changes, or up to 5,000 or 10,000 per domain) and puts it in the loaded run in place of the shorter history; detections update. It uses Domain History quota, also with an offline dataset; save an offline copy to keep the result. Each use case and custom profile keeps its own period and *Max changes* (*Settings → Use cases & profiles*); the query plan table shows them, e.g. *Analysis window (30 days), up to 1,000 changes*. The sidebar's options line shows *history 30 d / 2,000* or *history no limit* when they differ from the default. |
+| Passive DNS | Incremental passive DNS (only new records) | Off (on in *Monitor changes*) | For target lists you analyze again and again. When an offline copy of the same targets exists (same DNSDB limit), DNSDB returns only the records seen since a day before that copy, and the copy's older records are added; a record seen again replaces its earlier version. Each target is still one DNSDB query, but the result limit holds new records instead of old ones, and the lookup is faster. Without a copy the lookup is complete, as usual; the status row of each incremental lookup names the copy. Save an offline copy of each run so the next one builds on it. DNSDB Scout only. |
+| Domain History | Domain History period, Domain History days, Max changes per domain | Latest changes, Max changes 1,000 (custom, 90 days, in *Monitor changes*) | Which changes Domain History fetches for each domain. It is separate from the sidebar's analysis window, which only filters what the pages show. **Latest changes, up to Max changes** (default): the newest changes, up to *Max changes*; short histories come in full. **Analysis window, up to Max changes**: only the changes inside the window picked in the sidebar when you click Analyze (a custom range counts from its first day; *All time*: no period). **Custom number of days, up to Max changes**: the last N days (*Domain History days*, 365 by default), more or less than the window. **All time, no limit**: every change (stops at 50,000 as a safeguard); domains with long histories take many queries and longer to collect and process. **Max changes per domain**: 1,000 by default, 100 to 20,000; above 1,000 the Settings tab warns that collection and processing get slower. Domain History returns the newest changes first, 100 per query. A domain that reaches *Max changes* has more changes: the Summary (Data health), the Domain Profile and *Evidence → Records → Domain History Logs* name those domains (only the ones the view filters select). On the Domain Profile and *Evidence → Records*, **Fetch the rest** fetches their history again (all changes, or up to 5,000 or 10,000 per domain) and puts it in the loaded run in place of the shorter history; detections update. It uses Domain History quota, also with an offline dataset; save an offline copy to keep the result. Each use case and custom profile keeps its own period and *Max changes* (*Settings → Collection options*); the query plan table shows them, e.g. *Analysis window (30 days), up to 1,000 changes*. The sidebar's options line shows *history 30 d / 2,000* or *history no limit* when they differ from the default. |
 | VPNDB | Check hosting IPs for VPN, residential proxy and Tor | On in every use case | Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, passive DNS addresses most recently seen first; no CDN or private addresses) to VPNDB in one bulk request, then fetches the full verdict (sharing, Tor role, evidence) of the ones VPNDB attributes to a VPN, proxy or Tor, within the budget of the three options below. Each use case sets its own budget: *Map related infrastructure*, *Hunt C2* and *Report & export* 500 IPs / 50 verdicts with the neighbourhood; *Triage* 100 / 20 with it; *Subdomain takeover* 100 / 10, *Phishing* and *Monitor changes* 200 / 20 without it (see [Reference](REFERENCE.md)). Each IP is one VPNDB query (a demo account has 30,000 a day). Needs a VPNDB key ([Credentials](INSTALLATION.md#credentials)); without one the check is skipped. See [VPN, residential proxy and Tor](#vpn-residential-proxy-and-tor-vpndb). |
-| VPNDB | Hosting IPs per run | 500 (the use case sets it) | Public IPv4 hosting addresses sent in the bulk request; each IP is one VPNDB query. |
-| VPNDB | Full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
-| VPNDB | Neighbourhood and leads | On (the use case sets it) | The /24 around each non-exit hosting IP (up to 30) and the Iris hosting networks (up to 20) in VPNDB, and DNSDB reverse lookups on dedicated exits (up to 10). |
-| VPNDB | Only the VPNDB IP check (no other source) | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
-| Certificate API | Fetch CT log & certificate co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
-| Certificate API | Max certificates for CT/co-occurrence lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
-| Certificate API | Certificate inputs: pre-select derived targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
+| VPNDB | VPNDB hosting IPs per run | 500 (the use case sets it) | Public IPv4 hosting addresses sent in the bulk request; each IP is one VPNDB query. |
+| VPNDB | VPNDB full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
+| VPNDB | VPNDB neighbourhood and leads | On (the use case sets it) | The /24 around each non-exit hosting IP (up to 30) and the Iris hosting networks (up to 20) in VPNDB, and DNSDB reverse lookups on dedicated exits (up to 10). |
+| VPNDB | Only the VPNDB IP check | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
+| Certificate API | CT log & co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
+| Certificate API | Max certificates for CT lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
+| Certificate API | Certificate inputs: pre-selected targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
 | Iris Investigate | — | — | No options: current hosting, registration, the DomainTools risk score, website and trackers are fetched for every domain. |
-| All sources | Cache lifetime | 1 day | How long a successful lookup is reused: Off, 30 minutes, 6 hours, 1 day, 7 days or 30 days. The same domain, name, record type and limit looked up again, in this or a later run and also after an app restart, costs no API query: passive DNS (DNSDB) and its TXT / CAA / CNAME lookups, CNAME chases and reverse lookups, IP pivots, certificate searches and events, Domain History, Iris Investigate (per batch of domains, with the risk scores) and VPNDB. Results are kept in `dt_cache/` (local, git-ignored); *Settings → Lookup cache* shows how many and their size. Data Source Status notes *From cache (age old)* with its **Cached At** time, and Lookup Queries counts them as 0 requests and shows **Cached at**. Failed lookups are never cached. Saved in `dt_settings.json`. |
-| All sources | Per source | Domain History 7 days, VPNDB 6 hours, the others *Same as cache lifetime* | *Settings → Lookup cache*: each source group (passive DNS, Iris Investigate, Domain History, certificates, VPNDB) can keep its results for its own lifetime: longer for data that changes rarely, shorter for data that changes often. With the cache lifetime *Off*, every source is off. The run's checklist and *Cached details* count each result's expiry with its source's lifetime. Saved in `dt_settings.json`. |
-| All sources | Clear cache | – | *Settings → Lookup cache*: deletes every cached lookup now, without running anything. It also applies with an offline dataset (CNAME chases and reverse lookups use the cache). |
+| All sources | Cache lifetime | 1 day | How long a successful lookup is reused: Off, 30 minutes, 6 hours, 1 day, 7 days or 30 days. The same domain, name, record type and limit looked up again, in this or a later run and also after an app restart, costs no API query: passive DNS (DNSDB) and its TXT / CAA / CNAME lookups, CNAME chases and reverse lookups, IP pivots, certificate searches and events, Domain History, Iris Investigate (per batch of domains, with the risk scores) and VPNDB. Results are kept in `dt_cache/` (local, git-ignored); *Settings → Storage & cache* shows how many and their size. The Data sources page notes *From cache (age old)* with its **Cached At** time, and *Evidence → Lookup queries* counts them as 0 requests and shows **Cached at**. Failed lookups are never cached. Saved in `dt_settings.json`. |
+| All sources | Per source | Domain History 7 days, VPNDB 6 hours, the others *Same as cache lifetime* | *Settings → Storage & cache*: each source group (passive DNS, Iris Investigate, Domain History, certificates, VPNDB) can keep its results for its own lifetime: longer for data that changes rarely, shorter for data that changes often. With the cache lifetime *Off*, every source is off. The run's checklist and *Cached details* count each result's expiry with its source's lifetime. Saved in `dt_settings.json`. |
+| All sources | Clear cache | – | *Settings → Storage & cache*: deletes every cached lookup now, without running anything, so the next Analyze queries every source again. It also applies with an offline dataset (CNAME chases and reverse lookups use the cache). To refresh one run only, use **Re-run with fresh lookups** on the Data sources page (below). |
 | All sources | Cached details (*Data sources* page) | – | How much of the run came from the lookup cache: cache lifetime, lookups from the cache vs queried live, age of the oldest cached result, when the first result expires, and the cache size on disk, plus one row per source (lookups, from cache, queried live, oldest / newest *Cached at*, first expiry, time left). **Re-run with fresh lookups** analyzes the same targets again with that run's collection settings, querying every source and refreshing their cache entries (other targets' cache is kept); **Re-run (use cache)** does the same but reuses what is still cached, like **Analyze**. **Retry N failed lookup(s)** re-runs the same way: the lookups that worked come from the cache, so only the failed ones query the APIs (it needs the cache on). Offline datasets re-run with their recorded settings. Certificate inputs are not searched again; their derived domains and IPs are re-run. |
-| All sources | Force refresh on the next Analyze | Off | Deletes every cached lookup, then re-queries every source and reloads credentials. To refresh only the current targets, use *Re-run with fresh lookups* on the Data sources page. |
 
 ### 2. Analysis Window
 
-**Show activity from** limits alerts, IOCs, risk scores, DIF fingerprints, charts and exports to records active in
+**Show activity from** (sidebar, *Analyst options → Config options*) limits alerts, IOCs, risk scores, DIF fingerprints, charts and exports to records active in
 the window. Presets: 7 / 14 / 30 (default) / 60 / 90 / 180 / 365 days, *All time*, or a custom range. See
 [Analysis window](USER_GUIDE.md#analysis-window) in the User Guide for exactly what "active" means.
 
-### 3. Timezone Alignment
+### 3. Analyst options
 
-Changes how timestamps are **displayed**. All detection runs on UTC.
+The sidebar starts with **Analyst options**, shown expanded, in two sections:
+
+- **Selection**: the active use case and the collection options line, the *Change collection options* link
+  (Settings) and the API credentials line (see [1. Lookups](#1-lookups)).
+- **Config options**, in this order: **Analyst mode**, **Show international domains in Unicode**, **Show activity
+  from** (the analysis window, with a date range for *Custom*; see [2. Analysis Window](#2-analysis-window)) and
+  **Display timezone**.
+
+The view filters follow below. The display options change how the pages look, not what is looked up:
+
+| Option | What it does |
+| --- | --- |
+| **Analyst mode** | On by default. Off shows a simpler set of pages for a quick review (no Hunt group, no Evidence page) and hides the record type filters. |
+| **Show international domains in Unicode** | Shows punycode names (`xn--bcher-kva.de`) as Unicode (`bücher.de`) in every table, text and chart, on every page; also for a loaded offline dataset. Display only: see [International domains](#international-domains). |
+| **Display timezone** | Changes how timestamps are **displayed**: timelines and tempo charts shift to this timezone. All detection runs on UTC. |
 
 ### 4. Detection thresholds
 
@@ -225,11 +250,22 @@ Risk; Passive DNS & Domain History; Iris Investigate & Domain Name; Certificate 
 certificate limits, ...). Changes re-run the engine on the data already collected, with no new API calls. The
 full list with defaults is in [Detection thresholds](USER_GUIDE.md#detection-thresholds).
 
-**Brand watchlist** (*Settings → Brand watchlist*): the brands you protect, one per line or comma-separated. A domain
+**Brand watchlist** (*Settings → Brands & allowlist*): the brands you protect, one per line or comma-separated. A domain
 entry (`acme.com`) also marks that domain as the brand's own. The *Lookalike / Brand* detections (typosquats,
 homoglyphs, combosquats, the brand on another TLD) need it; without it only punycode domains are flagged. Saving re-runs
 the detections, with no new lookups. Saved in `dt_settings.json`. Details and examples: [Brand
 watchlist](REFERENCE.md#brand-watchlist).
+
+**Hunt lookalikes in IrisQL** (under the brand watchlist, once it lists a brand) writes an IrisQL query,
+`DOMAIN EXACTLY_IN [...]`, of the candidate names of your brands: typos, look-alike characters, the brand on other
+TLDs, and the brand plus a phishing word. The button shows how many candidates there are. It opens the query on the
+IrisQL page; nothing runs until you click **Search** there (one Iris Investigate query).
+
+**Infrastructure allowlist** (same tab): your own or otherwise known-good infrastructure: IP addresses and ranges,
+`AS` numbers, `ns:` name servers, `org:` certificate organizations, `tracker:` web tracker IDs and `registrar:`
+registrars, one per line. Allowlisted values never link domains into clusters, and alerts whose evidence names one
+drop to Low confidence, saying why. Saving re-runs the detections, with no new lookups. See
+[Allowlist](USER_GUIDE.md#allowlist).
 
 ### 5. View filters
 
@@ -256,7 +292,7 @@ banner above the results lists the focus. A saved run records the focus that was
 
 **Gap-fill:** passive DNS, certificate search and certificate events cover every subdomain, but stop at their result
 limits (DNSDB limit, 2,500 certificates, 2,500 events). When a domain with focus hostnames hits a limit, each focus
-hostname is looked up on its own as well, so records the capped lookup missed are added. Data Source Status lists these
+hostname is looked up on its own as well, so records the capped lookup missed are added. The Data sources page lists these
 as *Hostname Gap-Fill* rows. Passive DNS gap-fill needs DNSDB Scout.
 
 #### Hostname Inventory
@@ -282,7 +318,7 @@ certificate, with the certificate hash (SHA-256 from the Certificate API, SHA-1 
 common name, issuer, validity and source. *Named* means the certificate lists the hostname; *Wildcard* means it covers
 the hostname through `*.parent`. Select rows in the inventory to show only those hostnames' certificates; with nothing
 selected it lists the certificates of every hostname shown. The hashes can be copied in one block for a lookup in
-another tool, and the links are exported as *Certificate hashes by hostname* (see Data Export).
+another tool, and the links are exported as *Certificate hashes by hostname* (see [Export & report](#export--report)).
 
 #### Subdomain Triage
 
@@ -344,9 +380,9 @@ re-chase.
 
 Chases are not lost between runs: when a run finishes or a dataset (offline or from run history) is loaded, every
 chase whose DNSDB lookups are still in the lookup cache is replayed from it, with no query, so those rows come back
-chased with **From cache** ticked and their original **Chased at**. Data Source Status gets one *DNSDB CNAME Chase*
-row saying how many were restored. Chases older than the *Cache lifetime*, or deleted with *Clear cache* / *Force
-refresh*, are not restored; chase them again.
+chased with **From cache** ticked and their original **Chased at**. The Data sources page gets one *DNSDB CNAME Chase*
+row saying how many were restored. Chases older than the *Cache lifetime*, or deleted with *Clear cache*, are not
+restored; chase them again.
 
 Chains are filled in only once you chase them (**Chased** ticked). **Chain** then reads from the analyzed domain to
 the end: `designsolu.xyz → line.designsolu.xyz → line.cdn-line.xyz → 103.176.90.137`, or the outcome in brackets when
@@ -368,8 +404,8 @@ is then empty.
   by the limit keeps its path and continues from there on the next click; names not reached wait for the next click
   (the toast says how many). The caption under the button says how many names need DNSDB. Turn on **Re-chase (skip
   cache)** to chase already chased rows again with fresh DNSDB lookups; the new results replace the old ones. Domains are chased in
-  parallel. The detections are re-run with the results, and the lookups appear in Data Source Status and Lookup
-  Queries. Uses DNSDB quota, also when an offline dataset is loaded; chases made here are not written back into the
+  parallel. The detections are re-run with the results, and the lookups appear on the Data sources page and in
+  *Evidence → Lookup queries*. Uses DNSDB quota, also when an offline dataset is loaded; chases made here are not written back into the
   offline dataset.
 - **Chase results** groups the chased rows like the chain map: one row per domain and chain, with how many hostnames
   lead into it and some of them, their summed **Count**, the chain from the target to its final addresses, outcome,
@@ -422,9 +458,9 @@ The detections built on the chains (dangling CNAME, takeover-prone service, dyna
 retargeted CNAME, long chain / loop, CNAME target shared by several analyzed domains) are explained in
 [CNAME chains](USER_GUIDE.md#cname-chains) in the User Guide. The service lists are in `core/intel_data.py`.
 
-#### Pivot Ranking
+#### All pivots
 
-The **Pivot Ranking** page lists every value in the run's Iris Investigate records that other domains can share, with
+The **All pivots** tab of the **Hunt map** (Hunt menu) lists every value in the run's Iris Investigate records that other domains can share, with
 the number of domains in Iris that share it (the Iris pivot count). Rare values usually lead to the same operator;
 values shared by millions are infrastructure everyone uses.
 
@@ -451,19 +487,20 @@ or domain, or keep only values shared within the run. The limits are `PIVOT_STRO
 
 Select rows to pivot:
 
-- **Add to targets** puts the selected IPs, certificates (`sha1:`, `cn:`, `org:` lines) and redirect domains in the
-  sidebar target box and switches to live lookups; click **Analyze** to run them. Emails, name servers, registrant
-  details and trackers cannot be targets; use *Find domains in Iris*.
-- **Find domains in Iris** runs one Iris Investigate search per selected value (up to 5 per click, first 500 domains
+- **Analyze now (N)** analyzes the selected IPs, certificates (`sha1:`, `cn:`, `org:` lines) and redirect domains
+  as a new run, linked to this one. Emails, name servers, registrant
+  details and trackers cannot be targets; use *Find in Iris*.
+- **Find in Iris** runs one Iris Investigate search per selected value (up to 5 per click, first 500 domains
   each) and lists the domains found with their Iris risk score, create date, first seen, registrar and IPs, highest
-  risk first. **Add N domains to targets** puts them in the target box for a full run. These searches use API quota,
+  risk first. **Analyze now (N domains)** analyzes the highest-risk ones as a new run, linked to this one; **Copy
+  domains** copies them. These searches use API quota,
   also when an offline dataset is loaded, and need the DomainTools API credentials.
 - *Iris searches for the selected values* shows the search parameters (`email=actor@example.com`) and the same
   searches as `curl` calls to the Iris Investigate API.
 
-#### Lookup Queries
+#### Lookup queries
 
-The **Lookup Queries** page lists every lookup the run made, rebuilt as a query you can run again by hand, e.g. to
+The **Lookup queries** tab of the **Evidence** page lists every lookup the run made, rebuilt as a query you can run again by hand, e.g. to
 check a finding or to widen a search past the app's limits. It works for live runs, saved runs and offline datasets.
 
 | Tool | Query | Command |
@@ -483,7 +520,7 @@ DNSDB curl commands are the requests the app sends, including the result limit u
 **Lookups by tool** shows one tool at a time: pick Iris Investigate, DomainTools API, DomainTools Certificates,
 DNSDB Scout or VPNDB (each shows its number of requests). Each lookup is one table row with its search type, target,
 query on one line (Certificate Events bodies as `key=value` pairs), the number of requests, and the status and record
-count from Data Source Status. A DNSDB lookup that hit its limit counts 2 requests: after `*.example.com` the app also
+count from the Data sources page. A DNSDB lookup that hit its limit counts 2 requests: after `*.example.com` the app also
 looked up `example.com`, so the row holds both names and both curl commands. The table can be filtered by source and text. Select rows to copy only their queries and commands under
 *Queries to copy* and *Commands*; with nothing selected these hold every row shown, in the tool's own layout (grouped
 by search type). **Download all lookups (CSV)** saves every tool's lookups with the full queries and commands. Paging is
@@ -492,7 +529,7 @@ left out of the commands. Gap-fill and certificate-input searches are included; 
 
 #### Case report
 
-The **Data Export** page starts with **Case report**: the run as one HTML page to hand to a manager, attach to a
+The **Export & report** page (*Data* menu) starts with **Case report**: the run as one HTML page to hand to a manager, attach to a
 ticket or send with a takedown request. Give it a title, your name and a summary (what was investigated, what you
 concluded, what you recommend), choose how many of the most severe alerts to list, and click **Download case report
 (HTML)**. For a PDF, open the file in a browser and print it (*Save as PDF*).
@@ -503,9 +540,14 @@ domain (registrar, created and expiry dates, IPs with ASN and country, name serv
 500). Like the rest of the page it follows the analysis window and the view filters and leaves out suppressed alerts.
 The file has no scripts and loads nothing from the internet.
 
-#### Data Export
+#### Export & report
 
-The **Data Export** page downloads the run's data for sharing with other teams, without charts. Tick what to export:
+The **Export & report** page (*Data* menu) holds every export of the run. The Alerts page links to it with
+**Export detections, IOCs and reports**. Besides the case report and the *Confirmed indicators*, it has the
+detections (CSV), IOCs (CSV / JSON), a STIX 2.1 bundle and the evidence report (HTML / Markdown); see [Suppressions
+and exports](USER_GUIDE.md#suppressions-and-exports).
+
+It also downloads the run's data for sharing with other teams, without charts. Tick what to export:
 
 | Group | Items |
 | --- | --- |
@@ -520,7 +562,7 @@ NDJSON. One item downloads as a single file; several download as a ZIP with one 
 
 Timestamps are UTC. Raw data follows the analysis window and the view filters; the hostname inventory and its
 certificate links cover the full collected history; detections leave out suppressed alerts. Offline datasets
-(*Save offline copy*) are a different thing: they hold everything a run collected, in the app's own format, so the run
+(*Save offline copy*, see [Offline datasets](#offline-datasets)) are a different thing: they hold everything a run collected, in the app's own format, so the run
 can be re-analyzed later.
 
 ### International domains
@@ -535,10 +577,10 @@ lists `xn--bcher-kva.de` and `*.xn--bcher-kva.de`. So every lookup uses that for
   `xn--pple-43d.com`, which the lookalike rules then flag.
 - **Reading:** the Summary's domain table adds a **Unicode** column whenever a domain is internationalized, and the
   Domain profile's domain list shows both forms (`xn--bcher-kva.de (bücher.de)`). Turn on **Show international
-  domains in Unicode** (sidebar, under *Save offline copy*) to show every `xn--` name in Unicode on every page: tables,
+  domains in Unicode** (sidebar → **Analyst options**) to show every `xn--` name in Unicode on every page: tables,
   raw records, text, chart labels, legends and the domain filter.
 - **What stays ASCII:** the data itself. Filters and searches match the ASCII form (type `xn--` to find every
-  internationalized name), and exports, downloads, the copyable queries and commands (*Lookup Queries*, Iris searches)
+  internationalized name), and exports, downloads, the copyable queries and commands (*Lookup queries*, Iris searches)
   and editable tables keep the punycode the APIs and other tools need. The documentation shows its examples as written.
 
 
@@ -551,9 +593,9 @@ request after passive DNS, then fetches the full verdict and weekly history of t
 saved with the run and with *Save offline copy*, so offline datasets keep them.
 
 The check is on in every use case, each with its own budget (Settings → Collection options → VPNDB, and per use case
-on Settings → Use cases & profiles):
+on Settings → Collection options):
 
-| Use case | Hosting IPs per run | Full verdicts | Neighbourhood and leads |
+| Use case | VPNDB hosting IPs per run | VPNDB full verdicts per run | VPNDB neighbourhood and leads |
 | --- | --- | --- | --- |
 | Map related infrastructure, Hunt C2 infrastructure, Report & export evidence | 500 | 50 | on |
 | Triage a suspicious domain | 100 | 20 | on |
@@ -617,7 +659,8 @@ page through the whole relay list (`/tor/relays`).
     Investigate (domains on the IP, ASN, ISP, country), its /24 and network with their known exits, and the CIDR
     targets it is in;
   - *Tor network*: its network's, prefix's and country's share of Tor exit traffic.
-- **DNS & Hosting** opens with a one-line VPNDB summary and a link to the VPNDB page.
+- **DNS & Hosting** opens with a one-line VPNDB summary and a link to the VPNDB page, above its tabs (*Timeline*,
+  *Subdomains & IPs*, *Web & TXT*, *Campaign & hosting*; only the open tab is drawn).
 - **Summary**: a *VPNDB* column in the Domains table and a *VPNDB* row in Analysis Details
   (see the Summary walkthrough above).
 - **Domain profile**: its own *VPNDB* card, apart from the Iris Investigate cards:
@@ -654,13 +697,13 @@ page through the whole relay list (`/tor/relays`).
 - **Confirmed indicators** show each IP's VPNDB verdict. A **shared exit** (VPNDB rates its IOC value LOW or its
   sharing HIGH: many people leave through it) identifies the service, not the actor, so it is left out of the CSV, MISP
   and STIX downloads unless you tick *Include shared VPN / proxy exits*; included, MISP marks it `to_ids: false`.
-- **Raw Records** ends with *VPNDB Responses*: every VPNDB answer of the run as received, one row per lookup
+- **Evidence → Records** ends with *VPNDB Responses*: every VPNDB answer of the run as received, one row per lookup
   (endpoint, target, status, records, cached at). Select one to see it as tables: its fields flattened
   (`asn.number`, `sharing.level`), then each list it holds (the bulk `results`, a range's `addresses`, an exit's
   weekly history, the attribution), the JSON as received, and a JSON download.
-- **Lookup Queries** has a *VPNDB* tab (and an *IrisQL* or *CertsQL* tab for a run started from those pages): each VPNDB request with its endpoint, the path or the IPs sent, and the curl
+- **Evidence → Lookup queries** has a *VPNDB* tab (and an *IrisQL* or *CertsQL* tab for a run started from those pages): each VPNDB request with its endpoint, the path or the IPs sent, and the curl
   command to send it again.
-- **Data Export** has the VPNDB table, *Exit history*, *Neighbouring ranges*, *Hosting networks* and *Other domains on
+- **Export & report** has the VPNDB table, *Exit history*, *Neighbouring ranges*, *Hosting networks* and *Other domains on
   dedicated exits*, and **Data sources** lists every VPNDB and DNSDB lookup.
 
 ### Checking IP addresses only
@@ -672,11 +715,11 @@ fetches the full verdict of each IPv4 target (up to 100).
 
 - **Summary** shows one card per IP: category and provider, every provider VPNDB attributes it to with its share,
   VPNDB's confidence and how it was reached, Tor role, sharing and IOC value, network, ASN, country and a
-  claimed-vs-real location mismatch, with a button to its alerts and to Data Export.
+  claimed-vs-real location mismatch, with a button to its alerts and to Export & report.
 - **VPNDB** has the same verdicts as charts and tables, and *CIDR ranges* the range grids.
 - **Alerts**: the VPN / proxy / Tor alerts are raised on the IPs themselves (there is no domain to weigh, so the
   compound rules and the exit history do not apply).
-- **Raw Records** and **Lookup Queries** list every VPNDB answer and request.
+- **Evidence** (*Records* and *Lookup queries*) lists every VPNDB answer and request.
 
 IPv6 addresses are answered *not collected* (VPNDB gathers IPv4 only). In any other use case, IP targets are looked
 up in every source (Iris, passive DNS, certificates) and in VPNDB.
@@ -708,7 +751,7 @@ The bulk answer is a summary per IP; sharing, IOC value and Tor role come from t
 address on its own for those.
 
 At most 20 ranges are looked up per run. The Summary and the VPNDB page (*CIDR ranges*) show a **CIDR ranges** table with one card per
-range holding its per-IP table (exits first), and Data Export has *CIDR ranges*, *CIDR addresses* and *CIDR IPs*. A single-address range (`/32`, `/128`) is a plain IP.
+range holding its per-IP table (exits first), and Export & report has *CIDR ranges*, *CIDR addresses* and *CIDR IPs*. A single-address range (`/32`, `/128`) is a plain IP.
 
 *Not observed* is not an all-clear: VPNDB only knows the exits it measured or that public lists name, and it does not
 collect IPv6, so IPv6 addresses are not sent.
@@ -779,7 +822,7 @@ certificate) come from the cache, not the API. Each analyzed domain still gets i
 different question: every certificate naming the domain.
 
 Domains that share a found certificate are linked by the cluster logic as a **Strong** cluster, so *Group by:
-Campaign Cluster* shows them as one incident. After the run, **Certificate inputs** (under Data Source Status) lists
+Campaign Cluster* shows them as one incident. After the run, **Certificate inputs** (on the Data sources page) lists
 each input with what it found and which analyzed targets came from it. Runs and offline datasets store their
 certificate inputs and hostname focus: run history shows them as `cn:Acme VPN → a.com, b.com`, and a run with certificate inputs is
 compared only with earlier runs of the same inputs and targets.
@@ -789,13 +832,9 @@ compared only with earlier runs of the same inputs and targets.
 **IrisQL** starts from a question instead of a target list: which domains match these registration,
 hosting, certificate or web details? It runs an [IrisQL](https://docs.domaintools.com/api/iris/investigate/irisql/)
 query on Iris Investigate (the same search as `domaintools iris_investigate --irisql ...`), lists what matches, and
-analyzes the domains and IPs you pick. Open it either way:
-
-- **IrisQL** in the top menu, between Start and Overview;
-- **Data source → IrisQL** in the sidebar, on any page.
-
-While the page is open, the sidebar's Data source shows *IrisQL*; another page switches it back to *Live lookups*. The
-query, its options and the last results are kept when you leave the page and come back.
+analyzes the domains and IPs you pick. Open it with **IrisQL** in the top menu (next to Start), or **Find targets
+with IrisQL** on the Start page. The query, its options and the last results are kept when you leave the page and
+come back.
 
 **Autocomplete in the query editor**
 
@@ -856,7 +895,8 @@ without internet access.
    Investigate query each. Set **Sort by** (Iris sorts before paging, so it decides which domains you get when more
    match), and **Pre-select the riskiest** (default 10).
 3. Click **Search**. The same search within the cache lifetime costs no query. *The same search outside the app*
-   gives it as a DomainTools CLI line, a curl command and Python SDK code, without credential values (taken from
+   gives it as a DomainTools Python SDK command (the `domaintools` command line), a curl command and a Python script,
+   without credential values (taken from
    `$DT_API_USERNAME` / `$DT_API_KEY`). The curl answer is piped to `jq .` and the Python prints it indented; without
    `jq`, drop ` | jq .` from the curl line. Each block has a **Copy** button.
 
@@ -876,24 +916,33 @@ Under **Analyze the selection**, choose **What to analyze**: **Domains**, **IPs*
 how many are ticked). Only the ticks of the chosen tab(s) are used, so IPs pre-selected on the IPs tab stay out of a
 domain run unless you choose them; the other tab keeps its ticks. Then pick the **Use case** (as on the Start page: it
 sets the collection options and the analysis window) and click the Analyze button, which says what the run takes
-(e.g. *Analyze 10 domains*). The chosen targets (at most 100) become the sidebar targets and are analyzed as a new run, which opens on the Summary (the sidebar switches back to *Live lookups*); Runs & Diffs notes it as *via IrisQL: …* with the query's
-first condition. **Add to the sidebar targets** adds the same chosen targets to the target box without analyzing, to combine them with
-other targets first.
+(e.g. *Analyze 10 domains*). The chosen targets (at most 100) are analyzed right away as a new run, which opens on the Summary; *Runs → Compare & trends* notes it as *via IrisQL: …* with the query's
+first condition.
 
 The analysis looks the domains up again (Iris Investigate in batches of 100, plus the use case's other lookups), so
-the run has the same data as one started from the sidebar.
+the run has the same data as one started from the Start page.
+
+**Watched queries**
+
+A hunt query can be watched, so that checking it later shows only the domains that are new (an actor's new
+registrations, a lookalike wave):
+
+- **Watch this query** (on the results) saves the query, with a name, and today's domains as already seen.
+- **Watched queries** (an expander above the results, once you watch one) lists each watch with how many domains it
+  has seen and when it was last checked.
+  - **Check now** runs the query again (an ordinary IrisQL search, counted as usual) and ticks only the domains that
+    are new since the last check; those are then marked seen.
+  - **Stop watching** removes the watch.
+
+Watches are saved in `dt_settings.json`.
 
 ## CertsQL
 
 **CertsQL** works like [IrisQL](#irisql) but starts from certificates. It runs a CertsQL query through the
 DomainTools Certificate Search API (technology preview), lists the matching certificates and the domains, IPs and
 hostnames they name, and analyzes the ones you pick with a use case. It uses the certificate key
-(`DT_CERT_API_KEY` / `[cert_api]`), and falls back to the DomainTools API key. To open it, use either of these:
-
-- **CertsQL** in the top menu, after IrisQL;
-- **Data source → CertsQL** in the sidebar, on any page.
-
-While the page is open the sidebar's Data source shows *CertsQL*; opening another page switches it back to *Live lookups*.
+(`DT_CERT_API_KEY` / `[cert_api]`), and falls back to the DomainTools API key. Open it with **CertsQL** in the top
+menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
 
 **Step 1: search**
 
@@ -975,7 +1024,7 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
 3. Set **Certificates to fetch** (pages of 500, up to 5,000), **Sort by** and **Order**, and **Pre-select the most
    named**. Then click **Search**. The
    total is exact up to 10,000; *10,000+* means at least that many match. *The same search outside the app* gives
-   the request as curl and Python code, without the key value (taken from `$DT_CERT_API_KEY`, else `$DT_API_KEY`).
+   the request as a curl command and a Python script, without the key value (taken from `$DT_CERT_API_KEY`, else `$DT_API_KEY`).
    As on the IrisQL page, the curl answer is piped to `jq .` and the Python prints it indented.
 
    **Sort by** is a field of each certificate, not a date in your query: the API orders every matching certificate by
@@ -1002,15 +1051,20 @@ While the page is open the sidebar's Data source shows *CertsQL*; opening anothe
 | Raw JSON | The certificate records as received, with a download |
 
 Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs**, pick the **Use case** and click
-the Analyze button, or click **Add to the sidebar targets**, as on the IrisQL page. Runs & Diffs notes the run as *via CertsQL: …*, and **Lookup Queries → CertsQL**
+the Analyze button, as on the IrisQL page. *Runs → Compare & trends* notes the run as *via CertsQL: …*, and **Evidence → Lookup queries → CertsQL**
 shows the query and its curl request.
 
-## Recent runs and Indicator Sightings
+## Runs and Indicator Sightings
 
-**Recent runs** in the top menu has two tabs: **Recent runs**, your saved runs (`dt_runs/`), and **Indicator
-Sightings**, where an indicator was observed across those runs and the offline datasets (`dt_offline/`). The two are
-linked: an indicator a run shares with other investigations opens its sightings in one click, and a sighting opens
-its run. Local files only: no API query.
+**Runs** in the top menu has three tabs:
+
+- **Recent runs**: your saved runs (`dt_runs/`);
+- **Compare & trends**: one target list's runs in detail, compared and over time;
+- **Indicator Sightings**: where an indicator was observed across those runs and the offline datasets
+  (`dt_offline/`).
+
+They are linked: an indicator a run shares with other investigations opens its sightings in one click, and a
+sighting opens its run. Local files only: no API query. The Start page's **Runs & Sightings** link opens this page.
 
 ### Recent runs tab
 
@@ -1018,22 +1072,26 @@ Pick a view and narrow the list:
 
 | Control | Does |
 | --- | --- |
-| View | **Timeline** (default): one lane per target list, one dot per run over time; size is the number of alerts, color the highest severity. Hover for targets, use case, window, risk and API cost; click a dot to pick the run. **Cards**: four compact cards per row (below). **Table**: time, targets, window, use case, alerts, offline copy and *Shares*; click a row to pick the run |
+| View | **Timeline** (default): one lane per target list, one dot per run over time; size is the number of alerts, color the highest severity. Hover for targets, use case, window, risk and API cost; click a dot to pick the run. **Cards**: one card per target list, four per row (below): its newest run with the number of runs; *Show all runs* on a card opens the Table with every run of that list (*Show every list* clears it). **Table**: one row per target list (its newest run) by default; turn on **Show all runs** for every run, newest first, one row each. Columns: time, targets, alerts per severity, total alerts, *New* and *Resolved* since the list's previous run, *Change* (repeat, changed or first run), highest Unified Risk, use case, window, API queries, *Started by* (Run again, Same targets again, or the lead it came from), offline copy, *Shares* and the runs of the list; click a row to pick the run |
 | Filter | Only runs whose targets, seeds or name contain the text |
-| Runs | How many of the newest matching runs (10, 25, 50 or 100). A run picked from Indicator Sightings stays in view even when it is older |
+| Runs | How many of the newest matching runs (10, 25, 50 or 100; in Cards and the Table without *Show all runs*, how many target lists). A run picked from Indicator Sightings stays in view even when it is older |
+| Show all runs | Table only: off (default) shows one row per target list, on shows every run |
 | With alerts | Only runs that raised alerts |
 | New alerts | Only runs with alerts the previous run of the same targets did not have (a first run counts when it has alerts) |
 
-Each card shows the targets, time, use case and window; severity badges and *+N new* / *−N resolved* alerts since
-the previous run of the same list (*first run* for a new list); *Risk*, the highest Unified Risk with its change and a
-small trend line of the list's last 8 runs. The **?** has the details. Under it, *Select* picks the run, and
+Each card is one target list, shown by its newest run: the targets, time, use case and window; **N runs** since the
+first one (and how many of them changed the alerts, or *same alerts*); severity badges and *+N new* / *−N resolved*
+alerts since the previous run of the same list (*first run* for a new list); *Risk*, the highest Unified Risk with its
+change and a small trend line of the list's last 8 runs. The **?** has the details. Under it, *Select* picks the run,
+*Show all runs* opens the Table with every run of the list, and
 **Shares N** (when the run found an IP, name server, certificate, JA4X, tracker or email that other target lists
 have on different domains) opens the list of those indicators: click one to see its sightings.
 
 For the picked run:
 
 - **Run again** (a new live run with the same use case, analysis window and collection options), **Load offline
-  copy** (the newest offline dataset saved from that run, no API calls) or **Open in Runs & Diffs**.
+  copy** (the newest offline dataset saved from that run, no API calls) or **Compare & trends** (that tab, on the
+  run's target list).
 - **Shared with other target lists**: every indicator the run shares, how many other lists have it and which. Click
   a row, then **Where else was … seen?** to open it on the Indicator Sightings tab.
 - **Any indicator of this run**: pick a kind (IP, Name Server, Certificate, JA4X, Hostname, …) and a value the run
@@ -1044,6 +1102,22 @@ For the picked run:
 
 CDN IPs, large DNS providers, loopback and private addresses, and values found in more than 5 target lists never
 count as shared, and two lists that both analyzed the same domain do not share that domain's artifacts.
+
+### Compare & trends tab
+
+Pick a **Target list**: its runs are listed in a table (alerts per severity, highest Unified Risk). The sub-tabs:
+
+| Tab | Shows |
+| --- | --- |
+| Run Details | One run's alerts, risk and DIF |
+| Compare Runs | Any two runs: new, resolved and persisting alerts, infrastructure changes, risk and DIF changes |
+| Trends | Detections per run by severity, Unified Risk per domain with DIF-change markers, infrastructure counts per run |
+| Domain across runs | One domain across every saved run that included it, from any target list, with its detection lifecycle |
+| Watched Lists | The target lists you watch, each with *Run now* (see [Watched target lists](USER_GUIDE.md#watched-target-lists)) |
+| Manage Runs | Name and annotate runs, export them as JSON, delete them (with confirmation) |
+
+How many runs are kept per target list is set under *Settings → Storage & cache → Retention* (see [Offline
+datasets](#offline-datasets)). More in [Run history](USER_GUIDE.md#run-history-alert-lifecycle-and-trends).
 
 ### Indicator Sightings tab
 
@@ -1061,8 +1135,8 @@ investigation it came up in, when, and with which domains.
 - **Sightings over time** (two or more runs or datasets): each sighting as a dot, one lane per target list, colored
   by kind.
 - Click a row, then **Pick in Recent runs** (a run: shows it on the Recent runs tab with its actions and shared
-  indicators), **Open in Runs & Diffs** (a run), **Load offline dataset** (a dataset, no API calls) or
-  **Analyze … as a new run** (IPs, domains, hostnames, name servers and MX hosts; live lookups).
+  indicators), **Compare & trends** (a run), **Load offline dataset** (a dataset, no API calls) or
+  **Analyze … now** (IPs, domains, hostnames, name servers and MX hosts; live lookups).
 - With no indicator entered, **Shared across your target lists** lists the indicators that link two or more of your
   target lists (the same links as the cards' *Shares* and the Hunt map's *All investigations* dashed lines), most widely shared
   first. Click a row and **Show sightings of …**.
@@ -1104,20 +1178,17 @@ asks again. The query counts against the *account-information* product, not agai
 
 Usage is counted by DomainTools across every client of the account (other scripts, the Iris UI, the MCP server), not
 only this app. Lookups served from the cache cost no query and so do not show here. What each run cost is on the
-Data sources page (**API queries**) and in Runs & Diffs (**API queries** column).
+Data sources page (**API queries**) and on *Runs → Compare & trends* (**API queries** column).
 
 ## Offline datasets
 
 1. Save a live run, either way:
-   - before it: in **Live lookups** mode, tick **Save offline copy** in the sidebar, then click **Analyze**;
-   - after it: click **Manage Data → Save offline copy** in the top menu, or **Save offline copy** on the status line at the top of any
-     page. It saves the run on screen with the lookups made since (CNAME chases ...), with no new API calls, and
-     links it to the run in Runs & Diffs. From the top menu, **Offline Datasets** then opens with the new
-     copy selected, where you can rename it (e.g. after the case or the question it answers). A run that is
-     already saved, or a loaded offline dataset, just opens there. The status line then reads *Offline copy saved*.
-2. Later, switch **Data source** to **Offline dataset** in the sidebar (or open **Manage Data → Offline
-   Datasets**). Pick the dataset (its targets, passive DNS source and record counts are shown under it) and
-   click **Load offline dataset**. The analysis opens on the Summary.
+   - before it: tick **Save offline copy** in the Targets box on the Start page, then click **Analyze**;
+   - after it: click **Save offline copy** on the status line at the top of any page. It saves the run on screen
+     with the lookups made since (CNAME chases ...), with no new API calls, and links it to the run in *Runs →
+     Compare & trends*. The status line then reads *Offline copy saved*. Give it a name on *Data → Saved datasets*.
+2. Later, open **Data → Saved datasets**. Pick the dataset (its targets, passive DNS source and record counts are
+   shown under it) and click **Load offline dataset**. The analysis opens on the Summary.
 3. Change the window, thresholds or filters to re-analyze it. **No API calls are made** and no new run is saved.
 
 Every copy is named automatically when it is saved: `dt_analysis` with the date and time, e.g. `dt_analysis
@@ -1136,8 +1207,11 @@ Under the selected dataset, **What's in this dataset** lists every part with:
 may be more: raise the limit under *Settings → Collection options* and analyze again to fetch them.
 
 Datasets are gzipped JSON (never pickle), stored with owner-only permissions and linked to the run they came from.
-Manage them under **Manage Data → Offline Datasets**: rename, delete (with confirmation), and set how
-many are kept (default 20).
+Manage them under **Data → Saved datasets**: rename and delete (with confirmation).
+
+**Retention** (*Settings → Storage & cache*) sets how many runs are kept per target list (default 10) and how many
+offline datasets are kept (default 20). **Save retention & apply now** saves both and deletes the oldest runs and
+datasets beyond them at once.
 
 ## Where local data is stored
 
@@ -1149,8 +1223,8 @@ Everything below lives in the project folder and is git-ignored.
 | `dt_offline/` | Offline datasets (default: last 20) |
 | `dt_suppressions.json` | Alert suppressions |
 | `dt_triage.json` | Triage status of alerts and domain verdicts, with notes |
-| `dt_cache/` | Lookup cache (see *Settings → Lookup cache*) |
-| `dt_settings.json` | Saved settings: custom profiles, use case changes, the brand watchlist, cache lifetime, watched target lists and retention limits |
+| `dt_cache/` | Lookup cache (see *Settings → Storage & cache*) |
+| `dt_settings.json` | Saved settings: custom profiles, use case changes, the brand watchlist, the infrastructure allowlist, cache lifetime, watched target lists, watched IrisQL queries and retention limits |
 
 Credentials are not stored in the project folder: keys entered in the app go to
 `~/.config/dt-analytics/credentials.toml` ([Credentials](INSTALLATION.md#credentials)).
@@ -1159,14 +1233,15 @@ Credentials are not stored in the project folder: keys entered in the app go to
 
 | Symptom | Check |
 | --- | --- |
-| A data source returns nothing | Open **Data Source Status** (collapsed under the analysis window banner). Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. *Skipped: the DomainTools account has no … product* means the account lacks it (see the Account page). Once the cause is fixed, **Retry N failed lookup(s)** under *Cached details* on the Data sources page queries only those again. |
+| A data source returns nothing | Open the **Data sources** page. Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. *Skipped: the DomainTools account has no … product* means the account lacks it (see the Account page). Once the cause is fixed, **Retry N failed lookup(s)** under *Cached details* on the Data sources page queries only those again. |
 | A red or yellow quota banner at the top of the page | A product this app uses has used up (red) or 95% of (yellow) its monthly quota, or expires within 30 days or has expired. Open the **Account** page for the numbers. To use less: fewer targets, a shorter *Domain History period* or lower *Max changes*, fewer CT certificates or VPNDB verdicts, or turning a source off; lookups still in the lookup cache cost nothing. |
 | "Credentials not found" errors | Open *Settings → API credentials* and **All options**: every option shows whether it is set and used, and why not. Missing keys can be entered there under **Enter API keys**. |
 | Environment variable changes are ignored | Restart the app; variables are read at start. |
-| A domain has no alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**. Lower the threshold to evaluate it. |
+| A domain has few alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**, so it gets only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X, Phishing Kit Staging, Mail-Capable Lookalike, Lure Subdomain). Lower the threshold to evaluate it fully. |
+| An alert's confidence is lower or higher than the rule's default | Read its *Threat Logic*: a popular or zerolisted domain, an [allowlisted](USER_GUIDE.md#allowlist) value in the evidence, or your own verdicts on the rule ([Your verdicts](USER_GUIDE.md#your-verdicts-move-the-confidence)) move it. |
 | "N older detection(s) fall outside this window" | Choose a longer analysis window or *All time*, or expand **Detections outside the window**. |
 | A key saved in the app is not used | An environment variable for that service wins over `credentials.toml`; the save message and the API credentials panel say which source is in use. Unset the variable and restart the app. |
-| The page dims for a moment after a change | Streamlit reruns the page after each change. Page switches reuse the data already prepared, and filters inside Hostname Inventory, Subdomain Triage, Pivot Ranking, CNAME Chains, Lookup Queries and Data Export rerun only that section. Changing the domains, record types, analysis window, timezone or hostname focus rebuilds the data, which takes longer for runs with many domains or records. Data Export builds its files only when you click **Download**. |
+| The page dims for a moment after a change | Streamlit reruns the page after each change. Page switches reuse the data already prepared, and filters inside Hostname Inventory, Subdomain Triage, *All pivots*, CNAME Chains, *Lookup queries* and Export & report rerun only that section. Changing the domains, record types, analysis window, timezone or hostname focus rebuilds the data, which takes longer for runs with many domains or records. Export & report builds its files only when you click **Download**. |
 | Results marked *Partial* | The source hit its result limit (DNSDB: your limit). Raise the DNSDB limit or rely on the TXT / CAA / CNAME lookups. |
 | CNAME Chains shows *Not chased* everywhere | Chains are filled in on demand. Select hostnames (or none for all shown) and click **Chase CNAMEs**; click again when the toast says names wait for the next click. A DNSDB key is needed for chains that leave the collected data. |
 | No or few CNAME records for a busy domain | The main passive DNS lookup hit its limit with A / NS records. Keep *CNAME lookup* on and re-run, and pick a longer analysis window (*All time*) to see older CNAMEs. A domain with thousands of CNAME hostnames can still fill the 5,000-record CNAME lookup. |

@@ -15,11 +15,11 @@ import pandas as pd
 
 from config import PIVOT_STRONG_MAX
 from core.helpers import is_ip_address
+from core.intel_data import SEVERITY_RANK
 from core.network_intel import cdn_for_ip, is_large_dns_provider, is_parking_ns, is_public_ip
 from core.pivots import pivot_domains_frame
 
 SEVERITY_POINTS = {"Critical": 30, "High": 22, "Medium-High": 15, "Medium": 10, "Low": 4}
-SEVERITY_RANK = {"Critical": 0, "High": 1, "Medium-High": 2, "Medium": 3, "Low": 4}
 # how often a kind of value leads to the same operator (a self-signed certificate or a tracker ID rarely is shared by
 # chance; a mail server often is)
 KIND_POINTS = {
@@ -144,7 +144,7 @@ def _seen(value, index, analyzed=frozenset()):
 
 def score_leads(pivots, alerts=None, analyzed=(), index=None):
     """
-    Every lead of the run (rows of the Pivot Ranking that another domain shares), scored 0-100 with the reasons, best
+    Every lead of the run (rows of the All pivots that another domain shares), scored 0-100 with the reasons, best
     first: [{"Type", "Value", "Iris Domains", "Run Domains", "Shared With", "Iris Search", "Analyze As", "Score",
     "Reasons", "Stop", "Alerts", "Seen"}]. "Stop" holds why a lead is set aside ("" when it is worth following).
     """
@@ -303,7 +303,6 @@ def start_order(alerts, leads=None, limit=6, exclude=()):
 
 
 MAX_TARGETS = 10   # targets one run of picked steps analyzes together
-ACTIONS = ("Analyze", "Iris", "CertsQL")
 
 
 def _certificate_target(value):

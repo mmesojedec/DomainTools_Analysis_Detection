@@ -20,7 +20,7 @@ CNAME_COLUMNS = ["Domain", "Hostname", "Target", "Current", "First Seen", "Last 
                  "External", "Service Type", "Service", "Chain", "Hops", "Outcome", "Final", "Final Last Seen", "Note",
                  "Chased At", "From Cache"]
 # Chased At: when its DNSDB lookups were made (UTC; for cached lookups, when they were first fetched);
-# From Cache: every lookup of the chase came from the cache (Settings → Lookup cache)
+# From Cache: every lookup of the chase came from the cache (Settings → Storage & cache)
 CHASE_COLUMNS = ["Start", "Path", "Hops", "Outcome", "Final", "Final Last Seen", "Note", "Chased At", "From Cache"]
 # service type -> explanation; checked in this order (a tunnel service that is also a shared platform is a tunnel)
 SERVICE_TYPES = {

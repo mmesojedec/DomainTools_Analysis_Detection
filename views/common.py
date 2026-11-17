@@ -129,3 +129,25 @@ def install_copy_fallback():
     clipboard API; drawn once per run, the script patches the page once."""
     st.html(_COPY_FALLBACK, unsafe_allow_javascript=True)
 
+
+
+def page_header(key, help=None, caption=None):
+    """The page's heading: its menu title (one name for a page everywhere), an optional help and caption."""
+    from views import navigation  # navigation draws links with helpers of this module's callers
+    st.header(navigation.title(key), help=help)
+    if caption:
+        st.caption(caption)
+
+
+def empty_state(text, link_key=None, link_label=None):
+    """One way to say there is nothing to show: an info box, then where to go next."""
+    from views import navigation
+    st.info(text, icon=":material/info:")
+    if link_key:
+        navigation.link(link_key, label=link_label)
+
+
+def metric_slots(count, width=190):
+    """`count` containers for metrics in one row that wraps on narrow screens (columns stack into one long list)."""
+    row = st.container(horizontal=True, wrap=True, gap="medium")
+    return [row.container(width=width) for _ in range(count)]

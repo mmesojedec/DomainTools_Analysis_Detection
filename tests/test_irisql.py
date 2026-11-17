@@ -68,9 +68,9 @@ def test_costs_and_commands():
     assert irisql.analysis_cost([]) == 0 and irisql.analysis_cost([f"d{i}.com" for i in range(101)]) == 2
     query = irisql.normalize('domain contains "domaintools"')
     cmds = irisql.commands(query, 500, "risk_score")
-    assert cmds["DomainTools CLI"].startswith("domaintools iris_investigate --irisql '# IrisQL-1.0")
-    assert "--sort-by risk_score" in cmds["DomainTools CLI"] and "$DT_API_KEY" in cmds["curl"]
-    assert "page_size=500&sort_by=risk_score" in cmds["curl"] and "irisql=" in cmds["Python SDK"]
+    assert cmds["DomainTools Python SDK"].startswith("domaintools iris_investigate --irisql '# IrisQL-1.0")
+    assert "--sort-by risk_score" in cmds["DomainTools Python SDK"] and "$DT_API_KEY" in cmds["curl"]
+    assert "page_size=500&sort_by=risk_score" in cmds["curl"] and "irisql=" in cmds["Python script"]
     assert "Content-Type: application/json" in cmds["curl"] and "text/plain" not in cmds["curl"]
 
 
@@ -161,9 +161,11 @@ def test_irisql_page_is_always_in_the_menu():
 
 def test_start_irisql_and_certsql_are_plain_links_before_overview():
     from views import navigation
-    assert list(navigation.SECTIONS)[:5] == ["Start", "IrisQL", "CertsQL", "Recent runs", "Overview"]
+    assert list(navigation.SECTIONS)[:5] == ["Start", "IrisQL", "CertsQL", "Runs", "Overview"]
     assert navigation.SPECS["irisql"].title == "IrisQL"
-    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "Recent runs"}
+    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "Runs"}
+    sections = list(navigation.SECTIONS)
+    assert sections.index("Evidence") == sections.index("Hunt") + 1   # Evidence right after Hunt
 
 
 def test_an_irisql_search_becomes_its_own_lookup_queries_tool():
@@ -184,13 +186,15 @@ def test_an_irisql_search_becomes_its_own_lookup_queries_tool():
     assert list(request_counts(queries)) == [2]   # one request per page
 
 
-def test_manage_data_groups_saving_exporting_and_history_after_evidence():
+def test_data_and_settings_groups_follow_evidence_and_merged_pages_are_tabs():
     from views import navigation
     order = list(navigation.SECTIONS)
-    assert order[order.index("Evidence") + 1:] == ["Manage Data", "Data sources", "Settings", "Account", "Help"]
-    assert [spec.key for spec in navigation.SECTIONS["Manage Data"]] == ["save", "offline", "export", "history"]
-    assert navigation.title("history") == "Runs & Diffs" and navigation.title("offline") == "Offline Datasets"
-    assert [spec.key for spec in navigation.SECTIONS["Evidence"]] == ["raw", "queries"]
+    assert order[order.index("Evidence") + 1:] == ["Data", "Settings"]
+    assert [spec.key for spec in navigation.SECTIONS["Data"]] == ["offline", "export", "sources"]
+    assert [spec.key for spec in navigation.SECTIONS["Settings"]] == ["settings", "account", "docs"]
+    assert navigation.title("offline") == "Saved datasets" and navigation.title("history") == "Compare runs"
+    assert {key: navigation.ALIASES[key][0] for key in ("history", "pivots", "raw", "queries")} == {
+        "history": "recent", "pivots": "hunt_tree", "raw": "evidence", "queries": "evidence"}
 
 
 def test_tor_network_is_its_own_infrastructure_page_not_a_vpndb_tab():

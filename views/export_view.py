@@ -10,15 +10,17 @@ from core.data_export import EXPORT_SETS, GROUPS, ExportContext, build_zip, expo
 from core.export import confirmed_indicators, dataset_iocs, to_misp_event, to_stix_bundle
 from core.pivots import iris_queries
 from core.triage import domain_verdicts, load_triage
+from views.alert_tools import render_exports
 from views.pivot_view import dataset_pivots
 
 
-def render_export_lens(ds, collected, alerts, profiles, created=None):
-    st.header("Data Export", help="Data to share with other teams: indicators, the tables the lenses show and the raw "
+def render_export_lens(ds, collected, alerts, profiles, created=None, correlation=None):
+    st.header("Export & report", help="Data to share with other teams: indicators, the tables the lenses show and the raw "
                                   "collected records. No charts; every timestamp is UTC.")
-    st.caption("Raw data follows the analysis window and the Global View Filters; the hostname inventory and its "
+    st.caption("Raw data follows the analysis window and the sidebar view filters; the hostname inventory and its "
                "certificate links cover the full collected history. Detections leave out suppressed alerts.")
     render_case_report(ds, collected, alerts, profiles, created)
+    render_exports(ds, alerts, profiles, correlation)
     render_confirmed_export(ds, alerts, expanded=True)
     _render_export_choices(ExportContext(ds, collected, alerts, profiles, created))
 
@@ -30,9 +32,9 @@ def render_case_report(ds, collected, alerts, profiles, created=None):
                      icon=":material/description:"):
         st.caption("A single HTML file for a manager, a ticket or a takedown request: the run at a glance, the most "
                    "severe alerts with their evidence, risk by domain, an infrastructure snapshot and the indicators. "
-                   "It follows the analysis window and the Global View Filters and leaves out suppressed alerts. "
+                   "It follows the analysis window and the sidebar view filters and leaves out suppressed alerts. "
                    "Open it in a browser and print it (Save as PDF) for a PDF. The full evidence report with every alert is "
-                   "on the Alerts page.")
+                   "below (Detections, IOCs & evidence report).")
         default_title = "Case report: " + ", ".join(targets[:3]) + (f" (+{len(targets) - 3} more)" if len(targets) > 3
                                                                      else "")
         c_title, c_analyst = st.columns([3, 2])
@@ -51,12 +53,14 @@ def render_case_report(ds, collected, alerts, profiles, created=None):
         meta = {"title": title.strip() or default_title, "analyst": analyst.strip(), "notes": notes.strip(),
                 "targets": targets, "created": created, "window": st.session_state.get("window_label"),
                 "origin": "offline dataset" if origin.get("mode") == "offline" else "live lookups"}
-        report = build_case_report(meta, alerts, profiles, infrastructure_rows(collected.enrichment, targets),
-                                   dataset_iocs(ds) if with_iocs else None, run_overview(collected.statuses),
-                                   top=int(top))
+        def report():   # built on the click, not on every keystroke in the fields above
+            return build_case_report(meta, alerts, profiles, infrastructure_rows(collected.enrichment, targets),
+                                     dataset_iocs(ds) if with_iocs else None, run_overview(collected.statuses),
+                                     top=int(top)).encode("utf-8")
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        st.download_button("Download case report (HTML)", report.encode("utf-8"), f"{stamp}_case_report.html",
-                           "text/html", type="primary", icon=":material/download:", on_click="ignore")
+        st.download_button("Download case report (HTML)", report, f"{stamp}_case_report.html",
+                           "text/html", type="primary", icon=":material/download:", on_click="ignore",
+                           help="The report is built when you click")
 
 
 def render_confirmed_export(ds, alerts, expanded=False):
@@ -81,11 +85,11 @@ def render_confirmed_export(ds, alerts, expanded=False):
         c_csv, c_misp, c_stix = st.columns(3)
         c_csv.download_button("CSV", indicators.to_csv(index=False).encode(), f"{stamp}_confirmed_iocs.csv",
                               "text/csv", width="stretch", on_click="ignore")
-        c_misp.download_button("MISP event (JSON)", to_misp_event(indicators).encode(), f"{stamp}_misp_event.json",
+        c_misp.download_button("MISP event (JSON)", lambda: to_misp_event(indicators).encode(), f"{stamp}_misp_event.json",
                                "application/json", width="stretch", on_click="ignore",
                                help="MISP's JSON import format: one attribute per indicator (Event → Add → Import)")
         marked = alerts[alerts["Status"] == "Malicious"] if "Status" in alerts.columns else alerts.iloc[0:0]
-        c_stix.download_button("STIX 2.1 bundle", to_stix_bundle(indicators, marked).encode(),
+        c_stix.download_button("STIX 2.1 bundle", lambda: to_stix_bundle(indicators, marked).encode(),
                                f"{stamp}_confirmed_stix.json", "application/json", width="stretch", on_click="ignore")
         st.dataframe(indicators, hide_index=True, width="stretch", height=min(320, 35 * (len(indicators) + 1) + 3))
         domains = set(indicators["Domain"].str.split(", ").explode())

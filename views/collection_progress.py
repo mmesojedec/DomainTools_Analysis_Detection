@@ -158,7 +158,7 @@ def live_progress(settings):
             cached = sum(row.cached for row in rows)
             if cached:
                 st.caption(f"{cached:,} lookup(s) answered from the lookup cache, with no API query. Each source keeps "
-                           "cached results for its lifetime on Settings → Lookup cache.")
+                           "cached results for its lifetime on Settings → Storage & cache.")
             if up_next(rows):
                 st.caption(up_next(rows))
     tracker = CollectionProgress(query_plan(plan_settings(settings)), render)
@@ -176,7 +176,7 @@ def render_last_collection():
         st.markdown("  \n".join(checklist_lines(rows)))
         cached = cache_table(rows)
         if not cached.empty:
-            st.markdown("**From the lookup cache** (each source's lifetime is on Settings → Lookup cache; *Re-run with "
+            st.markdown("**From the lookup cache** (each source's lifetime is on Settings → Storage & cache; *Re-run with "
                         "fresh lookups* on the Data sources page refreshes them)")
             st.dataframe(cached, hide_index=True, width="stretch", column_config={
                 "Fetched": st.column_config.DatetimeColumn("Fetched (UTC)", format="YYYY-MM-DD HH:mm"),

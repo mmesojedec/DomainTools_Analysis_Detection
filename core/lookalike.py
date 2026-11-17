@@ -69,6 +69,24 @@ def _max_typo_distance(brand):
     return 1 if len(brand) <= 7 else 2
 
 
+# Words that commonly wrap a brand inside one token (`mypaypal`, `paypalhelp`): a brand embedded in any other word
+# (`chase` in `purchase`) is a coincidence, not combosquatting
+COMBO_AFFIXES = ("my", "the", "online", "app", "web", "help", "mail", "id", "official", "center", "team", "cs", "care")
+_AFFIX_RE = re.compile("^(?:" + "|".join(sorted({re.escape(k.replace("-", "")) for k in PHISHING_KEYWORDS + COMBO_AFFIXES},
+                                                 key=len, reverse=True)) + r"|\d+)+$")
+
+
+def _combosquat(tokens, brand):
+    """True when the brand is a whole hyphen-separated token, or a token is the brand plus keywords / digits."""
+    for token in tokens:
+        if brand not in token:
+            continue
+        left, _, right = token.partition(brand)
+        if all(not part or _AFFIX_RE.match(part) for part in (left, right)):
+            return True
+    return False
+
+
 def analyze_lookalike(hostname, brands, official_domains=()):
     """Returns findings [{type, brand, detail}] for one hostname. IDN findings are reported even without brands."""
     host = str(hostname or "").strip().lower().rstrip(".")
@@ -103,7 +121,7 @@ def analyze_lookalike(hostname, brands, official_domains=()):
         if 0 < distance <= _max_typo_distance(brand) and abs(len(decoded_label) - len(brand)) <= 2:
             findings.append({"type": "Typosquatting Lookalike", "brand": brand, "detail": f"Edit distance {distance} from '{brand}'"})
             continue
-        if brand in label_skeleton:
+        if _combosquat(tokens, brand) or _combosquat(re.split(r"[-_]", decoded_label), brand):
             keywords = [k for k in PHISHING_KEYWORDS if k in label_skeleton.replace(brand, " ")]
             findings.append({"type": "Combosquatting (Brand + Keyword)", "brand": brand,
                              "detail": f"Label '{decoded_label}' embeds '{brand}'" + (f" with keywords: {', '.join(keywords)}" if keywords else ""),
@@ -115,3 +133,53 @@ def analyze_lookalike(hostname, brands, official_domains=()):
         if subdomain_part and brand in skeleton(subdomain_part).replace("-", ".").split("."):
             findings.append({"type": "Brand in Subdomain", "brand": brand, "detail": f"Subdomain '{subdomain_part}' carries the brand on {reg}"})
     return findings
+
+
+# --- Candidate generation: names a lookalike hunt searches for (Settings → Brands & allowlist → Hunt lookalikes) ---
+KEYBOARD = {"q": "wa", "w": "qes", "e": "wrd", "r": "etf", "t": "ryg", "y": "tuh", "u": "yij", "i": "uok", "o": "ipl",
+            "p": "ol", "a": "qsz", "s": "awdz", "d": "sefx", "f": "drgc", "g": "fthv", "h": "gyjb", "j": "hukn",
+            "k": "jilm", "l": "kop", "z": "asx", "x": "zsdc", "c": "xdfv", "v": "cfgb", "b": "vghn", "n": "bhjm",
+            "m": "njk"}
+LOOKALIKE_SWAPS = {"o": "0", "l": "1", "i": "1", "e": "3", "a": "4", "s": "5", "m": "rn", "w": "vv"}
+CANDIDATE_TLDS = ("com", "net", "org", "co", "io", "info", "online", "site", "xyz", "top", "shop", "app")
+CANDIDATE_WORDS = ("login", "secure", "verify", "account", "support", "billing", "update", "help", "auth", "online")
+MAX_CANDIDATES = 500
+
+
+def _typos(brand):
+    found = set()
+    for i in range(len(brand)):
+        found.add(brand[:i] + brand[i + 1:])                                   # omission
+        found.add(brand[:i] + brand[i] + brand[i:])                            # repetition
+        if i < len(brand) - 1:
+            found.add(brand[:i] + brand[i + 1] + brand[i] + brand[i + 2:])     # transposition
+        for near in KEYBOARD.get(brand[i], ""):
+            found.add(brand[:i] + near + brand[i + 1:])                        # neighbouring key
+        if brand[i] in LOOKALIKE_SWAPS:
+            found.add(brand[:i] + LOOKALIKE_SWAPS[brand[i]] + brand[i + 1:])   # look-alike character
+        if 0 < i < len(brand):
+            found.add(brand[:i] + "-" + brand[i:])                             # hyphenation
+    found.discard(brand)
+    return {name for name in found if len(name) >= 3}
+
+
+def lookalike_candidates(brands, official_domains=(), tlds=CANDIDATE_TLDS, limit=MAX_CANDIDATES):
+    """
+    Domains a lookalike of `brands` would register: typos on the brand's own TLDs, the exact brand on other TLDs,
+    and brand + phishing word combinations; the official domains left out. The most likely first, up to `limit`.
+    """
+    official = {str(d).lower() for d in official_domains}
+    candidates = []
+    for brand in brands:
+        own_tlds = [d.split(".", 1)[1] for d in official if d.split(".", 1)[0] == brand] or ["com"]
+        candidates += [f"{brand}.{tld}" for tld in tlds if tld not in own_tlds]
+        candidates += [f"{brand}-{word}.{own_tlds[0]}" for word in CANDIDATE_WORDS]
+        candidates += [f"{word}-{brand}.{own_tlds[0]}" for word in CANDIDATE_WORDS[:4]]
+        candidates += [f"{name}.{tld}" for name in sorted(_typos(brand)) for tld in own_tlds]
+    return [c for c in dict.fromkeys(candidates) if c not in official][:limit]
+
+
+def lookalike_query(candidates, header="# IrisQL-1.0"):
+    """An IrisQL query for the candidate domains that exist (registered), newest first in the results."""
+    names = ", ".join(f'"{name}"' for name in candidates)
+    return f"{header}\nDOMAIN EXACTLY_IN [{names}]"

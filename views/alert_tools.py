@@ -9,12 +9,11 @@ import streamlit as st
 from config import SEVERITY_WEIGHTS
 from core.export import build_report_html, build_report_markdown, dataset_iocs, to_stix_bundle
 from core.helpers import md_escape
-from core.intel_data import CONFIDENCE_ORDER, MITRE_TACTICS, TACTIC_ORDER
+from core.intel_data import CONFIDENCE_ORDER, MITRE_TACTICS, SEVERITY_COLORS, SEVERITY_ORDER, TACTIC_ORDER
 from core.persistence import add_suppression, remove_suppression
 from core.triage import STATUS_HELP, STATUSES
 from views.common import chart, table
 
-SEVERITY_ORDER = ["Critical", "High", "Medium-High", "Medium", "Low"]
 _TECHNIQUE_RE = re.compile(r"\b(T\d{4})(?:\.(\d{3}))?\b")
 
 
@@ -46,9 +45,7 @@ def render_alert_overview(alerts):
     return selected
 
 
-HEATMAP_SEVERITY_COLORS = {
-    "Critical": "#DC2626", "High": "#F97316", "Medium-High": "#F59E0B", "Medium": "#EAB308", "Low": "#3B82F6",
-}
+HEATMAP_SEVERITY_COLORS = SEVERITY_COLORS
 HEATMAP_ROW_PX = 34      # fixed height per domain row so cells never overlap
 HEATMAP_CELL_PX = 24     # square size; fits inside a row with a visible gap
 
@@ -236,21 +233,27 @@ def render_run_diff(view):
             st.markdown("##### Resolved Since Last Run")
             st.caption("Detections present in the previous run that no longer fire (fixed, taken down, or outside the current window).")
             table(view.resolved[[c for c in ["Domain", "Threat Type", "Severity", "Confidence", "Threat Logic"] if view.resolved[c].notna().any()]])
-        st.caption("Open **Manage Data → Runs & Diffs** to compare any two runs.")
+        st.caption("Open **Runs → Compare & trends** to compare any two runs.")
 
 
 def render_exports(ds, alerts, profiles, correlation):
     with st.expander("Export Detections, IOCs & Report", expanded=False):
         iocs = dataset_iocs(ds)
-        st.caption(f"{len(alerts)} detection(s) and {len(iocs)} indicator(s) for the current filters (suppressed alerts excluded).")
-        col1, col2, col3 = st.columns(3)
-        col1.download_button("Detections (CSV)", alerts.drop(columns=["Evidence"], errors="ignore").to_csv(index=False).encode(), "detections.csv", "text/csv", width="stretch")
-        col2.download_button("IOCs (CSV)", iocs.to_csv(index=False).encode(), "iocs.csv", "text/csv", width="stretch")
-        col3.download_button("IOCs (JSON)", iocs.to_json(orient="records", indent=2).encode(), "iocs.json", "application/json", width="stretch")
-        col4, col5, col6 = st.columns(3)
-        col4.download_button("STIX 2.1 Bundle", to_stix_bundle(iocs, alerts).encode(), "stix_bundle.json", "application/json", width="stretch")
-        col5.download_button("Evidence Report (HTML)", build_report_html(ds, alerts, profiles, iocs, correlation).encode(),
-                             "detection_report.html", "text/html", width="stretch")
-        col6.download_button("Evidence Report (Markdown)", build_report_markdown(ds, alerts, profiles, iocs, correlation).encode(),
-                             "detection_report.md", "text/markdown", width="stretch")
+        st.caption(f"{len(alerts)} detection(s) and {len(iocs)} indicator(s) for the current filters (suppressed alerts "
+                   "excluded). Each file is built when you click.")
+        plain = alerts.drop(columns=["Evidence"], errors="ignore")
+        files = [("Detections (CSV)", lambda: plain.to_csv(index=False).encode(), "detections.csv", "text/csv"),
+                 ("IOCs (CSV)", lambda: iocs.to_csv(index=False).encode(), "iocs.csv", "text/csv"),
+                 ("IOCs (JSON)", lambda: iocs.to_json(orient="records", indent=2).encode(), "iocs.json",
+                  "application/json"),
+                 ("STIX 2.1 Bundle", lambda: to_stix_bundle(iocs, alerts, correlation=correlation).encode(), "stix_bundle.json",
+                  "application/json"),
+                 ("Evidence Report (HTML)", lambda: build_report_html(ds, alerts, profiles, iocs, correlation).encode(),
+                  "detection_report.html", "text/html"),
+                 ("Evidence Report (Markdown)",
+                  lambda: build_report_markdown(ds, alerts, profiles, iocs, correlation).encode(),
+                  "detection_report.md", "text/markdown")]
+        for row in (files[:3], files[3:]):
+            for col, (label, data, name, mime) in zip(st.columns(3), row):
+                col.download_button(label, data, name, mime, width="stretch", on_click="ignore")
         st.dataframe(iocs, width="stretch", hide_index=True, height=260)

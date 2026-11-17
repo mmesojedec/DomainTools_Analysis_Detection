@@ -154,7 +154,7 @@ def render_suggested_hunt(ds, alerts, leads, steps, children):
         if len(top) > 1:
             analyze_button([lead["Analyze As"] for lead in top],
                            "Suggested hunt: " + ", ".join(f"{lead['Type']} {lead['Value']}" for lead in top),
-                           key="plan_hunt_top", label=f"Analyze the top {len(top)} as one run", direct=True,
+                           key="plan_hunt_top", label=f"Analyze now (top {len(top)})", direct=True,
                            help="Analyzes the best leads the app can take as targets (IPs, certificates, redirect "
                                 "domains) together as one new run, linked to this one on the Hunt map. Live lookups.")
     if stopped:

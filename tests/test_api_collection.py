@@ -214,10 +214,10 @@ def test_run_usage_and_what_is_left():
 
 def test_iris_mail_spf_and_popularity_feed_the_rules():
     record = {"popularity_rank": 133, "active": True, "website_response": 200, "spf_info": "v=spf1 +all",
-              "mx": [{"host": {"value": "mx.yandex.ru."}}, {"host": {"value": "mx.yandex.ru"}}],
+              "mx": [{"host": {"value": "mx.cock.li."}}, {"host": {"value": "mx.cock.li"}}],
               "email_domain": [{"value": "Example.com"}]}
     profile = extract_iris_profile(record)
-    assert (profile["popularity_rank"], profile["mx_hosts"], profile["email_domains"]) == (133, ["mx.yandex.ru"],
+    assert (profile["popularity_rank"], profile["mx_hosts"], profile["email_domains"]) == (133, ["mx.cock.li"],
                                                                                            ["example.com"])
     assert extract_iris_profile({"popularity_rank": 0})["popularity_rank"] is None
     ctx = DomainContext(domain="a.com", is_ip=False, thresholds={}, profile=profile)

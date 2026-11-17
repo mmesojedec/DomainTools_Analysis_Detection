@@ -11,7 +11,7 @@ Most of these explanations are also available inside the app: **Detection reason
 
 - [How a run works](#how-a-run-works)
 - [Analysis window](#analysis-window)
-- [Data Source Status](#data-source-status)
+- [Data sources](#data-sources)
 - [KPI banner](#kpi-banner)
 - [Unified Risk and risk vectors](#unified-risk-and-risk-vectors)
 - [DIF: Domain Infrastructure Fingerprint](#dif-domain-infrastructure-fingerprint)
@@ -46,19 +46,24 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
    and CIDR targets are looked up there as ranges. Where a passive DNS lookup stopped at its limit, record-type
    lookups fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside
    the collected data are [chased](#cname-chains) to their final addresses. Every lookup's outcome is recorded in
-   [Data Source Status](#data-source-status), with the API queries it made. Independent sources run at the same
+   the [Data sources](#data-sources) page, with the API queries it made. Independent sources run at the same
    time (see [Workflows](WORKFLOWS.md#collection-order)), and sources missing from the DomainTools account are
    skipped.
 2. **Window.** Records are limited to the [analysis window](#analysis-window).
-3. **Score gate.** Domains whose known DomainTools risk score is below **Min Risk Score** are skipped by the
-   behavioral engine (an info box lists them). Domains Iris Investigate has no score for are still evaluated, with
-   a warning. IP targets are always evaluated.
+3. **Score gate.** Domains whose known DomainTools risk score is below **Min Risk Score** get only the rules whose
+   evidence stands on its own: the lookalike rules, subdomain takeover (*Dangling CNAME*, *Unverified CNAME to
+   Takeover-Prone Service*), the CAA breaches, *Known C2 Certificate Fingerprint (JA4X)*, *Phishing Kit Staging*,
+   *Mail-Capable Lookalike* and *Lure Subdomain*. A new lookalike or your own domain often has a low score. An info
+   box lists these domains. Domains Iris Investigate has no score for are still fully evaluated, with a warning. IP
+   targets are always evaluated.
 4. **Detect.** Every [detection rule](#detection-catalogue) runs per domain or IP on raw UTC timestamps. Then the
    cross-domain checks run: [infrastructure clusters and domain hopping](#infrastructure-clusters-and-domain-hopping),
    CNAME targets shared by several analyzed domains, and anonymizer exits several analyzed domains use (see
    [VPNDB anonymizer rules](#vpndb-anonymizer-rules)). A domain among the 10,000 most popular in Iris
-   Investigate (its *popularity rank*) is far more likely legitimate: its Medium and Medium-High confidence alerts
-   drop one step, and each alert's logic says so. High-confidence alerts are kept as they are.
+   Investigate (its *popularity rank*), or one on the DomainTools zerolist (known good), is far more likely
+   legitimate: its Medium and Medium-High confidence alerts drop one step, and each alert's logic says so.
+   High-confidence alerts are kept as they are. Your [allowlist](#allowlist) and your
+   [verdicts](#your-verdicts-move-the-confidence) can move the confidence too.
 5. **Merge.** Rules that run once per certificate or record can fire several times for one domain. These repeats
    are merged into **one alert per (domain, rule)**, keeping the worst severity's description, the best confidence
    and all the evidence. The *Occurrences* column shows how many were merged.
@@ -84,7 +89,7 @@ The window (sidebar, default *Last 30 days*) keeps only records **active** in it
 - A banner shows how many records each source kept, and how many detections exist only outside the window.
   Expand **Detections outside the window** to review them, or switch to *All time*.
 
-## Data Source Status
+## Data sources
 
 The **Data sources** page shows how every lookup of the run went. At the top, the run in numbers: targets, lookups,
 the share answered (all but errors), records returned, API queries, lookups from the lookup cache and, after an
@@ -110,7 +115,7 @@ Each lookup has one of these statuses:
 
 Missing data lowers what the detections can see, so check this page when a domain has fewer alerts than expected.
 Each lookup also shows **Queries**: the API queries it made (pages and retries included; 0 when the lookup cache
-answered); Runs & Diffs keeps each run's total. When a run returned no data at all, a status panel with every lookup
+answered); the Runs page (*Compare & trends*) keeps each run's total. When a run returned no data at all, a status panel with every lookup
 is shown instead of the pages. A source whose DomainTools product the account does not have is listed as skipped.
 
 ## KPI banner
@@ -125,18 +130,19 @@ is shown instead of the pages. A source whose DomainTools product the account do
 ## Unified Risk and risk vectors
 
 Each domain gets six risk vectors (0–100), shown in the **Digital Risk Vector Profile** radar chart. Five are
-built from the domain's alerts plus raw telemetry. "Max severity" is the highest
-[severity weight](#severity) among the domain's alerts that match the listed techniques or names. Informational alerts
-(*Short-Lived Certificate*) are left out: short certificate lifetimes never raise a risk score.
+built from the domain's alerts, and two of them also from raw telemetry. "Max severity" is the highest value of
+[severity weight](#severity) × confidence among the domain's alerts that match the listed techniques or names. The
+confidence factor is 1.0 for High, 0.8 for Medium and 0.5 for Low, so a Low-confidence High alert counts as 35, not 70.
+Informational alerts (*Short-Lived Certificate*) are left out: short certificate lifetimes never raise a risk score.
 
 | Vector | Calculation (capped at 100) |
 | --- | --- |
 | Domain Risk Score | The DomainTools overall risk score (0 if unknown) |
-| DNS Volatility | Max severity of T1568 / flux / rotation / parked / sinkhole alerts + 2 per distinct resolved IP (max +40) |
-| Certificate Trust | Max severity of T1588.004 / T1573 / certificate / weak-key alerts + 40 if any certificate is self-signed + 40 if any key is weak |
-| Email/Phish Posture | Max severity of T1583.002 / T1585.002 / phishing / SPF / mail alerts + 5 per distinct TXT / SPF / MX value (max +30) |
-| App & C2 Footprint | Max severity of T1071 / T1008 / T1048 / bare-IP / payload alerts |
-| Infra Sprawl | Max severity of T1584.001 / sprawl / nested / wildcard alerts + 2 per SAN of the largest certificate (max +50) |
+| DNS Volatility | Max severity of T1568 / flux / rotation / parked / sinkhole / churn alerts + 2 per distinct passive DNS IP above 10 (max +20) |
+| Certificate Trust | Max severity of T1588.004 / T1573 / T1587.003 / T1608.003 / certificate / weak-key alerts + 40 if any certificate is self-signed + 40 if any key is weak |
+| Email/Phish Posture | Max severity of T1566 / T1583.002 / T1585.002 / phishing / SPF / mail / lure alerts. TXT, SPF and MX record counts add nothing: SaaS verification records grow with legitimate use |
+| App & C2 Footprint | Max severity of T1071 / T1008 / T1048 / T1090.003 / T1572 / T1583.003 / proxy or anonymizer exit / bare-IP / payload / JA4X alerts |
+| Infra Sprawl | Max severity of T1584.001 / sprawl / nested / wildcard / cohort / wave alerts. SAN counts add nothing: the *Mega-SAN* rule covers them |
 
 **Unified Risk** = `min(100, max(base, 0.4 × base + 1.5 × average of the five behavioral vectors))`, where *base*
 is the DomainTools risk score. It never falls below the DomainTools score, and rises when the domain's own
@@ -217,10 +223,12 @@ The **Alerts** page lists every detection.
 | --- | --- |
 | Confidence / Severity | Show only these levels |
 | Status | Show only alerts with these [triage statuses](#triage-status) |
+| Threat type | Show only these rules (empty: every threat type) |
 | Layout | *Grouped* (default) or *Table* (one flat, sortable row per alert) |
 | Group by | How alerts are grouped (below) |
 | Only first detected in this run | Hide detections already seen in an earlier saved run that covered these domains. Disabled until such a run exists. |
-| Detection reasons | Opens the reference: severity and confidence levels, alert columns, and every rule |
+| Detection reasons | Opens the reference: severity and confidence levels, alert columns, and every rule, with a **Your Verdicts** column (how many of each rule's alerts you marked Malicious or Benign) |
+| Export detections, IOCs and reports | Opens the **Export & report** page (see [Suppressions and exports](#suppressions-and-exports)) |
 
 The filters also apply to the alert count and the detection exports. The IOC list covers the selected domains and the analysis window.
 
@@ -304,6 +312,39 @@ Each rule has a default confidence. Some adjust it from the evidence:
 - *CNAME Link Between Analyzed Domains* is **High** when a name of one analyzed domain aliases into another, and
   drops to **Low** when every shared name is a known service (hosting, takeover-prone, tunnel), where unrelated
   customers share names.
+- A popular domain (Iris popularity rank in the top 10,000) or a domain on the DomainTools zerolist drops its Medium
+  and Medium-High alerts one step.
+
+#### Your verdicts move the confidence
+
+The app learns from your triage. Once a rule has at least 5 Malicious or Benign decisions (alert statuses on the
+Alerts page), it adjusts that rule's confidence in every run:
+
+- 80% or more Benign: the confidence drops one step (High to Medium, Medium to Low).
+- 80% or more Malicious: the confidence rises to High.
+
+The alert's *Threat Logic* says so, with the counts. **Detection reasons** shows them in the **Your Verdicts** column.
+
+A domain you mark **Malicious** (domain verdict on Alerts or the Domain profile) also raises *Linked to
+Confirmed-Malicious Domain* (High) on the other domains of its **Strong** [cluster](#clusters).
+
+#### Allowlist
+
+The **Infrastructure allowlist** (*Settings → Brands & allowlist*) lists your own or otherwise known-good
+infrastructure, one entry per line (comma-separated works too; lines starting with `#` are ignored):
+
+| Entry | Matches |
+| --- | --- |
+| `203.0.113.7`, `10.20.0.0/16` | An IP address or range |
+| `AS13335` | An ASN (its hosting IPs, when Iris or VPNDB knows the ASN) |
+| `ns:corp-dns.example` | A name server or its provider domain (a bare host name means the same) |
+| `org:Example Corp` | A certificate subject organization (contains, any case) |
+| `tracker:G-ABC123` | A web tracker ID |
+| `registrar:MarkMonitor` | A registrar (contains, any case) |
+
+Allowlisted values never link analyzed domains into [clusters](#clusters). Alerts whose evidence names one are kept,
+but drop to **Low** confidence, and the alert says why. Saving re-runs the detections, with no new lookups. The list
+is saved in `dt_settings.json`.
 
 ### Category
 
@@ -321,7 +362,12 @@ Each rule has a default confidence. Some adjust it from the evidence:
 
 ## Detection catalogue
 
-Every rule, grouped by category. Threshold names (e.g. **Min Risk Score**, **DGA Entropy Score**) are the sliders
+Every rule, grouped by category. Besides the per-source rules, two families read what the run already has, with
+no extra lookups: **lifecycle** rules (re-registered domains, throwaway registrant mail, name server churn, a
+registrar transfer followed by new name servers; `core/threat_detection/lifecycle_rules.py`) and **compound and
+cross-domain** rules (independent signals that together describe one attack stage, such as *Phishing Kit Staging*
+or *Subdomain Takeover in Progress*, plus bulk-registration cohorts and campaign waves across the analyzed domains;
+`core/threat_detection/compound_rules.py`). Threshold names (e.g. **Min Risk Score**, **DGA Entropy Score**) are the sliders
 under *Settings → Detection thresholds*; see [Detection thresholds](#detection-thresholds) for
 their defaults. **Detection reasons** in the app shows the same table with how often each rule fired in the
 current run.
@@ -330,31 +376,34 @@ current run.
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| ACME Certificate Sprawl | Medium-High | Low | T1588.004 (Obtain Digital Certificates) | More than 3 _acme-challenge names in passive DNS. | Mass automated certificate issuance supports fast setup of many hostnames. |
+| ACME Certificate Sprawl | Low | Low | T1588.004 (Obtain Digital Certificates) | More than 10 distinct _acme-challenge hostnames in passive DNS (renewals of one name count once). | Mass automated certificate issuance supports fast setup of many hostnames. |
 | Rapid Weaponization (Cert-to-DNS Gap) | High | Medium | T1588.004 (Obtain Digital Certificates) | Certificate issued within Cert-to-DNS Gap (Hours) of the first DNS record. | Certificate and DNS set up together point to scripted, disposable deployment. |
-| Self-Signed Certificate Detected | High | High | T1573.002 (Encrypted Channel) | Certificate subject equals its issuer. | Common on C2 servers and malware panels; untrusted by browsers. |
+| Self-Signed Certificate Detected | Critical to Low (graded: High, Medium) | High | T1573.002 (Encrypted Channel) | Certificate subject equals its issuer. Graded like the Certificates page: a C2 framework's default certificate or one served on the domain now is Critical, an expired one a step lower. | Common on C2 servers and malware panels; untrusted by browsers. |
 | Known C2 Certificate Fingerprint (JA4X) | High | Medium | T1588.002 (Obtain Capabilities: Tool) | The certificate's JA4X is on the built-in list of C2 framework and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, ...). | The certificate was generated the way that tool generates its own. Other certificates built with the same fields match too, so confirm with the certificate (self-signed, default names, the IP's ports). |
 | Dual-Use Tool Certificate Fingerprint (JA4X) | Medium | Low | T1572 (Protocol Tunneling) | The certificate's JA4X is on the built-in list of dual-use tools (e.g. SoftEther VPN). | Legitimate software that attackers also run for tunnels and remote access; unexpected on a phishing or brand domain. |
 | Short-Lived Certificate | Low (informational, not scored) | High | T1588.004 (Obtain Digital Certificates) | Certificate valid at most Short-Lived Certificate Max Validity (Days), e.g. Let's Encrypt's 6-day profile. | Context only: short lifetimes reflect good automation, so this is excluded from risk scores and DIF. |
-| Mega-SAN Cluster (Bulk Infrastructure) | High | Medium | T1583.001 (Acquire Infrastructure) | One certificate covers at least Mega-SAN Min Root Domains registrable domains. | Bundling unrelated domains in one certificate links bulk-registered infrastructure. |
+| Mega-SAN Cluster (Bulk Infrastructure) | High | Medium | T1583.001 (Acquire Infrastructure) | One certificate covers at least Mega-SAN Min Root Domains registrable domains. Low confidence on CDN / shared-hosting certificates (Cloudflare, cPanel, ...). | Bundling unrelated domains in one certificate links bulk-registered infrastructure. |
 | Multi-IP Certificate (Shared C2 / Proxy Cluster) | High | Medium | T1008 (Fallback Channels) | Certificate for an IP target also lists other raw IPs. | Points to a cluster of C2 or proxy nodes sharing one certificate. |
 | Bare-IP Certificate (C2 / Proxy Node) | Critical / Medium-High (public short-lived IP certificate) | High | T1008 (Fallback Channels) | Certificate common name or SAN contains a raw IP address. A publicly trusted, short-lived IP certificate (e.g. Let's Encrypt) is Medium-High with Low confidence. | Legitimate sites rarely certify bare IPs; C2 frameworks often do. |
 | SSL Common Name (CN) Mismatch | Medium-High | Low | T1071.001 (Web Protocols / Shared C2) | Served certificate is issued to a different name. | Shared or reused certificates can expose hidden relationships or shared C2. |
 | Pre-Certificate Staging (CT Log Only) | Low | Low | T1588.004 (Obtain Digital Certificates) | Certificate seen only as a CT log precertificate. | Shows infrastructure being prepared before it goes live. |
-| CT Log Evasion / Missing SCTs | Medium-High | Medium | T1562.001 (Disable or Modify Tools) | Non-self-signed certificate without embedded Signed Certificate Timestamps. | Missing SCTs suggest an interception proxy or attempts to avoid CT monitoring. |
-| Rogue Certificate Authority | Critical | High | T1552.004 (Private Keys) | Endpoint serves a certificate with CA signing capability (CA=True). | A host that can mint certificates enables traffic interception. |
+| CT Log Evasion / Missing SCTs | Medium-High | Medium | T1588.004 (Obtain Capabilities: Digital Certificates) | Final (not pre-) certificate from a public CA without embedded Signed Certificate Timestamps. | Missing SCTs suggest an interception proxy or attempts to avoid CT monitoring. |
+| Rogue Certificate Authority | Critical | High | T1553.004 (Subvert Trust Controls: Install Root Certificate) | Endpoint serves a certificate with CA signing capability (CA=True). | A host that can mint certificates enables traffic interception. |
 | Non-Compliant Validity Window | Medium | High | T1588.004 (Obtain Digital Certificates) | Publicly trusted certificate valid longer than the CA/B Forum limit on its issue date: 398 days from 2020-09-01, 200 from 2026-03-15, 100 from 2027-03-15, 47 from 2029-03-15. | Browsers reject such certificates; typical of private or misconfigured CAs. |
-| Deprecated Signature Algorithm | High | High | T1588 (Obtain Capabilities) | Certificate signed with MD5 or SHA-1. | Weak signatures can be forged and indicate outdated or attacker-made certificates. |
+| Deprecated Signature Algorithm | High (Medium before 2017) | High | T1588 (Obtain Capabilities) | Certificate signed with MD5 or SHA-1. Issued before 2017 (when public CAs stopped SHA-1) it is Medium with Low confidence: history, not a new forgery. | Weak signatures can be forged and indicate outdated or attacker-made certificates. |
 | Non-Public / Private CA Certificate | Medium | Medium | T1588.004 (Obtain Digital Certificates) | Issuer shows no sign of public trust (no SCTs, no CA/B policy, unknown CA). | Typical of internal CAs, interception proxies, or attacker-run infrastructure. |
 | CAA Mismatch (CA Trust Unverified) | Medium | Low | T1588.004 (Obtain Digital Certificates) | Issuer not allowed by the domain's CAA policy, but public trust of the CA is unknown. | Possible CAA breach that needs confirmation. |
 | Wildcard Issuance Forbidden by CAA Policy | Critical | High | T1588.004 (Obtain Digital Certificates) | Publicly trusted wildcard certificate although CAA forbids wildcards. | Issuance against the owner's policy points to mis-issuance or account compromise. |
 | Unauthorized CA Certificate Issuance (CAA Breach) | Critical | High | T1588.004 (Obtain Digital Certificates) | Publicly trusted certificate from a CA the CAA policy does not authorize. | Strong sign of mis-issuance or a hijacked domain. |
 | Suspicious CAA Stripping / Evasion | High | Low | T1562.001 (Disable or Modify Tools) | Unauthorized certificate issued within 90 days after CAA records disappeared. | Removing CAA before issuing is a way to bypass the owner's CA restrictions. |
-| Wildcard Infrastructure Sprawl | High | Medium | T1584.001 (Compromise Infrastructure: Domains) | Wildcard certificate bundling 5 or more names. | Supports rotating subdomains for phishing or C2 without new certificates. |
+| Wildcard Infrastructure Sprawl | Medium | Medium | T1584.001 (Compromise Infrastructure: Domains) | Wildcard certificate bundling 5 or more names. | Supports rotating subdomains for phishing or C2 without new certificates. |
 | Wildcard Certificate Observed | Low | High | T1588.004 (Obtain Digital Certificates) | Wildcard certificate with fewer than 5 names. | Common for legitimate hosting; new hostnames under it never appear in CT logs. |
 | Suspicious Domain Validation (DV) | Medium | Low | T1588.004 (Obtain Digital Certificates) | DV certificate on a domain with risk score above Suspicious DV Min Risk Score. | DV certificates are free and instant, so they are the default for abusive sites. |
 | Weak Cryptographic Key Material | High | High | T1588 (Obtain Capabilities) | RSA key below 2048 bits or EC key below 224 bits. | Weak keys are breakable and rare on maintained infrastructure. |
 | Certificate Churn (Ephemeral SSL) | High | Medium | T1588.004 (Obtain Digital Certificates) | At least Cert Churn Min Early Replacements within Cert Churn Window (Days): certificates reissued for the same names while the previous one still had over half its validity left. Scheduled renewals of short-lived certificates do not count. | Replacing valid certificates early accompanies disposable or evasive infrastructure. |
+| Certificate Staged Before DNS | Medium | Medium | T1608.003 (Stage Capabilities: Install Digital Certificate) | A certificate issued 1 to 30 days before a hostname it names first resolved (each hostname apart). | Infrastructure prepared ahead of going live is typical of phishing and C2 staging. |
+| Backdated Certificate | Medium | Medium | T1588.004 (Obtain Digital Certificates) | Not Before more than 48 hours earlier than the certificate's first embedded CT log timestamp (SCT). | Backdating hides when a certificate was really made; CAs backdate by an hour at most. |
+| Unusual Certificate Fields | Medium | Medium | T1587.003 (Develop Capabilities: Digital Certificates) | CA-issued certificate with a serial of 2 bytes or less, extended key usage without server authentication, or a default subject (Internet Widgits, Some-State, ...). | Fields that tools set and public CAs never do point to a hand-made or tool-made certificate. |
 
 #### Correlation
 
@@ -364,33 +413,38 @@ current run.
 | Shared Web Tracker Fingerprint | High | High | T1583.001 (Acquire Infrastructure) | The same analytics / tag manager ID appears on other analyzed domains. | Shared tracker IDs tie domains to the same operator. |
 | Shared Infrastructure Cluster | High (strong link) / Medium-High | High | T1583.001 (Acquire Infrastructure: Domains) | Linked to other analyzed domains by a shared certificate, key, or tracker (strong), or by IP plus name server. Confidence High for strong links, otherwise Medium. | Shared infrastructure reveals campaigns run by one operator. |
 | Domain Hopping on Shared IP | Medium-High | Medium | T1583.001 (Acquire Infrastructure: Domains) | A new domain appears on an IP within Domain Hopping Gap (Days) after the previous one went dark. Confidence High with 2+ hops. | Typical takedown evasion: the operator moves to a fresh domain on the same server. |
+| Bulk Registration Cohort | Medium | Medium | T1583.001 (Acquire Infrastructure: Domains) | Analyzed domains registered within 48 hours at the same registrar that also share an own name server, a registrant mail domain or a hosting ASN. | Registered together by one operator, often for one campaign. |
+| Campaign Wave (Same-Day Setup) | Medium | Medium | T1583.001 (Acquire Infrastructure: Domains) | Three or more analyzed domains registered within 48 hours, each given a certificate by the same CA within 72 hours of registering. | One campaign set up in one go. |
+| Linked to Confirmed-Malicious Domain | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | In a Strong infrastructure cluster with a domain you marked Malicious (domain verdict on Alerts or the Domain profile). | Domains sharing certificates, keys, trackers or rare hosting with a confirmed-bad one are usually the same operator. |
 
 #### DNS Behavior
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| Parked-to-Weaponized | Critical | Medium | T1583.001 (Acquire Infrastructure) | Dormant longer than Parked Dormancy (Days), then 3+ DNS changes within 48 hours. | Aged domains are bought or reactivated to evade new-domain reputation checks. |
-| Rapid IP Rotation (Fast-Flux) | High | Medium | T1568.001 (Fast Flux DNS) | At least Rapid IP Rotation Event Count distinct IPs within 7 days. Confidence drops to Low when every IP belongs to a CDN. | Rotating IPs hide the real hosting and resist takedowns. |
-| Multi-Network Fast-Flux (ASN-Diverse) | High | High | T1568.001 (Fast Flux DNS) | Non-CDN IPs across at least Fast-Flux Min Distinct Networks ASNs or prefixes within 7 days. | Spreading across networks is typical of botnet-hosted flux, not CDNs. |
-| Sinkhole / Loopback Resolution | Medium | High | T1568.001 (Dynamic Resolution) | A or NS record points to 127.0.0.1, 0.0.0.0, or a known sinkhole. | Usually means the domain was taken over by researchers or law enforcement after abuse. |
-| Anomalous TXT Payload | High | Low | T1071.004 (DNS C2) | TXT record longer than Anomalous TXT Length with almost no spaces. | Long encoded TXT data is a classic DNS tunneling / C2 channel. |
-| Flash/Burst Campaign | Critical | Medium | T1071.004 (App Layer Protocol: DNS) | Over 1,000 queries on a record alive 7 days or less, above pDNS Burst Density. | Short, intense query bursts match spam blasts and botnet check-ins. |
+| Parked-to-Weaponized | High | Medium | T1583.001 (Acquire Infrastructure) | Dormant longer than Parked Dormancy (Days), then 3+ DNS changes within 48 hours that include a new address (A / AAAA). | Aged domains are bought or reactivated to evade new-domain reputation checks. |
+| Rapid IP Rotation (Fast-Flux) | High | Medium | T1568.001 (Fast Flux DNS) | At least Rapid IP Rotation Event Count distinct IPs on one hostname within 7 days (each subdomain counted apart). Confidence drops to Low when every IP belongs to a CDN. | Rotating IPs hide the real hosting and resist takedowns. |
+| Multi-Network Fast-Flux (ASN-Diverse) | High | High | T1568.001 (Fast Flux DNS) | Non-CDN IPs of one hostname across at least Fast-Flux Min Distinct Networks ASNs or prefixes within 7 days. | Spreading across networks is typical of botnet-hosted flux, not CDNs. |
+| Sinkhole / Loopback Resolution | Medium | High | T1568 (Dynamic Resolution) | A or NS record points to 127.0.0.1, 0.0.0.0, or a known sinkhole. | Usually means the domain was taken over by researchers or law enforcement after abuse. |
+| Anomalous TXT Payload | High | Low | T1071.004 (DNS C2) | TXT record longer than Anomalous TXT Length with almost no spaces, that is neither a known SaaS / mail record (DKIM, verification tokens) nor a key=value setting. | Long encoded TXT data is a classic DNS tunneling / C2 channel. |
+| Flash/Burst Campaign | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Over 1,000 queries on a record alive 7 days or less and no longer seen, above pDNS Burst Density (a record that is merely new does not count). | Short, intense query bursts match spam blasts and botnet check-ins. |
 | Query Volume Anomaly | Medium | Low | T1071.004 (App Layer Protocol: DNS) | Daily pDNS volume with a robust z-score above Query Volume Anomaly (100+ queries). | Sudden traffic spikes point to campaign activity; counts are approximate. |
-| Deeply Nested Subdomains | High | Low | T1584.001 (Compromise Infrastructure) | Hostnames 3 or more labels deeper than the domain. | Deep nesting is used for domain shadowing on compromised DNS accounts. |
+| Deeply Nested Subdomains | Medium | Low | T1584.001 (Compromise Infrastructure) | Hostnames 3 or more labels deeper than the domain, not counting service labels (_domainkey, _acme-challenge, ...). | Deep nesting is used for domain shadowing on compromised DNS accounts. |
 | CNAME Retargeted to Another Provider | Medium | Low | T1584.001 (Compromise Infrastructure: Domains) | A hostname's current CNAME points to a different registrable domain than its earlier one, and the new target is external and not a CDN. | Repointed subdomains are how takeovers and compromised DNS accounts show up; also normal during migrations, so check the new provider. |
 | Long CNAME Chain / Loop | Medium (Medium-High for a loop) | Low | T1090 (Proxy) | A current CNAME chain of at least Long CNAME Chain Min Hops CNAMEs, a chain stopped at the step limit, or a loop. | Layered redirects hide the final hosting and let operators swap it without touching the visible name. |
+| Name Server Churn | Medium | Medium | T1584.002 (Compromise Infrastructure: DNS Server) | Three or more name server providers within 30 days (parking name servers not counted). | Abusive domains move DNS repeatedly to stay ahead of takedowns. |
+| Generated Fast-Flux Domain | Critical | High | T1568.001 (Fast Flux DNS) | Compound: a generated-looking (DGA) name with fast-flux or ASN-diverse flux. | The pattern of botnet C2 domains. |
 
 #### Domain Name
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| DGA / High Entropy Domain | Medium-High | Low | T1568.002 (Dynamic Resolution: DGA) | Domain label of 10+ characters with Shannon entropy above the DGA Entropy Score threshold. | Algorithmically generated names are used by malware to find C2 servers. |
+| DGA / High Entropy Domain | Medium-High | Low | T1568.002 (Dynamic Resolution: DGA) | Domain label of 13+ characters with Shannon entropy above the DGA Entropy Score threshold, or of 8+ characters that looks generated (letter/digit mix, long consonant run). | Algorithmically generated names are used by malware to find C2 servers. |
 
 #### Email
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| High-Risk Mail Provider | Medium | Low | T1585.002 (Acquire Email Accounts) | MX records (passive DNS, or the current MX in Iris Investigate) point to an anonymous, offshore, or temporary mail provider. | Disposable mail backends are common in phishing and fraud operations. |
+| High-Risk Mail Provider | Medium | Low | T1585.002 (Acquire Email Accounts) | MX records (passive DNS, or the current MX in Iris Investigate) point to an anonymous, throwaway mail provider (cock.li, guerrillamail, mailinator, ...; not large consumer providers). | Disposable mail backends are common in phishing and fraud operations. |
 | Phishing/Spam Prep | Medium-High | Low | T1583.001 (Acquire Infrastructure) | MX / TXT / SPF records added after longer than Phishing Prep Dormancy (Days). | Mail setup on a quiet domain often precedes a phishing or spam campaign. |
 | Invalid/Malformed SPF | Low | Medium | T1583.001 (Acquire Infrastructure) | SPF record without the required 'v=' prefix. | Hygiene issue; mostly useful as a sign of hastily configured infrastructure. |
 | Highly Permissive SPF (+all) | High | High | T1583.001 (Acquire Infrastructure) | SPF record (passive DNS, or the current SPF in Iris Investigate) ends in +all, authorizing any server to send mail. | Lets anyone spoof the domain; rarely legitimate. |
@@ -416,6 +470,8 @@ current run.
 | Anonymizer Exit Shared by Analyzed Domains | Medium-High | Medium | T1583.003 (Acquire Infrastructure: Virtual Private Server) | Two or more analyzed domains resolve to the same anonymizer exit, one that few customers share (shared exits are left out). | Domains behind one non-shared exit are probably run by the same operator. |
 | Hosted Among Tor Exits | Medium | Low | T1090.003 (Proxy: Multi-hop Proxy) | The domain's IPs are not Tor relays, but sit in a Tor exit prefix, or on a network carrying 0.5 % or more of Tor exit traffic or 10+ exit addresses (VPNDB /tor). | A hoster that welcomes Tor exits, often privacy or bulletproof-style, or a server next to the operator's own exits. |
 | Hosted Among Anonymizer Exits | Medium | Low | T1090.002 (Proxy: External Proxy) | The domain's IPs are not exits, but their /24 holds known VPN / proxy exits, or the network (Iris ASN) is one VPN provider's (VPNDB). | The domain is probably hosted on an anonymizer operator's servers or next to them. |
+| Subdomain Takeover in Progress | Critical | Medium | T1584.001 (Compromise Infrastructure: Domains) | Compound: a dangling CNAME and a subdomain repointed to another provider on the same domain. | A takeover may already have happened, not only be possible. |
+| Bulletproof-Hosted New Domain | High | Medium | T1583.003 (Acquire Infrastructure: Virtual Private Server) | Compound: newly registered and on a suspicious name server, watchlisted hosting, an anonymizer exit, or with name server churn. | Set up to resist takedown from day one. |
 
 #### Lookalike / Brand
 
@@ -423,10 +479,13 @@ current run.
 | --- | --- | --- | --- | --- | --- |
 | Homoglyph / IDN Brand Impersonation | Critical | High | T1583.001 (Acquire Infrastructure: Domains) | Domain renders like a protected brand using look-alike characters. | Built to deceive users visually; strongly associated with phishing. |
 | Typosquatting Lookalike | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Small edit distance from a protected brand domain. | Catches mistyped traffic and lends credibility to phishing. |
-| Combosquatting (Brand + Keyword) | High (Medium without a risky keyword) | Medium | T1583.001 (Acquire Infrastructure: Domains) | Brand combined with words such as login, secure, support. | Brand + keyword names are the most common phishing domain pattern. |
+| Combosquatting (Brand + Keyword) | High (Medium without a risky keyword) | Medium | T1583.001 (Acquire Infrastructure: Domains) | Brand as a whole word of the name, or joined only to words such as login, secure, support or digits (`paypallogin`; `purchase` does not match `chase`). | Brand + keyword names are the most common phishing domain pattern. |
 | Brand in Subdomain | Medium-High | Medium | T1566.002 (Phishing: Spearphishing Link) | Protected brand appears as a subdomain of an unrelated domain. | Makes phishing links look legitimate at a glance. |
 | Brand Name on Alternate TLD | Low | Low | T1583.001 (Acquire Infrastructure: Domains) | Exact brand name registered on another TLD. | May be defensive or third-party; watch for activation. |
 | IDN / Punycode Domain | Low | Low | T1583.001 (Acquire Infrastructure: Domains) | Domain uses internationalized (punycode) characters. | Context for homoglyph abuse; common and benign in many languages. |
+| Phishing Kit Staging | Critical | High | T1583.001 (Acquire Infrastructure: Domains) | Compound: a brand lookalike, newly registered (or re-registered), with a certificate issued as a hostname went live (Rapid Weaponization or Certificate Staged Before DNS). | Three independent signals together describe the setup of a phishing site. |
+| Mail-Capable Lookalike | High | Medium | T1566.002 (Phishing: Spearphishing Link) | A brand lookalike with MX records and no DMARC record, no SPF, or SPF without -all. | It can send mail that passes as the brand. |
+| Lure Subdomain | Medium | Medium | T1566.002 (Phishing: Spearphishing Link) | Subdomains whose names alone score Medium or more in Subdomain Triage with a phishing word, brand, embedded domain or punycode. | Lure names hide the real domain in links sent to victims. |
 
 #### Registration & Lifecycle
 
@@ -435,19 +494,23 @@ current run.
 | Parked Domain (Parking Name Servers) | Low | High | T1583.001 (Acquire Infrastructure: Domains) | Domain is or was delegated to parking name servers. | Context: parked domains can be sold and weaponized later. |
 | Parking Exit / Reactivation | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Domain left parking name servers and gained live A/AAAA/MX records within 7 days. | Reactivation of a parked domain often marks the start of malicious use. |
 | Newly Registered Domain | Medium | High | T1583.001 (Acquire Infrastructure: Domains) | Created within Newly Registered Domain Age (Days). | Most malicious domains are used within days of registration. |
-| Newly Registered & Weaponized Domain | High | High | T1583.001 (Acquire Infrastructure: Domains) | Newly registered and already resolving, mailing, or serving certificates. | A brand-new domain that is already operational is a strong abuse signal. |
+| Newly Registered & Weaponized Domain | High | High | T1583.001 (Acquire Infrastructure: Domains) | Newly registered and already resolving, mailing, or serving certificates (resolving does not count while it is on parking name servers). | A brand-new domain that is already operational is a strong abuse signal. |
+| Re-Registered Domain | Medium | Medium | T1583.001 (Acquire Infrastructure: Domains) | Iris first saw the domain over a year before its current registration, or it has certificates issued more than 30 days before the registration. | Lapsed domains are drop-caught and reused for their history and reputation. |
+| Disposable Registrant Email | Medium | Medium | T1585.002 (Establish Accounts: Email Accounts) | The registration's email domains include a throwaway mail service (mailinator, guerrillamail, cock.li, ...). | Nobody can be reached there for abuse reports; legitimate owners rarely register with one. |
+| Registrar Transfer then New Name Servers | Medium-High | Medium | T1584.001 (Compromise Infrastructure: Domains) | A registrar change in Domain History followed within 14 days by name servers of a provider that is neither a large DNS provider nor parking. | The pattern of a hijacked or drop-caught domain being put to new use. |
+| Weaponized Reactivation | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Compound: parked, dormant, re-registered or transferred domain (Parking Exit, Parked-to-Weaponized, Re-Registered, Registrar Transfer) that got a fresh, staged or backdated certificate. | Aged domains are bought or hijacked to borrow their reputation. |
 
 #### Web & Content
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| IPTV / Stream Distribution Endpoint | High | Medium | T1584.001 (Compromise Infrastructure) | Subdomains such as m3u., stream., xtream., panel. in passive DNS. | Typical of illegal IPTV / restreaming infrastructure. |
+| IPTV / Stream Distribution Endpoint | Medium | Medium | T1584.001 (Compromise Infrastructure) | Subdomains such as m3u., xtream., stalker. in passive DNS, or two or more generic ones (stream., live., panel., ...). | Typical of illegal IPTV / restreaming infrastructure. |
 | Live Pirate Streaming Panel Detected | Critical | High | T1584.001 (Compromise Infrastructure) | Website returns HTTP 200 with an IPTV panel title (Xtream, Stalker, ...). | Confirms an active illegal streaming management panel. |
 | Cross-Domain Redirect | Medium | Medium | T1608.005 (Stage Capabilities: Link Target) | Website redirects to a different registrable domain. | Redirect chains are used for cloaking and traffic distribution. |
 
 **Notes**
 
-- **Lookalike rules** need a brand watchlist: the brands you protect, entered on *Settings → Brand watchlist*. IDN /
+- **Lookalike rules** need a brand watchlist: the brands you protect, entered on *Settings → Brands & allowlist*. IDN /
   punycode domains are always flagged; the brand-based checks only run for the brands listed there. See [Brand
   watchlist](REFERENCE.md#brand-watchlist).
 - **CAA rules** apply only to publicly trusted CAs. A certificate counts as public when it has embedded SCTs, a
@@ -505,29 +568,32 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 
 | Tactic | Technique | Name(s) used by rules | Rules |
 | --- | --- | --- | --- |
-| Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 20 |
-| Resource Development | T1583.003 | Acquire Infrastructure: Virtual Private Server | 2 |
+| Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 27 |
+| Resource Development | T1583.003 | Acquire Infrastructure: Virtual Private Server | 3 |
 | Resource Development | T1583.006 | Acquire Infrastructure: Web Services | 1 |
-| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 7 |
-| Resource Development | T1585.002 | Acquire Email Accounts | 1 |
+| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 9 |
+| Resource Development | T1584.002 | Compromise Infrastructure: DNS Server | 1 |
+| Resource Development | T1585.002 | Acquire Email Accounts; Establish Accounts: Email Accounts | 2 |
 | Resource Development | T1588 | Obtain Capabilities | 2 |
 | Resource Development | T1588.002 | Obtain Capabilities: Tool | 1 |
-| Resource Development | T1588.004 | Obtain Digital Certificates | 12 |
+| Resource Development | T1588.004 | Obtain Capabilities: Digital Certificates; Obtain Digital Certificates | 14 |
+| Resource Development | T1608.003 | Stage Capabilities: Install Digital Certificate | 1 |
 | Resource Development | T1608.005 | Stage Capabilities: Link Target | 1 |
-| Initial Access | T1566.002 | Phishing: Spearphishing Link | 1 |
-| Defense Evasion | T1562.001 | Disable or Modify Tools | 2 |
-| Credential Access | T1552.004 | Private Keys | 1 |
+| Initial Access | T1566.002 | Phishing: Spearphishing Link | 3 |
+| Defense Evasion | T1562.001 | Disable or Modify Tools | 1 |
 | Command and Control | T1008 | Fallback Channels | 2 |
 | Command and Control | T1071.001 | Web Protocols / Shared C2 | 1 |
-| Command and Control | T1071.004 | App Layer Protocol: DNS; DNS C2 | 3 |
+| Command and Control | T1071.004 | App Layer Protocol: DNS; DNS C2 | 2 |
 | Command and Control | T1090 | Proxy | 1 |
 | Command and Control | T1090.002 | Proxy: External Proxy | 7 |
 | Command and Control | T1090.003 | Proxy: Multi-hop Proxy | 2 |
-| Command and Control | T1568 | Dynamic Resolution | 1 |
-| Command and Control | T1568.001 | Dynamic Resolution; Fast Flux DNS | 3 |
+| Command and Control | T1568 | Dynamic Resolution | 2 |
+| Command and Control | T1568.001 | Fast Flux DNS | 3 |
 | Command and Control | T1568.002 | Dynamic Resolution: DGA | 1 |
 | Command and Control | T1572 | Protocol Tunneling | 1 |
 | Command and Control | T1573.002 | Encrypted Channel | 1 |
+| Other | T1553.004 | Subvert Trust Controls: Install Root Certificate | 1 |
+| Other | T1587.003 | Develop Capabilities: Digital Certificates | 1 |
 
 Most domain-infrastructure behavior falls under **Resource Development** (the adversary acquiring and preparing
 domains, servers and certificates), with **Command and Control** for resolution, tunneling and proxy behavior.
@@ -540,13 +606,21 @@ Analyzed domains are linked when they share infrastructure:
 
 | Link | Artifacts |
 | --- | --- |
-| Strong | The same certificate, public key or web tracker ID |
+| Strong | The same certificate, public key or web tracker ID; a JA4X of a certificate not from a public CA; an IP or name server Iris sees on 50 domains or fewer |
 | Moderate | Two different weak artifact types together, from: the same IP, the same name server, the same CNAME target |
 
+Iris Investigate counts how many domains use each IP, name server and tracker, and that count sets the link:
+
+- An IP or name server on 50 domains or fewer links strongly; on more, it is a weak artifact.
+- A web tracker links strongly up to 500 domains; above that it is weak.
+- Any value Iris sees on more than 10,000 domains links nothing (shared hosting, big DNS providers, a common
+  analytics account).
+- A JA4X from a public CA links nothing: public CAs share a few JA4X values by design.
+
 Linked domains are joined into clusters (C1, C2, ...). A cluster is **Strong** if any strong artifact links it.
-CDN IPs, private IPs, large managed DNS providers and parking name servers are ignored, so shared CDNs do not create
-false clusters. Each member gets a *Shared Infrastructure Cluster* alert, and the *Campaign Cluster* grouping turns
-each cluster into one incident. The **DNS & Hosting** page (campaign & hosting part) shows the clusters and an infrastructure
+CDN IPs, private IPs, large managed DNS providers, parking name servers and values on your
+[allowlist](#allowlist) are ignored, so shared CDNs and your own infrastructure do not create false clusters. Each member gets a *Shared Infrastructure Cluster* alert, and the *Campaign Cluster* grouping turns
+each cluster into one incident. The **DNS & Hosting** page (*Campaign & hosting* tab) shows the clusters and an infrastructure
 graph.
 
 ### Domain hopping
@@ -577,7 +651,7 @@ hosting first). The table fills in a hostname's chain once it is chased.
 | Incomplete | The chain ends at a CDN name DNSDB has no address for (DNSDB Scout: *Chasing incomplete*): the final address is unknown, not a dangling CNAME |
 | Loop | The chain returns to a name it already passed |
 | Step limit | Stopped after 10 steps |
-| Lookup failed | A DNSDB lookup failed (see Data Source Status) |
+| Lookup failed | A DNSDB lookup failed (see the Data sources page) |
 | Not chased | The chain leaves the collected data and was not chased |
 
 | Service type | Examples | Why it matters |
@@ -618,7 +692,7 @@ engine on data already collected, with no new API calls.
 
 | Threshold | Default | Range | Section | What it controls |
 | --- | --- | --- | --- | --- |
-| Min Risk Score | 70 | 0–100 | DomainTools Risk | Domains with a known DomainTools risk score below this value are skipped by the behavioral engine. Domains without a risk score are still evaluated. |
+| Min Risk Score | 70 | 0–100 | DomainTools Risk | Domains with a known DomainTools risk score below this value get only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X). Domains without a risk score get every rule. |
 | High-Risk Score Cutoff | 70 | 0–100 | DomainTools Risk | Unified/predictive risk score at or above which a domain counts as high risk (KPIs). |
 | Parked Dormancy (Days) | 180 | 30–365 | Passive DNS & Domain History | Days of inactivity before a sudden infrastructure burst triggers a Parked-to-Weaponized alert. |
 | Rapid IP Rotation Event Count | 5 | 2–20 | Passive DNS & Domain History | Minimum distinct IPs within 7 days needed to flag Fast-Flux DNS behavior. |
@@ -646,16 +720,33 @@ Risk and DIF, and infrastructure. Alerts are matched across runs by **(domain, t
 - **Changes Since Last Run** (Alerts page): compared with the previous run of the same target list, it shows new and
   resolved alerts and added / removed infrastructure (IPs, name servers, certificates, ...).
 - **First Detected / Runs Seen** use every saved run, from any target list, that covered the domain.
-- **Runs & Diffs** page (*Manage Data → Runs & Diffs*, titled *Previous Runs & Comparison*). The **Recent runs** page (top menu) shows the newest saved runs as a timeline (one lane per target list, dot size = alerts, color = highest severity), as cards (alerts new and resolved since the previous run of the same list, Unified Risk trend, the indicators it shares with other target lists, each a click away from its sightings) or as a table (time, targets, window, use case, alerts, whether an offline copy was saved), with a filter, a run count, *With alerts* / *New alerts* toggles and a **Runs and detections per day** chart (runs per day, hunt runs started from a lead in purple, and below, new detections or all alerts found per day by severity; dated days with week numbers, over 2, 6 or 12 weeks). Click a dot, card or row to pick a run (the newest is picked at first); under the view, **Run again** (a new live run with the same use case, analysis window and collection options; runs saved before options were recorded use the current ones), **Load offline copy** (the newest offline dataset saved from that run, re-analyzed with no API calls; greyed out when none was saved) and **Open in Runs & Diffs** (this page, on that run):
+- The **Runs** page (top menu) has three tabs: *Recent runs*, *Compare & trends* and *Indicator Sightings*.
+- **Recent runs** shows the newest saved runs as a timeline (one lane per target list, dot size = alerts, color =
+  highest severity), as cards (one card per target list: its newest run with the number of runs, alerts new and
+  resolved since the previous run of the same list, Unified Risk trend, the indicators it shares with other target
+  lists, each a click away from its sightings; *Show all runs* opens the table with every run of that list) or as a
+  table (one row per target list, or every run newest first with *Show all runs*: time, targets, alerts per severity,
+  new and resolved alerts, change, risk, use case, window, API queries, what started the run, offline copy, shared
+  indicators and runs of the list). It has a filter, a run count (in Cards and the compact table, target lists),
+  *With alerts* / *New alerts* toggles and a **Runs and detections per day** chart (runs per day, hunt runs started from a lead in
+  purple, and below, new detections or all alerts found per day by severity; dated days with week numbers, over 2, 6
+  or 12 weeks). Click a dot, card or row to pick a run (the newest is picked at first). Under the view:
+  - **Run again**: a new live run with the same use case, analysis window and collection options (runs saved before
+    options were recorded use the current ones);
+  - **Load offline copy**: the newest offline dataset saved from that run, re-analyzed with no API calls (greyed out
+    when none was saved);
+  - **Compare & trends**: opens that tab on the run.
+- **Compare & trends** (titled *Previous Runs & Comparison*):
   - **Run Details:** one run's alerts, risk and DIF.
   - **Compare Runs:** any two runs; new, resolved and persisting alerts, infrastructure changes, and risk / DIF changes.
   - **Trends:** detections per run by severity, Unified Risk per domain with DIF-change markers, and infrastructure counts per run.
-  - **Domain History:** one domain across every saved run that included it, with a detection lifecycle (first /
+  - **Domain across runs:** one domain across every saved run that included it, with a detection lifecycle (first /
     last detected, active in the latest run).
   - **Watched Lists:** the target lists you watch, each with *Run now* ([below](#watched-target-lists)).
-  - **Manage Runs:** name and annotate runs, export as JSON, delete (with confirmation), and set retention (default 10 per target list).
+  - **Manage Runs:** name and annotate runs, export as JSON, and delete (with confirmation).
+- How many runs are kept per target list (default 10) is set under *Settings → Storage & cache → Retention*.
 - Runs saved by earlier versions show in a reduced *legacy* format (no severity, risk or DIF).
-- **Offline Datasets** has its own page, *Manage Data → Offline Datasets*: see [Usage](USAGE.md#offline-datasets).
+- Offline datasets have their own page, *Data → Saved datasets*: see [Usage](USAGE.md#offline-datasets).
 
 ## JA4X: how certificates were generated
 
@@ -669,10 +760,10 @@ JA4X, and everything below stays empty for them.
 | Where | What it does |
 | --- | --- |
 | Alerts | **Known C2 Certificate Fingerprint (JA4X)** (High) when a certificate's JA4X is on the built-in list of C2 and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, Pikabot, AsyncRAT / QuasarRAT / BitRAT); confidence is High when the certificate is also self-signed, else Medium. **Dual-Use Tool Certificate Fingerprint (JA4X)** (Medium, Low confidence) for tools such as SoftEther VPN. The lists are in Reference → Built-in lists |
-| **Certificates → JA4X** tab | One row per JA4X in the run: the tool it matches, the domains and certificates with it, issuers, self-signed, and what the layout says (*issuer = subject layout*, *empty issuer*, *no extensions*) |
+| **Certificates → JA4X & C2** tab | One row per JA4X in the run: the tool it matches, the domains and certificates with it, issuers, self-signed, and what the layout says (*issuer = subject layout*, *empty issuer*, *no extensions*) |
 | *Check how common* | Counts each JA4X in the Certificates API: one Certificate Search request per value, at most 10 per click, cached. *Rare* is 50 certificates or fewer, *Uncommon* up to 1,000, else *Common*. A rare or uncommon JA4X shared by two domains is called out: the same tool or template made their certificates |
 | *Find certificates with this JA4X* | Opens CertsQL with `ja4x equals "…"`, to find every certificate with it, not only this run's. *Hunt for a known tool's certificates* does the same for a value from the built-in lists |
-| Runs & Diffs, Sightings | Each domain's JA4X values are saved with the run, so a changed JA4X between two runs (the operator rebuilt the server) shows up in the diff, and Indicator Sightings (Recent runs page) finds earlier runs with the same value |
+| Runs (Compare & trends, Indicator Sightings) | Each domain's JA4X values are saved with the run, so a changed JA4X between two runs (the operator rebuilt the server) shows up in the diff, and *Runs → Indicator Sightings* finds earlier runs with the same value |
 
 Certificates from public CAs share a few very common JA4X values, so a shared JA4X alone is no link: use *Check how
 common* before treating it as one. A known-tool match means the certificate was built the way that tool builds its
@@ -683,17 +774,24 @@ own; other certificates built with the same fields match too, so confirm with th
 - **Suppressions** (Alerts page → *Manage Suppressions*, or *Suppress N alert(s)* in a group) hide a threat type for one
   domain or for all domains (`*`), with a note. Suppressed alerts are excluded from the alert list, KPIs, exports and
   saved runs, and can be reviewed and removed in the same panel. They are stored in `dt_suppressions.json`.
-- **Exports** (Alerts page → *Export Detections, IOCs & Report*): detections follow the current alert filters and
-  exclude suppressed alerts; indicators cover the selected domains and the analysis window.
+- **Exports** (*Data → Export & report*; on the Alerts page, *Export detections, IOCs and reports* opens it):
+  detections follow the current alert filters and exclude suppressed alerts; indicators cover the selected domains
+  and the analysis window.
 
   | Export | Contents |
   | --- | --- |
   | Detections (CSV) | Every alert column except the structured evidence |
   | IOCs (CSV / JSON) | Target domains, resolved IPs (with CDN notes), name servers and certificate hashes, with source and first / last seen |
-  | STIX 2.1 Bundle | The indicators and detections as STIX 2.1 objects |
+  | STIX 2.1 Bundle | The indicators and detections as STIX 2.1 objects (below) |
   | Evidence Report (HTML / Markdown) | Risk overview with DIF, detections by severity, infrastructure clusters, indicators, and each detection's evidence |
 
-  For a manager or a takedown request, the **Case report** at the top of *Data Export* is the short version: one
+  The STIX bundle holds one indicator per IOC, with a confidence value. An indicator is `malicious-activity` only
+  when an alert of Medium or High confidence, and not of Low severity, backs it; otherwise it is
+  `anomalous-activity`. Each ATT&CK technique of those alerts is an `attack-pattern` object, linked to the indicator
+  by an `indicates` relationship. Each infrastructure cluster is an `infrastructure` object. In a MISP event,
+  attributes carry a `mitre-attack-pattern` galaxy tag for their technique.
+
+  For a manager or a takedown request, the **Case report** at the top of *Export & report* is the short version: one
   printable HTML page (print it to PDF) with your summary, the run at a glance, the most severe alerts with their
   evidence, risk by domain, an infrastructure snapshot (registrar, dates, IPs with ASN and country, name servers,
   MX) and the indicators. It contains no scripts and loads nothing from the internet.
@@ -725,14 +823,14 @@ only driver.
 
 ### Leads and the hunt map
 
-The suggested hunt's branches and, below them on the Hunt map, **More leads from Pivot Ranking** (strong values the
-suggested hunt doesn't already list) are the strongest values of [Pivot Ranking](#pages): shared by a few hundred
-domains or fewer in Iris (values two or more of your domains share come first). Each lead has:
+The suggested hunt's branches and, below them on the Hunt map, **More leads (All pivots)** (strong values the
+suggested hunt doesn't already list) are the strongest values of *Hunt map → All pivots* (see [Pages](#pages)):
+shared by a few hundred domains or fewer in Iris (values two or more of your domains share come first). Each lead has:
 
-- **Analyze**: replaces the sidebar targets with the value (IPs, certificates, redirect domains) and runs Analyze
-  right away with the current collection options;
-- **Find in Iris**: one Iris Investigate search for the domains that share the value; they open on Pivot Ranking,
-  where *Analyze the top 25 as a new run* analyzes the highest-risk ones.
+- **Analyze**: analyzes the value (IPs, certificates, redirect domains) right away as a new run, linked to the
+  current one, with the current collection options;
+- **Find in Iris**: one Iris Investigate search for the domains that share the value; they open on *Hunt map → All
+  pivots*, where *Analyze now (N domains)* analyzes the highest-risk ones.
 
 Self-signed certificate cards (Certificates → Self-Signed) offer the same: *Analyze its domains* (the certificate as
 a `sha256:` / `sha1:` input) and *Find in Iris* (by SHA-1).
@@ -757,7 +855,7 @@ lookups will find.
   severity, what identifies an operator best goes first: a JA4X, then the certificate, then the IP, then other hosts.
   An indicator that is also a lead is followed by a step for its shared domains (*Find in Iris*). The Summary's
   *Hunt* box names the first one.
-- **The hunt this run would grow**: the five best leads (Pivot Ranking values another domain shares) as branches,
+- **The hunt this run would grow**: the five best leads (*All pivots* values another domain shares) as branches,
   each with a score and its reasons:
 
   | Counts for a lead | Points |
@@ -770,9 +868,9 @@ lookups will find.
 
   Under the first three, a look-ahead (gray) says what following them would bring: how many domains are not in
   this run yet (Iris count), where earlier investigations saw the value and with how many alerts, and, when the Iris
-  search was already made on Pivot Ranking, the riskiest of its domains and how many earlier investigations flagged.
+  search was already made (*All pivots*), the riskiest of its domains and how many earlier investigations flagged.
   Each branch has *Analyze* (when the app can take the value as a target) and *Find in Iris*; a branch you followed is
-  marked *followed* and links to the Hunt map. *Analyze the top 3 as one run* analyzes the best target-able leads
+  marked *followed* and links to the Hunt map. *Analyze now (top 3)* analyzes the best target-able leads
   together.
 - **Set aside**: leads not worth following, with the reason: shared by more than 500 domains in Iris (shared hosting
   or a service), a CDN edge, a private address, a large DNS provider or parking name server, already analyzed in
@@ -787,7 +885,7 @@ VPNDB verdict, and the earlier investigations of other domains that saw it. Its 
 | Certificate | *Show on Certificates (only this)*: every Certificates tab narrowed to it, with *Show every certificate* to go back; *Analyze its domains*; *Search CertsQL* (its `sha256` / `sha1` query, ready to run); *Find in Iris* |
 | JA4X | *Show on Certificates (only this)*; *Search CertsQL* (`ja4x equals …`) |
 | IP, host | *Analyze*; *Find in Iris* |
-| Any | *Where else was it seen?* (Recent runs → Indicator Sightings) |
+| Any | *Where else was it seen?* (Runs → Indicator Sightings) |
 
 The Summary keeps only a short **Hunt** box: open alerts to decide, indicators to confirm first, leads worth
 following, the first step, and **Open the Hunt map** (its *This hunt* tab), where all of the hunting work is.
@@ -798,7 +896,7 @@ each does: *Analyze* a target, an *Iris search*, or a JA4X to search by hand on 
 already followed are not run. Untick what you don't want, then:
 
 - **Run all ticked**: starts **one** new run right away with the ticked targets (at most 10), linked to this one, and
-  makes their Iris searches (results on Pivot Ranking). Certificate steps skip the *review the searches* and *choose
+  makes their Iris searches (results on *Hunt map → All pivots*). Certificate steps skip the *review the searches* and *choose
   what to analyze* screens: their searches run as recognized and the domains and IPs pre-selected there are analyzed.
   The same goes for *Analyze* on a step (Hunt map, Summary, Details). You stay on the page: the map grows with the
   new run and its next steps.
@@ -836,6 +934,19 @@ more). **Highlight alerts** picks a severity (*High or worse*) or an alert type:
 open steps they name are outlined in red, the rest dimmed, so you can see whether a detection runs through the whole
 hunt or one branch.
 
+**Map options** (next to *Highlight alerts*) set how the map looks, and stay set while you work:
+
+- **Show on the map**: each run's box always shows its targets, when it ran, how many domains and its alerts. You
+  can add *New domains & alerts*, *Top alert types*, *Link to the start*, *Followed steps* and *Lookup details*.
+  *Lookup details* shows the run's use case and window, its main collection options, the API queries it made and
+  what led to it. The default is compact; add details as the hunt grows.
+- **Open steps under the loaded run**: how many open steps to draw (default 6; other runs show at most 3; 0 hides
+  them, and the list below the map still has them).
+- **Layout**: *Auto* draws left to right up to 3 runs, then top to bottom with each run's open steps on its row, so a
+  long hunt stays readable. *Left to right* and *Top to bottom* fix it.
+- **Size**: *Fit* (default) draws the map at its own size, shrunk to the page when it is wider. *Fill width*
+  stretches it to the page width, which makes a small hunt very large.
+
 **Hunt result**: the **cluster** (the starting domains, and every domain the hunt found that shares a value with them,
 with what links it), the **core indicators** (values two or more cluster domains share: the best detections to keep),
 **alerts by type** across the hunt, and the runs (new domains, alerts, link to the start). Under it:
@@ -843,16 +954,16 @@ with what links it), the **core indicators** (values two or more cluster domains
 - **Close hunt**: a verdict (Malicious cluster, Suspicious, Benign, Inconclusive) and a note, kept with the hunt's
   first run; *Reopen* removes it.
 - **Download hunt report (HTML)**: the result as one page (print it to PDF).
-- **Use in the case report**: opens Data Export with the result as the case report's summary.
-- **Watch these domains**: adds the cluster as a watched target list (Runs & Diffs → Watched Lists).
+- **Use in the case report**: opens Export & report with the result as the case report's summary.
+- **Watch these domains**: adds the cluster as a watched target list (Runs → Compare & trends → Watched Lists).
 
 Each run keeps its suggested steps when you analyze it or load it, so the map still shows a run's open steps after
 you move on. Under the map, **Next steps from the loaded run** has, in order: **Alert decisions** (open, investigating, benign
 and malicious alerts, domains marked malicious), **What to check next** (each with a button to the right page),
 *Run suggested hunt…*, step chips to pick (one step: *Details*, *Analyze*, *Find in Iris*; several: *Run N picked
 steps*), the **Suggested hunt** with each step's reasons, look-ahead and buttons, the leads set aside, and **More
-leads from Pivot Ranking**. *Runs of this hunt* picks a run for *Run again*, *Load offline copy* and
-*Open in Runs & Diffs*. The path to the loaded run is one short line: each run's first target and how many steps led
+leads (All pivots)**. *Runs of this hunt* picks a run for *Run again*, *Load offline copy* and
+*Compare & trends*. The path to the loaded run is one short line: each run's first target and how many steps led
 to it.
 
 *Combined hunts* shows several hunts on one map. The hunts that share values with the loaded hunt are listed first,
@@ -870,75 +981,82 @@ hunt** does the same for the hunt shown, and each joined run has **Detach**, whi
 from a lead in another, dashed lines where two target lists found the same IP, name server, certificate, JA4X,
 tracker or email on different domains. Click a run for its links and actions.
 
+*All pivots* ranks every value in the run's Iris Investigate records that other domains can share (IPs, name
+servers, emails, registrant details, certificates, trackers) by how many domains share it in Iris; see
+[All pivots](USAGE.md#all-pivots) in Usage.
+
+After **Analyze**, a run that continues a hunt (started from a lead, or *Add the new run to the hunt of the loaded
+run*) opens on *Hunt map → This hunt* instead of the Summary.
+
 ### Watched target lists
 
-*Watch this list* (Summary, *What's new since the last analysis*) saves the run's target list in `dt_settings.json`.
-**Runs & Diffs → Watched Lists** reruns it with *Run now*; the Summary then lists what is new since the list's last run:
+*Watch this list* (Summary → *What's new since the last analysis*) saves the run's target list in `dt_settings.json`.
+**Runs → Compare & trends → Watched Lists** reruns it with *Run now*; the Summary then lists what is new since the list's last run:
 alerts and IPs, name servers, MX hosts, certificates, web trackers and hostnames. (Hostnames are compared from the
 second run after this version; older runs did not record them.)
 
 ### Confirmed indicators
 
-*Confirmed indicators* (Alerts page, and on top of **Data Export**) lists the indicators of what you marked
+*Confirmed indicators* (on **Export & report**) lists the indicators of what you marked
 Malicious: every IOC of a domain with a Malicious verdict or a Malicious alert, and the artifacts (IPs, domains,
 certificate hashes) in those alerts' evidence. Download them as CSV, a MISP event (JSON import format) or a STIX 2.1
 bundle; the section also lists the Iris Investigate searches for the strong and useful pivots those domains have.
 
 ## Pages
 
-The top menu groups the pages: **Start**, **IrisQL**, **CertsQL**, **Recent runs**, **Overview** (Summary, Domain profile, Alerts),
-**Infrastructure** (DNS & Hosting, VPNDB, Tor network, CNAME Chains, Certificates), **Hunt** (Pivot Ranking, Hostname Inventory,
-Subdomain Triage, Hunt map), **Evidence** (Raw Records, Lookup Queries), **Manage Data** (Save offline copy, Offline Datasets, Data Export, Runs & Diffs),
-**Data sources**, **Settings**, **Account** and **Help**. Red and yellow banners at the top of every page warn when a product this app uses has used up (or nearly) its monthly quota or expires soon. With *Analyst mode* off, Hunt,
-Raw Records and Lookup Queries are left out.
+The top menu has plain links to **Start**, **IrisQL**, **CertsQL**, **Runs** and **Evidence**, and dropdowns:
+**Overview** (Summary, Domain profile, Alerts), **Infrastructure** (DNS & Hosting, VPNDB, Tor network, CNAME Chains,
+Certificates), **Hunt** (Hunt map, Hostname Inventory, Subdomain Triage), **Data** (Saved datasets, Export & report,
+Data sources) and **Settings** (Settings, Account, Documentation). Red and yellow banners at the top of every page
+warn when a product this app uses has used up (or nearly) its monthly quota or expires soon. With *Analyst mode*
+off, Hunt (including the Hunt map with *What to check next*) and Evidence are left out.
 
 | Page | Highlights |
 | --- | --- |
-| Start | Use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting): each sets the collection options and window and gives a plan; the last run, with a link to Recent runs |
-| IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as CLI, curl and SDK code; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run |
-| CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as curl and Python code; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
-| Recent runs | *Recent runs*: the newest saved runs as a timeline, cards or a table (filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open in Runs & Diffs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
-| Summary | KPIs, hunt trail, every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains), analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits), top alerts, the use-case plan with checkboxes, a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*), linked domains, run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health), what's new since the last analysis and *Watch this list* |
-| Domain profile | One domain: risk and DIF, why this score, your verdict, one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
-| Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons, suppressions, run diff, exports, confirmed indicators, DomainTools risk evidence |
+| Start | A **Targets** box with **Analyze**, links to *Find targets with IrisQL*, *Find targets with CertsQL* and *Runs & Sightings*; use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting, checking IP addresses for VPN, proxy and Tor): each sets the collection options and window and gives a plan; the last run |
+| IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as a DomainTools Python SDK command, curl and a Python script; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run; *Watch this query* and *Watched queries* (check a saved query again for new domains only) |
+| CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as a curl command and a Python script; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
+| Runs | *Recent runs*: the newest saved runs as a timeline, one card per target list or a table (one row per target list, or every run with *Show all runs*; filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open it in *Compare & trends*. *Compare & trends*: run details, compare any two runs, trends, one domain across runs, watched lists, manage runs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
+| Summary | From the top: hunt trail and KPIs; every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains); analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits); linked domains; a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*); top alerts (pick one to open Alerts filtered to it); run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health); what's new since the last analysis with *Watch this list*; the use-case plan with checkboxes; the lookups of the last collection |
+| Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar names in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
+| Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons (with *Your Verdicts*), suppressions, run diff, DomainTools risk evidence; *Export detections, IOCs and reports* opens Export & report |
 | VPNDB | Which VPN or proxy provider operates behind an IP, prefix or ASN (each tab opens with *How to read this*): domain → provider → exit flow, domain × category heatmap, providers, exit countries, exposure timeline against VPNDB's weekly history, Iris cross-check (domain count, pivot value, disagreements), neighbouring ranges and hosting networks, other domains on dedicated exits (DNSDB) with *Analyze*, CIDR address grids and range cards; select any IP for its full card (verdict, whole VPNDB answer, history, where the run saw it, Tor share) |
 | Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when one of the run's hosting networks is among them |
-| DNS & Hosting | A one-line VPNDB summary, then infrastructure & DNS tracking (event scatter, heatmap, lifespans, tempo, subdomains, IP clusters, Nexus overlap, trackers, TXT fingerprints), then campaign & hosting intel (domain story timeline, infrastructure graph, clusters, hosting map, Domain ➔ ASN ➔ IP Sankey, CDN origin exposure, domain hopping) |
+| DNS & Hosting | A one-line VPNDB summary, then four tabs (only the open one is drawn): *Timeline* (event scatter, lifespans, velocity, tempo), *Subdomains & IPs* (subdomains, IP clusters, Nexus overlap), *Web & TXT* (trackers, TXT fingerprints), *Campaign & hosting* (domain story timeline, infrastructure graph, clusters, hosting map, Domain ➔ ASN ➔ IP Sankey, CDN origin exposure, domain hopping) |
 | CNAME Chains | Every CNAME with its target service, full chain and outcome (resolves, dead end, loop); per-hostname table with CNAME history; chains filled in on demand and read from the analyzed domain; chain map boxed per domain with optional one node per hostname; chase results grouped by chain, most hostnames first; cross-domain links and link map; reverse CNAME (RDATA) related domains for chain targets or typed names; chase selected or all hostnames, up to 10 DNSDB queries per domain per click |
-| Certificates | SAN sprawl (up to 15 certificates per domain and 12 SANs each, the rest grouped), Sankey flow, self-signed certificates (rated Critical to Low, with the reasons and what to do), validity, keys, reuse, [JA4X](#ja4x-how-certificates-were-generated) (known tools, how common, pivot to CertsQL), CAA audit, CT logs, bare-IP certificates |
-| Pivot Ranking | Every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it; add values to the targets or find their domains in Iris |
+| Certificates | Six tabs, only the open one drawn: *Overview* (the security & hygiene summary on top, then SAN sprawl, up to 15 certificates per domain and 12 SANs each with the rest grouped; Sankey flow; CA distribution; data sources; wildcards), *Self-Signed* (rated Critical to Low, with the reasons and what to do), *Validity & keys* (validity, keys, key reuse), *JA4X & C2* ([JA4X](#ja4x-how-certificates-were-generated): known tools, how common, pivot to CertsQL; bare-IP certificates), *Issuers & policies* (geography and organizations, EKU, policy OIDs, CAA) and *CT logs* |
+| Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure; *All pivots*: every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it, with *Analyze now* and *Find in Iris* |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
-| Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure |
-| Save offline copy | Saves the run on screen as an offline dataset (no API calls) and opens Offline Datasets with it selected, to give it a name |
-| Offline Datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename, delete and how many are kept |
+| Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
+| Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename and delete |
+| Export & report | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
-| Raw Records | Raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables) |
-| Runs & Diffs | Previous Runs & Comparison: run details, compare any two runs, trends, per-domain history across target lists, watched lists, manage runs |
-| Lookup Queries | Every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
-| Data Export | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
+| Settings | Tabs: *Collection options* (the next Analyze, or any use case or profile; create a custom profile), *Detection thresholds*, *Brands & allowlist* (brand watchlist, *Hunt lookalikes in IrisQL*, infrastructure allowlist), *Storage & cache* (cache lifetime, clear cache, retention of runs and offline datasets), *API credentials* |
+| Account | Your DomainTools products with their quota, usage and expiry, and the API queries this app made |
+| Documentation | These guides inside the app |
 
 ## A suggested triage workflow
 
-1. Read the **Summary**, then open the **Hunt map** and work through *What to check next*. If the status line reports errors, open **Data
+1. Read the **Summary**, then open the **Hunt map** (Analyst mode) and work through *What to check next*. If the status line reports errors, open **Data
    sources** first; missing sources mean missing detections.
 2. Check the **KPI banner** and the **Unique Infrastructure Profiles** count against the number of domains.
 3. In the alert list, start with **Group by: Finding**, Severity *Critical* and *High*, Confidence *High* and *Medium*.
 4. Expand a group and read **Related events** in time order; pivot on the **Artifact** column (certificate hashes, IPs).
-5. Switch to **Group by: Campaign Cluster** to see which findings belong to one operator, and open **Pivot Ranking**
-   for strong values the targets share; *Find domains in Iris* lists the operator's other domains.
+5. Switch to **Group by: Campaign Cluster** to see which findings belong to one operator, and open **Hunt map → All
+   pivots** for strong values the targets share; *Find in Iris* lists the operator's other domains.
 6. Use **Decode DIF fingerprints** and the **Same DIF As** column to find look-alike setups that are not yet clustered.
    In **CNAME Chains**, filter on *Dead end* and the takeover-prone, dynamic DNS and free hosting service types,
    and chase the chains that are still *Not chased*.
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
    suggested hunt's steps and leads on the **Hunt map** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
-   Check a new indicator against earlier investigations on **Recent runs → Indicator Sightings**.
+   Check a new indicator against earlier investigations on **Runs → Indicator Sightings**.
 8. Re-run later and use **Only first detected in this run** and **Changes Since Last Run** to focus on what changed.
 
 ## Limitations
 
 - Detections are only as complete as the collected data: truncated passive DNS (result limits), missing risk scores
-  or failed lookups reduce what the rules can see. [Data Source Status](#data-source-status) shows these gaps.
+  or failed lookups reduce what the rules can see. The [Data sources](#data-sources) page shows these gaps.
 - Severity and confidence are rule-based heuristics, not verdicts. Benign infrastructure (CDNs, large hosters,
   marketing platforms) can trigger medium-confidence rules; use the evidence and suppressions.
 - Passive DNS query counts are attributed to each record's first-seen day, so volume anomalies are approximate.

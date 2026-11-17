@@ -263,18 +263,23 @@ def _render_txt_fingerprints(app_df, pdns_norm):
         chart(fig, height=350)
 
 
-def render_infra_lens(ds):
-    if ds.combined.empty:
+INFRA_TABS = ("Timeline", "Subdomains & IPs", "Web & TXT")
+
+
+def render_infra_tab(ds, tab):
+    """One tab of DNS & Hosting's infrastructure and DNS tracking (INFRA_TABS)."""
+    if ds.combined.empty and tab != "Web & TXT":
         st.info("No Domain History or Passive DNS events available for the selected filters.")
-        st.divider()
         return
-    _render_event_scatter(ds.combined)
-    _render_gantt(ds)
-    _render_velocity(ds.combined, ds.pdns_norm)
-    _render_tempo(ds.combined, ds.timezone)
-    _render_subdomains(ds)
-    _render_ip_clusters(ds.combined)
-    _render_nexus(ds.combined)
-    _render_trackers(ds.enrichment)
-    _render_txt_fingerprints(ds.txt_apps, ds.pdns_norm)
-    st.divider()
+    if tab == "Timeline":
+        _render_event_scatter(ds.combined)
+        _render_gantt(ds)
+        _render_velocity(ds.combined, ds.pdns_norm)
+        _render_tempo(ds.combined, ds.timezone)
+    elif tab == "Subdomains & IPs":
+        _render_subdomains(ds)
+        _render_ip_clusters(ds.combined)
+        _render_nexus(ds.combined)
+    else:
+        _render_trackers(ds.enrichment)
+        _render_txt_fingerprints(ds.txt_apps, ds.pdns_norm)

@@ -11,7 +11,7 @@ import streamlit as st
 
 from core.helpers import md_escape
 from core.run_history import SEVERITY_ORDER, format_created
-from core.run_views import SEVERITY_COLORS, SHARED_KINDS, activity_frame, hunting_graph, shared_indicators, shared_text
+from core.run_views import SEVERITY_COLORS, activity_frame, hunting_graph, shared_indicators, shared_text
 from views.common import chart
 
 BADGE = {"Critical": "red", "High": "orange", "Medium-High": "orange", "Medium": "yellow", "Low": "blue"}
@@ -127,7 +127,7 @@ def _risk_text(run):
     return f"Risk **{run['max_risk']:g}**{arrow}" + (f" :blue[{line}]" if line else "")
 
 
-def run_card(run, label, timezone, use_case, other_labels, selected, on_select, on_find=None):
+def run_card(run, label, timezone, use_case, other_labels, selected, on_select, on_find=None, on_show_all=None):
     """
     One run as a compact card: targets, when and how, severity badges and the change since the previous run of the
     same list, the highest Unified Risk with a sparkline of the list's last runs, Select and, when it shares
@@ -141,6 +141,12 @@ def run_card(run, label, timezone, use_case, other_labels, selected, on_select, 
              f":gray[{md_escape(meta)}]",
              f"{_compact_severity(run['summary'])} {_compact_change(run['change'])}",
              _risk_text(run)]
+    repeats = run.get("repeats") or [run]
+    if len(repeats) > 1:   # the list's runs: one card (Show all runs lists each in the Table)
+        first = format_created(repeats[-1]["created"], timezone, fmt="%m-%d %H:%M")
+        changed = sum(1 for r in repeats if (r.get("change") or {}).get("new") or (r.get("change") or {}).get("resolved"))
+        lines.insert(2, f":violet-badge[{len(repeats)} runs] :gray[since {first}"
+                        + (f", {changed} with changed alerts]" if changed else ", same alerts]"))
     change = run["change"]
     details = [f"**{md_escape(label)}**", f"{format_created(run['created'], timezone)} · {md_escape(meta)}",
                "First run of this list." if change is None else
@@ -159,7 +165,11 @@ def run_card(run, label, timezone, use_case, other_labels, selected, on_select, 
         with st.container(horizontal=True, gap="small", vertical_alignment="center"):
             st.button("Select", key=f"recent_card::{run['id']}", on_click=on_select, args=(run["id"],),
                       type="tertiary", icon=":material/check_circle:" if selected else ":material/radio_button_unchecked:",
-                      disabled=selected, help="Pick this run for Run again, Load offline copy and Open in Runs & Diffs.")
+                      disabled=selected, help="Pick this run for Run again, Load offline copy and Compare & trends.")
+            if on_show_all is not None and len(repeats) > 1:
+                st.button("Show all runs", key=f"recent_card_all::{run['id']}", type="tertiary",
+                          icon=":material/table_rows:", on_click=on_show_all, args=(run["key"],),
+                          help=f"The Table view with all {len(repeats)} runs of this target list and their details")
             if shared:
                 _shared_list(run, other_labels, on_find)
 
@@ -312,4 +322,3 @@ def graph_data(all_runs, max_runs, kinds, linked_only):
     return nodes, edges
 
 
-DEFAULT_KINDS = list(SHARED_KINDS)

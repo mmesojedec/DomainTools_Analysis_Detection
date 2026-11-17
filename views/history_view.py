@@ -1,10 +1,11 @@
-"""Runs & Diffs (Previous Runs & Comparison): browse saved runs, inspect one, compare any two, and manage them; the
-Offline Datasets page (saved datasets: load, rename, delete, retention)."""
+"""Runs → Compare & trends (Previous Runs & Comparison): browse saved runs, inspect one, compare any two, and manage them; the
+Saved datasets page (saved datasets: load, rename, delete, retention)."""
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 from core.helpers import md_escape
+from core.intel_data import SEVERITY_COLORS
 from core.offline import (
     apply_offline_retention,
     dataset_breakdown,
@@ -59,9 +60,9 @@ from views.sidebar import (
 )
 
 ALERT_COLUMNS = ["Domain", "Threat Type", "Severity", "Confidence", "Category", "MITRE ATT&CK", "Threat Logic"]
-TARGET_SET_KEY = "hist_target_set"   # the target list picked on Runs & Diffs
-RECENT_PICK_KEY = "_hist_open_set"   # a target list to open Runs & Diffs on (Recent runs → Open), used once
-SEEN_KEY = "_hist_seen_current"      # the current run's list when Runs & Diffs last opened
+TARGET_SET_KEY = "hist_target_set"   # the target list picked on Runs → Compare & trends
+RECENT_PICK_KEY = "_hist_open_set"   # a target list to open Runs → Compare & trends on (Recent runs → Open), used once
+SEEN_KEY = "_hist_seen_current"      # the current run's list when Runs → Compare & trends last opened
 LEGACY_NOTE = ("Saved by an earlier version: only alert keys and infrastructure were recorded, so severity, confidence, "
                "risk scores, and DIF are not available for this run.")
 
@@ -240,25 +241,14 @@ def _render_manage(key, runs, timezone):
             st.rerun()
 
     st.divider()
-    col3, col4 = st.columns(2)
-    with col3:
-        keep = st.number_input("Runs kept per target list", min_value=1, max_value=500, value=run_retention(), step=1,
-                               key="hist_retention", help="Older runs beyond this number are deleted when a new run is saved.")
-        if st.button("Save retention & apply now", key=f"hist_retention_apply_{key}"):
-            set_run_retention(keep)
-            removed = apply_retention(key, int(keep))
-            st.toast(f"Retention set to {int(keep)}; removed {removed} old run(s) for this target list.")
-            if removed:
-                st.rerun()
-    with col4:
+    st.caption(f"Runs kept per target list: {run_retention()} (Settings → Storage & cache).")
+    with st.container():
         confirm_all = st.checkbox(f"Confirm deletion of all {len(runs)} run(s) for this target list", key=f"hist_del_all_confirm_{key}")
         if st.button("Delete all runs for this target list", disabled=not confirm_all, key=f"hist_del_all_{key}"):
             delete_target_set(key)
             st.rerun()
 
 
-SEVERITY_COLORS = {"Critical": "#DC2626", "High": "#F97316", "Medium-High": "#F59E0B", "Medium": "#EAB308", "Low": "#3B82F6",
-                   "Unknown": "#748590", "None": "#2A3040"}
 
 
 def _localize(frame, timezone, column="Run Time"):
@@ -410,15 +400,15 @@ def _render_dataset_breakdown(dataset_id, manifest):
 
 
 def render_offline_datasets():
-    """Offline Datasets page (Manage Data): saved offline datasets (load, rename, delete, retention)."""
-    st.subheader("Offline Datasets", help="Datasets saved from live runs (dt_offline/): load one to re-analyze it "
+    """Saved datasets page (Data): saved offline datasets (load, rename, delete, retention)."""
+    st.header("Saved datasets", help="Datasets saved from live runs (dt_offline/): load one to re-analyze it "
                  "without API calls, rename it, delete it, and choose how many are kept.")
     datasets = list_offline_datasets()
     st.caption("Offline datasets hold everything a live run collected (dt_offline/, local and git-ignored). Pick one "
                "and click **Load offline dataset** to re-analyze it without API calls. They can contain sensitive "
                "investigation data.")
     if not datasets:
-        st.info("No offline datasets saved yet. Tick **Save offline copy** in the sidebar before clicking Analyze, or "
+        st.info("No offline datasets saved yet. Tick **Save offline copy** on the Start page before clicking Analyze, or "
                 "click **Save offline copy** at the top of a page after a run.")
     else:
         rows = [{"Saved (UTC)": format_created(m.get("created"), "UTC", "%Y-%m-%d %H:%M:%S"), "Name": m.get("name", ""),
@@ -466,14 +456,25 @@ def render_offline_datasets():
         if st.button("Delete offline dataset", disabled=not confirm, key=f"offline_del_{dataset_id}"):
             delete_offline_dataset(dataset_id)
             st.rerun()
-    keep = st.number_input("Offline datasets kept", min_value=1, max_value=200, value=offline_retention(), step=1, key="offline_retention",
-                           help="When a new dataset is saved, the oldest ones beyond this number are deleted.")
-    if st.button("Save retention & apply now", key="offline_retention_apply"):
-        set_offline_retention(keep)
-        removed = apply_offline_retention(int(keep))
-        st.toast(f"Offline retention set to {int(keep)}; removed {removed} dataset(s).")
-        if removed:
-            st.rerun()
+    st.caption(f"Datasets kept: {offline_retention()} newest (Settings → Storage & cache).")
+
+
+def render_retention_settings():
+    """Settings → Storage & cache: how many runs per target list and offline datasets are kept."""
+    st.markdown("**Retention**")
+    c1, c2 = st.columns(2)
+    runs_keep = c1.number_input("Runs kept per target list", min_value=1, max_value=500, value=run_retention(),
+                                step=1, key="hist_retention",
+                                help="Older runs beyond this number are deleted when a new run is saved.")
+    data_keep = c2.number_input("Offline datasets kept", min_value=1, max_value=200, value=offline_retention(),
+                                step=1, key="offline_retention",
+                                help="When a new dataset is saved, the oldest ones beyond this number are deleted.")
+    if st.button("Save retention & apply now", key="retention_apply", icon=":material/save:"):
+        set_run_retention(runs_keep)
+        set_offline_retention(data_keep)
+        removed_runs = sum(apply_retention(target["key"], int(runs_keep)) for target in list_target_sets())
+        removed_data = apply_offline_retention(int(data_keep))
+        st.toast(f"Retention saved; removed {removed_runs} old run(s) and {removed_data} dataset(s).")
 
 
 def _render_watches(timezone):
@@ -532,7 +533,7 @@ def _recent_row(run, timezone, offline_id, profiles):
 
 
 def render_run_actions(run, offline_id, prefix="recent"):
-    """Run again, Load offline copy and Open in Runs & Diffs for one saved run (`prefix` keeps the button keys apart)."""
+    """Run again, Load offline copy and Compare & trends for one saved run (`prefix` keeps the button keys apart)."""
     options = run.get("options") or {}
     lines = list(run.get("seeds") or []) or list(run.get("targets") or [])
     with st.container(horizontal=True, vertical_alignment="center"):
@@ -547,9 +548,9 @@ def render_run_actions(run, offline_id, prefix="recent"):
                   disabled=offline_id is None, on_click=request_offline_load, args=(offline_id,),
                   help="Loads the offline copy saved from this run and re-analyzes it with no API calls."
                   if offline_id else "No offline copy was saved from this run (*Save offline copy*).")
-        navigation.jump_button("history", "Open in Runs & Diffs", button_key=f"{prefix}_open", icon=":material/history:",
+        navigation.jump_button("history", "Compare & trends", button_key=f"{prefix}_open", icon=":material/history:",
                                state={RECENT_PICK_KEY: run["key"], f"hist_detail_{run['key']}": run["id"]},
-                               help="Opens this run in Runs & Diffs: its details, and comparisons and trends with "
+                               help="Opens this run in Runs → Compare & trends: its details, and comparisons and trends with "
                                     "the other runs of the same targets.")
 
 
@@ -562,10 +563,10 @@ def _list_labels(all_runs):
 
 
 def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
-    st.subheader("Previous Runs & Comparison",
+    st.subheader("Compare & trends",
                  help="Every analysis run is saved locally (dt_runs/). Browse past runs of a target list, compare any two, follow "
                       "trends, review one domain across all target lists and manage runs. Offline datasets have their "
-                      "own page: Manage Data → Offline Datasets.")
+                      "own page: Data → Saved datasets.")
     target_sets = list_target_sets()
     if not target_sets:
         st.info("No saved runs yet. Each Analyze run is saved automatically once its results are displayed.")
@@ -589,8 +590,10 @@ def render_run_history(current_key=None, timezone="UTC", current_run_id=None):
     if not runs:
         st.info("No runs saved for this target list.")
         return
-    table(_runs_table(runs, timezone, current_run_id))
-    tabs = st.tabs(["Run Details", "Compare Runs", "Trends", "Domain History", "Watched Lists", "Manage Runs"],
+    table(_runs_table(runs, timezone, current_run_id), column_config={
+        "Max Unified Risk": st.column_config.ProgressColumn("Max Unified Risk", min_value=0, max_value=100, format="%d"),
+        "Critical": st.column_config.NumberColumn("🔴 Critical"), "High": st.column_config.NumberColumn("🟠 High")})
+    tabs = st.tabs(["Run Details", "Compare Runs", "Trends", "Domain across runs", "Watched Lists", "Manage Runs"],
                    key=HISTORY_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
     with tabs[0]:

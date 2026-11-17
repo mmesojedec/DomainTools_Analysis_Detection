@@ -4,7 +4,7 @@ import streamlit as st
 
 from config import HOSTNAME_NEW_DAYS
 from core.subdomain_triage import LEVELS, STRONG_SIGNALS, TRIAGE_SIGNALS, build_subdomain_triage
-from views.common import selected_rows, selection_key
+from views.common import metric_slots, selected_rows, selection_key
 from views.sidebar import focus_on_hostnames, rerun_app_if_requested
 
 COLUMN_HELP = {
@@ -41,7 +41,7 @@ def render_triage_lens(ds):
     level = triage["Level"]
     metrics = [("High", int((level == "High").sum())), ("Medium", int((level == "Medium").sum())),
                ("Low", int((level == "Low").sum())), ("Subdomains", len(triage))]
-    for col, (label, value) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, f"{value:,}", help=COLUMN_HELP["Level"] if label != "Subdomains" else
                    "Hostnames below the selected domains (the domains themselves and wildcard names are left out)")
     platforms = sorted(p for p in triage["Platform"].unique() if p)

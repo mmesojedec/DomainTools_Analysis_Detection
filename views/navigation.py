@@ -6,7 +6,6 @@ import json
 from dataclasses import dataclass
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 @dataclass(frozen=True)
@@ -21,7 +20,7 @@ SECTIONS = {
     "Start": (PageSpec("home", "Start", ":material/home:"),),
     "IrisQL": (PageSpec("irisql", "IrisQL", ":material/manage_search:"),),
     "CertsQL": (PageSpec("certsql", "CertsQL", ":material/badge:"),),
-    "Recent runs": (PageSpec("recent", "Recent runs", ":material/schedule:"),),
+    "Runs": (PageSpec("recent", "Runs", ":material/schedule:"),),
     "Overview": (PageSpec("summary", "Summary", ":material/dashboard:"),
                  PageSpec("profile", "Domain profile", ":material/domain:"),
                  PageSpec("alerts", "Alerts", ":material/warning:")),
@@ -30,30 +29,35 @@ SECTIONS = {
                        PageSpec("tor", "Tor network", ":material/travel_explore:"),
                        PageSpec("cname", "CNAME Chains", ":material/route:"),
                        PageSpec("certs", "Certificates", ":material/verified_user:")),
-    "Hunt": (PageSpec("pivots", "Pivot Ranking", ":material/hub:", True),
+    "Hunt": (PageSpec("hunt_tree", "Hunt map", ":material/account_tree:", True),
              PageSpec("hostnames", "Hostname Inventory", ":material/list_alt:", True),
-             PageSpec("triage", "Subdomain Triage", ":material/filter_alt:", True),
-             PageSpec("hunt_tree", "Hunt map", ":material/account_tree:", True)),
-    "Evidence": (PageSpec("raw", "Raw Records", ":material/table_view:", True),
-                 PageSpec("queries", "Lookup Queries", ":material/terminal:", True)),
-    "Manage Data": (PageSpec("save", "Save offline copy", ":material/save:"),
-                    PageSpec("offline", "Offline Datasets", ":material/folder_open:"),
-                    PageSpec("export", "Data Export", ":material/download:"),
-                    PageSpec("history", "Runs & Diffs", ":material/history:")),
-    "Data sources": (PageSpec("sources", "Data sources", ":material/fact_check:"),),
-    "Settings": (PageSpec("settings", "Settings", ":material/settings:"),),
-    "Account": (PageSpec("account", "Account", ":material/account_circle:"),),
-    "Help": (PageSpec("docs", "Documentation", ":material/menu_book:"),),
+             PageSpec("triage", "Subdomain Triage", ":material/filter_alt:", True)),
+    "Evidence": (PageSpec("evidence", "Evidence", ":material/table_view:", True),),
+    "Data": (PageSpec("offline", "Saved datasets", ":material/folder_open:"),
+             PageSpec("export", "Export & report", ":material/download:"),
+             PageSpec("sources", "Data sources", ":material/fact_check:")),
+    "Settings": (PageSpec("settings", "Settings", ":material/settings:"),
+                 PageSpec("account", "Account", ":material/account_circle:"),
+                 PageSpec("docs", "Documentation", ":material/menu_book:")),
 }
-DIRECT = ("Start", "IrisQL", "CertsQL", "Recent runs")   # one-page groups shown as plain links in the menu, not as a dropdown
+DIRECT = ("Start", "IrisQL", "CertsQL", "Runs")   # one-page groups: plain links in the menu, no dropdown
+# Pages merged into a tab of another page: links and jumps to the old key open that tab
+ALIASES = {
+    "history": ("recent", "recent_tab", "Compare & trends", "Compare runs"),
+    "pivots": ("hunt_tree", "hunt_map_tab", "All pivots", "All pivots, ranked"),
+    "raw": ("evidence", "evidence_tab", "Records", "Raw records"),
+    "queries": ("evidence", "evidence_tab", "Lookup queries", "Lookup queries"),
+}
 SPECS = {spec.key: spec for specs in SECTIONS.values() for spec in specs}
 _PAGES = {}   # key -> StreamlitPage of this run
 SCROLL_TAB_KEY = "scroll_to_tab"   # a tab label: the next page scrolls its tab row into view once
+PENDING_STATE_KEY = "_nav_pending_state"   # state a jump sets on the target page, applied on its first run
 
 
 def build(functions, analyst=True):
     """st.navigation (top bar) over `functions` ({page key: callable}); the Start page is the default."""
     _PAGES.clear()
+    st.session_state.update(st.session_state.pop(PENDING_STATE_KEY, None) or {})
     sections = {}
     for section, specs in SECTIONS.items():
         pages = []
@@ -70,17 +74,23 @@ def build(functions, analyst=True):
 
 
 def page(key):
-    """The StreamlitPage of `key`, or None when this mode leaves it out."""
-    return _PAGES.get(key)
+    """The StreamlitPage of `key` (or of the page a merged key lives on), or None when this mode leaves it out."""
+    return _PAGES.get(ALIASES[key][0] if key in ALIASES else key)
 
 
 def title(key):
-    return SPECS[key].title
+    return ALIASES[key][3] if key in ALIASES else SPECS[key].title
 
 
 def go(key, **state):
-    """Sets `state` (e.g. a filter of the target page) and opens page `key`."""
-    st.session_state.update(state)
+    """Sets `state` (e.g. a filter of the target page) and opens page `key` (a merged page's tab: ALIASES)."""
+    if key in ALIASES:
+        target, tabs_key, tab, _ = ALIASES[key]
+        state = {tabs_key: tab, SCROLL_TAB_KEY: tab, **state}
+        key = target
+    # Applied by build() on the next run, before any widget: a jump within the same page (Runs → its own Compare &
+    # trends tab) must not set a widget that this run has drawn already (StreamlitAPIException)
+    st.session_state[PENDING_STATE_KEY] = {**st.session_state.get(PENDING_STATE_KEY, {}), **state}
     st.switch_page(_PAGES[key])
 
 
@@ -97,7 +107,7 @@ def scroll_to_tab():
     tab = st.session_state.pop(SCROLL_TAB_KEY, None)
     if not tab:
         return
-    components.html(f"<script>const label = {json.dumps(tab)};" + """
+    st.iframe(f"<script>const label = {json.dumps(tab)};" + """
       let tries = 0;
       const timer = setInterval(() => {
         const tab = [...window.parent.document.querySelectorAll('[role="tab"]')]
@@ -112,13 +122,19 @@ def scroll_to_tab():
           }
         }
       }, 100);
-    </script>""", height=0)
+    </script>""", height=1)
 
 
 def link(key, label=None, container=None, icon=None):
     """A link to page `key` (nothing when the page is not available in this mode)."""
     target = page(key)
     if target is None:
+        return
+    if key in ALIASES:   # a tab of another page: a button, since a page link cannot pick the tab
+        spec = SPECS[ALIASES[key][0]]
+        if (container or st).button(label or title(key), key=f"link::{key}::{label}", type="tertiary",
+                                    icon=icon or spec.icon):
+            go(key)
         return
     (container or st).page_link(target, label=label or SPECS[key].title, icon=icon or SPECS[key].icon)
 

@@ -20,7 +20,7 @@ from core.intel_data import DUAL_USE_JA4X, KNOWN_JA4X
 from core.self_signed import SEVERITIES, self_signed_certificates
 from integrations.certificates import fetch_certsql
 from views import navigation
-from views.common import chart, explainer, table
+from views.common import chart, empty_state, explainer, table
 from views.hunt_actions import certificate_actions
 from views.query_editor import set_query
 from visualizations.sankey import render_hostname_sankey_flow
@@ -68,9 +68,8 @@ PIVOT_OPTIONS = {
 CERT_FOCUS_KEY = "cert_focus"   # a certificate or JA4X the page is narrowed to (set by an indicator's details)
 CERT_TAB_KEY = "cert_tab"   # the selected tab; other pages open one with navigation.open_tab
 SELF_SIGNED_TAB = "Self-Signed"
-JA4X_TAB = "JA4X"
-CERT_TABS = ["Executive Health", SELF_SIGNED_TAB, "Validity & Lifelines", "Cipher & Keys", "Key Reuse Matrix",
-             JA4X_TAB, "Geo & Org Profiling", "EKU & Capabilities", "Policies & OIDs", "CAA Record", "CT Log Telemetry", "IP & C2"]
+JA4X_TAB = "JA4X & C2"
+CERT_TABS = ["Overview", SELF_SIGNED_TAB, "Validity & keys", JA4X_TAB, "Issuers & policies", "CT logs"]
 
 
 TREEMAP_CERTS = 15   # certificates drawn per target domain in the SAN treemap; the rest are one box
@@ -704,42 +703,30 @@ def _focused(ds):
 
 
 def render_ssl_lens(ds, threats, thresholds):
+    st.header("Certificates", help="Cryptographic and X.509 telemetry across active and historical certificates.")
     if ds.ssl.empty:
-        st.info("No certificate data available for the selected domains.")
-        st.divider()
+        empty_state("No certificate data for the selected domains.", "sources", "Check the certificate lookups")
         return
-    st.subheader("SSL/TLS Certificate Intelligence",
-                 help="Cryptographic and X.509 telemetry across active and historical certificates.")
     ds = _focused(ds)
     unique_certs = ds.ssl.drop_duplicates(subset=["Domain", "Hash", "Source"]).copy()
-    _render_overview(ds, unique_certs)
-
-    st.markdown("### Deep Certificate Telemetry & Cryptographic Analysis",
-                help="Cryptographic strength, key reuse, lifespans, policy compliance, and C2 indicators.")
+    if st.session_state.get(CERT_TAB_KEY) not in (None, *CERT_TABS):   # a tab of an older version of the page
+        st.session_state.pop(CERT_TAB_KEY)
     tabs = st.tabs(CERT_TABS, key=CERT_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
-    with tabs[0]:
-        _render_health(ds, unique_certs, threats)
-    with tabs[1]:
-        _render_self_signed(ds, unique_certs)
-    with tabs[2]:
-        _render_validity(unique_certs, thresholds["short_lived_days"])
-    with tabs[3]:
-        _render_keys(unique_certs)
-    with tabs[4]:
-        _render_key_reuse(unique_certs)
-    with tabs[5]:
-        _render_ja4x(unique_certs)
-    with tabs[6]:
-        _render_geo(unique_certs)
-    with tabs[7]:
-        _render_eku(unique_certs)
-    with tabs[8]:
-        _render_policies(unique_certs)
-    with tabs[9]:
-        _render_caa(ds, unique_certs)
-    with tabs[10]:
-        _render_ct_logs(ds, unique_certs)
-    with tabs[11]:
-        _render_bare_ip(unique_certs)
-    st.divider()
+    renderers = [
+        [lambda: _render_health(ds, unique_certs, threats), lambda: _render_overview(ds, unique_certs)],
+        [lambda: _render_self_signed(ds, unique_certs)],
+        [lambda: _render_validity(unique_certs, thresholds["short_lived_days"]), lambda: _render_keys(unique_certs),
+         lambda: _render_key_reuse(unique_certs)],
+        [lambda: _render_ja4x(unique_certs), lambda: _render_bare_ip(unique_certs)],
+        [lambda: _render_geo(unique_certs), lambda: _render_eku(unique_certs), lambda: _render_policies(unique_certs),
+         lambda: _render_caa(ds, unique_certs)],
+        [lambda: _render_ct_logs(ds, unique_certs)],
+    ]
+    for tab, parts in zip(tabs, renderers):   # only the open tab is drawn
+        if tab.open is not False:
+            with tab:
+                for number, render in enumerate(parts):
+                    if number:
+                        st.divider()
+                    render()

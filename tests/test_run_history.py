@@ -162,6 +162,18 @@ def test_run_again_restores_the_runs_options_and_starts_a_run(monkeypatch):
     assert state["opt_dnsdb_limit"] == 500 and state[sidebar.TARGETS_KEY] == "c.com"
 
 
+def test_start_page_analyze_runs_its_targets_once_with_the_offline_copy_choice(monkeypatch):
+    from core.use_cases import COLLECTION_DEFAULTS
+    from views import sidebar
+    state = dict(COLLECTION_DEFAULTS, start_targets="a.com\nb.com", save_offline=True)
+    monkeypatch.setattr(sidebar.st, "session_state", state)
+    sidebar.start_analyze("start_targets")
+    settings = sidebar.pending_lookup()
+    assert settings.run and settings.raw_input == "a.com\nb.com" and settings.save_offline
+    again = sidebar.pending_lookup()   # the next app run does not analyze again
+    assert not again.run and not again.save_offline and again.raw_input == "a.com\nb.com"
+
+
 def test_run_options_records_the_window_range_only_for_a_custom_range(monkeypatch):
     import datetime as dt
 

@@ -207,16 +207,16 @@ def analysis_cost(domains):
 
 
 def commands(query, page_size, sort_by=""):
-    """The same search as a DomainTools CLI line, a curl command and SDK code (no credential values)."""
+    """The same search as a DomainTools Python SDK command line, a curl command and a Python script (no credential values)."""
     params = {"page_size": page_size, **({"sort_by": sort_by} if sort_by else {})}
     flags = f" --page-size {page_size}" + (f" --sort-by {sort_by}" if sort_by else "")
     url = ENDPOINT + "?" + "&".join(f"{k}={v}" for k, v in params.items())
     return {
-        "DomainTools CLI": f"domaintools iris_investigate --irisql {shlex.quote(query)}{flags} "
+        "DomainTools Python SDK": f"domaintools iris_investigate --irisql {shlex.quote(query)}{flags} "
                            '-u "$DT_API_USERNAME" -k "$DT_API_KEY"',
         "curl": f"curl -X POST '{url}' \\\n  -H \"X-Api-Key: $DT_API_KEY\" -H 'Content-Type: application/json' \\\n"
                 f"  --data-binary @- <<'EOF' | jq .\n{query}\nEOF",
-        "Python SDK": "import json, os\n\nfrom domaintools import API\n\n"
+        "Python script": "import json, os\n\nfrom domaintools import API\n\n"
                       "api = API(os.environ[\"DT_API_USERNAME\"], os.environ[\"DT_API_KEY\"])\n"
                       f"results = api.iris_investigate(irisql={json.dumps(query)}, "
                       + ", ".join(f"{k}={json.dumps(v)}" for k, v in params.items()) + ").response()\n"

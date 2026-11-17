@@ -1,7 +1,7 @@
 """
 "Analyze the selection" step shared by the IrisQL and CertsQL pages: the user says whether the run takes the ticked
 domains, the ticked IPs, or both (the Domains and IPs tabs keep their ticks either way), then picks a use case and
-analyzes them, or adds them to the sidebar targets.
+analyzes them as a new run.
 """
 import streamlit as st
 
@@ -9,6 +9,7 @@ from config import SEED_MAX_TARGETS
 from core.irisql import analysis_cost
 from core.persistence import load_settings
 from core.use_cases import PROFILES_SETTING, all_cases
+from views import navigation
 
 SCOPES = ("domains", "ips", "both")
 LINK_SUFFIX = "_link_hunt"   # checkbox: the new run joins the loaded run's hunt
@@ -23,8 +24,8 @@ def hunt_parent(prefix):
 def _render_link(prefix):
     """*Add to the hunt of …*: shown while a run is loaded, so a search made from a hunt stays in it."""
     collected = st.session_state.get("collected")
-    if not st.session_state.get("current_run_id") or collected is None:
-        return
+    if not st.session_state.get("current_run_id") or collected is None or navigation.page("hunt_tree") is None:
+        return   # without Analyst mode there is no Hunt map to show the hunt: the run is still linked (the default)
     targets = list(getattr(collected, "targets", []) or [])
     label = ", ".join(targets[:2]) + (f" +{len(targets) - 2}" if len(targets) > 2 else "")
     st.checkbox(f"Add the new run to the hunt of the loaded run ({label})", value=True, key=f"{prefix}{LINK_SUFFIX}",
@@ -63,9 +64,8 @@ def default_scope(domains, ips):
     return "domains" if domains or not ips else "ips"
 
 
-def render_analyze_selection(prefix, picked_domains, picked_ips, on_analyze, on_add, state):
-    """The step under the result tabs; `on_analyze(targets, case_key, state)` / `on_add(targets, state)` are the
-    page's button callbacks."""
+def render_analyze_selection(prefix, picked_domains, picked_ips, on_analyze, state):
+    """The step under the result tabs; `on_analyze(targets, case_key, state)` is the page's Analyze callback."""
     st.subheader("Analyze the selection", help="Choose whether the run takes the domains, the IPs or both that are "
                                                "ticked in the tabs above, then a use case for the collection options.")
     scope_key, case_key_name = f"{prefix}_analyze_scope", f"{prefix}_use_case"
@@ -109,10 +109,6 @@ def render_analyze_selection(prefix, picked_domains, picked_ips, on_analyze, on_
     if over:
         st.error(f"Select at most {SEED_MAX_TARGETS} targets per run.")
     _render_link(prefix)
-    with st.container(horizontal=True):
-        st.button(analyze_label(domains, ips), type="primary", icon=":material/play_arrow:",
-                  disabled=over or not targets, key=f"{prefix}_analyze", on_click=on_analyze,
-                  args=(targets, case_key, state))
-        st.button("Add to the sidebar targets", icon=":material/playlist_add:", disabled=not targets,
-                  key=f"{prefix}_add", on_click=on_add, args=(targets, state),
-                  help="Adds them to the target box without analyzing, to combine with other targets first.")
+    st.button(analyze_label(domains, ips), type="primary", icon=":material/play_arrow:",
+              disabled=over or not targets, key=f"{prefix}_analyze", on_click=on_analyze,
+              args=(targets, case_key, state))

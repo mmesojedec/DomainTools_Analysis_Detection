@@ -58,7 +58,3 @@ def account_products(fetch=True):
         products = account_parts(result.data)[1] if result.ok else None
     return products
 
-
-def forget_account():
-    with _lock:
-        _memo.update(result=None, at=None)

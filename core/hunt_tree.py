@@ -3,6 +3,7 @@ Hunt tree: which run a run was started from, and through which pivot. A run star
 a watched list records {"id": parent run id, "via": what led to it} in its snapshot; following those links rebuilds
 the path from the first seed to any run, and the whole tree of a hunt.
 """
+from core.persistence import SAME_TARGETS
 
 
 def _targets(snapshot, limit=3):
@@ -91,3 +92,40 @@ def hunt_members(runs, root_id):
 
     walk(root_id, 0)
     return members
+
+
+RERUN_VIAS = ("Run again", SAME_TARGETS)   # a run of its parent's targets again (not a pivot that found them)
+
+
+def _target_set(snapshot):
+    return tuple(sorted(set(snapshot.get("targets") or []) | set(snapshot.get("seeds") or [])))
+
+
+def collapse_repeats(members):
+    """
+    Folds the runs that only repeat their parent's targets (Run again, the same list analyzed again: RERUN_VIAS) into the first
+    of them, for drawing: (members, repeats, alias). The kept box carries the newest repeat's results under the first
+    run's id and place; runs started from any repeat hang from it. `repeats`: {kept id: [its runs, oldest first]}
+    for boxes of two or more runs; `alias`: {run id: kept id}.
+    """
+    kept, alias, repeats, depths, out = {}, {}, {}, {}, []
+    for key, snapshot, depth in members:
+        parent = alias.get(_parent_id(snapshot))
+        via = str((snapshot.get("parent") or {}).get("via") or "")
+        if parent is not None and depth and via in RERUN_VIAS and _target_set(snapshot) == _target_set(kept[parent][1]):
+            alias[snapshot["id"]] = parent
+            repeats.setdefault(parent, [kept[parent][2]]).append(snapshot)
+            first = kept[parent][2]
+            kept[parent] = (key, {**snapshot, "id": parent, "parent": first.get("parent"),
+                                  "created": snapshot.get("created")}, first)
+            continue
+        if parent is not None:
+            snapshot = {**snapshot, "parent": {**snapshot["parent"], "id": parent}}
+            depth = depths[parent] + 1
+        alias[snapshot["id"]] = snapshot["id"]
+        depths[snapshot["id"]] = depth
+        kept[snapshot["id"]] = (key, snapshot, snapshot)
+        out.append(snapshot["id"])
+    if not repeats:
+        return list(members), {}, {m[1]["id"]: m[1]["id"] for m in members}
+    return [(kept[i][0], kept[i][1], depths[i]) for i in out], repeats, alias

@@ -15,7 +15,7 @@ from core.network_intel import (
     record_types,
     watchlisted_hosting,
 )
-from core.threat_detection.context import MAX_IOC_LINES, evidence_record, fmt_ts
+from core.threat_detection.context import MAX_IOC_LINES, by_host, evidence_record, fmt_ts
 
 NS_FIELDS = {"NS", "NAME_SERVER"}
 ACTIVATION_FIELDS = {"A", "AAAA", "IP", "A RECORD", "MX"}
@@ -34,7 +34,8 @@ def rule_newly_registered(ctx):
         fresh = issued[issued >= created - pd.Timedelta(days=1)]
         if not fresh.empty:
             evidence.append(f"Certificate issued {fmt_ts(fresh.min())}")
-    if not ctx.events.empty:
+    parked = any(is_parking_ns(ns) for ns in ctx.profile.get("name_servers", []))
+    if not ctx.events.empty and not parked:   # a parked domain resolves to the parking service: not operational
         ip_events = explode_ip_events(ctx.events)
         live = ip_events[ip_events["Date"] >= created - pd.Timedelta(days=1)]
         if not live.empty:
@@ -130,18 +131,10 @@ def rule_parking(ctx):
     )
 
 
-def rule_multi_network_flux(ctx):
-    """Fast-flux across distinct ASNs / networks within 7 days, ignoring CDN anycast addresses."""
-    ip_rows = explode_ip_events(ctx.events)
-    if ip_rows.empty:
-        return
-    ip_rows = ip_rows[ip_rows["IP"].map(lambda ip: cdn_for_ip(ip, ctx.ip_intel) is None)]
-    if ip_rows.empty:
-        return
-    ip_rows = ip_rows.assign(Network=ip_rows["IP"].map(lambda ip: network_key(ip, ctx.ip_intel)))
-    ip_rows = ip_rows.dropna(subset=["Network"]).sort_values("Date", kind="stable").reset_index(drop=True)
+def _network_flux_window(ip_rows, min_networks, min_ips):
+    """(window start, networks Counter, IPs Counter) of the first 7-day window over both minimums, else None."""
+    ip_rows = ip_rows.sort_values("Date", kind="stable").reset_index(drop=True)
     dates, networks, ips = ip_rows["Date"].tolist(), ip_rows["Network"].tolist(), ip_rows["IP"].tolist()
-    min_networks, min_ips = ctx.thresholds["flux_networks"], ctx.thresholds["flux_ips"]
     window = pd.Timedelta(days=7)
     net_counts, ip_counts, j = Counter(), Counter(), 0
     for i in range(len(dates)):
@@ -150,19 +143,40 @@ def rule_multi_network_flux(ctx):
             ip_counts[ips[j]] += 1
             j += 1
         if len(net_counts) >= min_networks and len(ip_counts) >= min_ips:
-            known_asn = sum(1 for n in net_counts if n.startswith("AS"))
-            ctx.add(
-                "Multi-Network Fast-Flux (ASN-Diverse)", "High", "T1568.001 (Fast Flux DNS)",
-                f"{len(ip_counts)} non-CDN IPs across {len(net_counts)} distinct networks within 7 days "
-                f"({known_asn} identified by ASN, others by network prefix).",
-                f"Window start: {fmt_ts(dates[i])}\nNetworks: {', '.join(sorted(net_counts)[:15])}\nIPs: {', '.join(sorted(ip_counts)[:15])}",
-                flag="multi_network_flux",
-            )
-            return
+            return dates[i], net_counts, ip_counts
         for counter, key in ((net_counts, networks[i]), (ip_counts, ips[i])):
             counter[key] -= 1
             if counter[key] == 0:
                 del counter[key]
+    return None
+
+
+def rule_multi_network_flux(ctx):
+    """Fast-flux across distinct ASNs / networks on one hostname within 7 days, ignoring CDN anycast addresses."""
+    ip_rows = explode_ip_events(ctx.events)
+    if ip_rows.empty:
+        return
+    ip_rows = ip_rows[ip_rows["IP"].map(lambda ip: cdn_for_ip(ip, ctx.ip_intel) is None)]
+    if ip_rows.empty:
+        return
+    ip_rows = ip_rows.assign(Network=ip_rows["IP"].map(lambda ip: network_key(ip, ctx.ip_intel)))
+    ip_rows = ip_rows.dropna(subset=["Network"])
+    min_networks, min_ips = ctx.thresholds["flux_networks"], ctx.thresholds["flux_ips"]
+    for host, rows in by_host(ip_rows, ctx.domain):
+        found = _network_flux_window(rows, min_networks, min_ips)
+        if found is None:
+            continue
+        start, net_counts, ip_counts = found
+        known_asn = sum(1 for n in net_counts if n.startswith("AS"))
+        ctx.add(
+            "Multi-Network Fast-Flux (ASN-Diverse)", "High", "T1568.001 (Fast Flux DNS)",
+            f"{len(ip_counts)} non-CDN IPs across {len(net_counts)} distinct networks on {host} within 7 days "
+            f"({known_asn} identified by ASN, others by network prefix).",
+            f"Hostname: {host}\nWindow start: {fmt_ts(start)}\nNetworks: {', '.join(sorted(net_counts)[:15])}\n"
+            f"IPs: {', '.join(sorted(ip_counts)[:15])}",
+            flag="multi_network_flux",
+        )
+        return
 
 
 def rule_volume_anomaly(ctx):

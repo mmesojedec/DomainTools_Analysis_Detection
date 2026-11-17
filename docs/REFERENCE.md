@@ -20,18 +20,19 @@ window**. They build on one set of **global defaults**, the options the app star
 
 - **Global defaults**: the *Global default* column below. They are also what *Settings → Collection options* shows in a
   new session.
-- **Use cases**: the six cards on the Start page. Each one is the global defaults with a few changes that suit it
+- **Use cases**: the eight cards on the Start page. Each one is the global defaults with a few changes that suit it
   (the other columns). **Use this** copies its options into *Settings → Collection options* and sets the window in the
-  sidebar; **Analyze** then runs with them.
-- **Your changes to a use case**: on *Settings → Use cases & profiles* pick a use case, change its options and
-  **Save**. From then on the Start page applies your version (its card says *changed on Settings*). **Reset to
+  sidebar; **Analyze** (Start page) then runs with them.
+- **Your changes to a use case**: on *Settings → Collection options* pick the use case under **Editing**, change its
+  options and **Save**. From then on the Start page applies your version (its card says *changed on Settings*). **Reset to
   default** brings back the built-in options.
-- **Custom profiles**: your own named sets of options for investigations the six use cases do not cover. Create one on
-  *Settings → Use cases & profiles* (starting from the current options or from a use case), change it, **Save**. It
+- **Custom profiles**: your own named sets of options for investigations the eight use cases do not cover. Create one on
+  *Settings → Collection options* with **Create a custom profile** (starting from the current options or from a use
+  case), pick it under **Editing**, change it, **Save**. It
   appears on the Start page under *Your profiles*. Profiles have no page plan.
-- **Collection options** (*Settings → Collection options*) are what the **next Analyze** uses. Changing them there
-  lasts for this browser session only; the sidebar shows the selected use case and *(options changed since)* when they
-  no longer match it.
+- **Collection options** (*Settings → Collection options*, **Editing**: *The next Analyze (this session)*) are what
+  the **next Analyze** uses. Changing them there lasts for this browser session only; the sidebar shows the selected
+  use case and *(changed)* when they no longer match it.
 
 Use case changes and profiles are saved in `dt_settings.json`, so they survive a restart.
 
@@ -41,18 +42,18 @@ tabs for the options being edited):
 | Option | Lookup | Limit |
 | --- | --- | --- |
 | *(always)* | Iris Investigate: registration, current hosting, risk score and its evidence, website and trackers | batches of 100 domains |
-| *(always)* | Domain History: registration, DNS and certificate changes | 1,000 changes (Max changes) |
-| Domain History period, Max changes | Domain History: the latest changes (default), only those of the analysis window, or of a custom number of days, each up to *Max changes*; or all time with no limit. Paging stops at the first older change or at *Max changes*; a domain that reaches it is reported as having more changes | 100 changes per query; Max changes 100–20,000; no limit stops at 50,000 |
+| *(always)* | Domain History: registration, DNS and certificate changes | 1,000 changes (Max changes per domain) |
+| Domain History period, Max changes per domain | Domain History: the latest changes (default), only those of the analysis window, or of a custom number of days, each up to *Max changes*; or all time with no limit. Paging stops at the first older change or at *Max changes*; a domain that reaches it is reported as having more changes | 100 changes per query; Max changes 100–20,000; no limit stops at 50,000 |
 | *(always)* | Certificate API: certificates naming the domain, and certificate events | 2,500 each |
-| DNSDB result limit | DNSDB Scout: the domain and every subdomain, all record types | the limit you pick |
+| DNSDB result limit per domain | DNSDB Scout: the domain and every subdomain, all record types | the limit you pick |
 | TXT lookup | DNSDB TXT records, only when the main lookup hit its limit | 500 fetched, latest N kept |
 | CAA lookup | DNSDB CAA record of the domain, only when the main lookup hit its limit | 100 records |
 | CNAME lookup | DNSDB CNAME records of the domain and its subdomains, only when the main lookup hit its limit | 5,000 records |
-| Pivot on hosting IPs | DNSDB: other domains seen on each current hosting IP | the max IPs per run, 2,000 records each |
-| Incremental passive DNS | DNSDB: only records seen since a day before the last offline copy of the same targets, plus that copy's older records (a full lookup without a copy) | the limit you pick |
-| VPN / proxy / Tor check (VPNDB) | VPNDB: verdict of the run's public IPv4 hosting addresses and of CIDR targets (only with a VPNDB key); full verdict and weekly history of the exits | *Hosting IPs per run* in one bulk request (500 by default), *Full verdicts per run* exits (50), two queries each |
-| VPNDB: neighbourhood and leads | VPNDB: the /24 around each non-exit hosting IP and the Iris hosting ASNs; DNSDB: other names on dedicated exits | 30 ranges, 20 networks, 10 DNSDB lookups of 1,000 records |
-| Only the VPNDB IP check | VPNDB only: IP targets and CIDR ranges; no other source, domain targets skipped | one bulk request, full verdict of up to *Full verdicts per run* IPv4 targets (100 in *Check IP addresses*), 20 ranges |
+| Pivot on hosting IPs (domain hopping) | DNSDB: other domains seen on each current hosting IP | the max IPs per run, 2,000 records each |
+| Incremental passive DNS (only new records) | DNSDB: only records seen since a day before the last offline copy of the same targets, plus that copy's older records (a full lookup without a copy) | the limit you pick |
+| Check hosting IPs for VPN, residential proxy and Tor | VPNDB: verdict of the run's public IPv4 hosting addresses and of CIDR targets (only with a VPNDB key); full verdict and weekly history of the exits | *VPNDB hosting IPs per run* in one bulk request (500 by default), *VPNDB full verdicts per run* exits (50), two queries each |
+| VPNDB neighbourhood and leads | VPNDB: the /24 around each non-exit hosting IP and the Iris hosting ASNs; DNSDB: other names on dedicated exits | 30 ranges, 20 networks, 10 DNSDB lookups of 1,000 records |
+| Only the VPNDB IP check | VPNDB only: IP targets and CIDR ranges; no other source, domain targets skipped | one bulk request, full verdict of up to *VPNDB full verdicts per run* IPv4 targets (100 in *Check IP addresses*), 20 ranges |
 | CT log & co-occurrence telemetry | Certificate API: CT log entries and the hosts seen with each certificate, newest certificates first | the max certificates per run, two calls each |
 
 The analysis window does not change any lookup: it filters what the pages, alerts and scores show. CNAME chases and
@@ -67,16 +68,16 @@ Options per use case (generated from `core/use_cases.py`):
 | Latest TXT records per domain | 10 | · | · | · | · | · | · | · | · |
 | CAA lookup | on | · | off | · | off | · | · | · | · |
 | CNAME lookup | on | · | · | · | · | · | · | · | · |
-| Pivot on hosting IPs | off | · | on | on | · | · | · | · | · |
+| Pivot on hosting IPs (domain hopping) | off | · | on | on | · | · | · | · | · |
 | Max IPs to pivot on | 10 | · | · | · | · | · | · | · | · |
-| Incremental passive DNS | off | · | · | · | · | · | on | · | · |
-| Domain History period | all | · | · | · | · | · | days | · | · |
-| Domain History period (days) | 365 | · | · | · | · | · | 90 | · | · |
-| Domain History changes per domain | 1,000 | · | · | · | · | · | · | · | · |
-| VPN / proxy / Tor check (VPNDB) | on | · | · | · | · | · | · | · | · |
-| VPNDB: hosting IPs per run | 500 | 100 | · | · | 100 | 200 | 200 | · | · |
-| VPNDB: full verdicts per run | 50 | 20 | · | · | 10 | 20 | 20 | 100 | · |
-| VPNDB: neighbourhood and leads | on | · | · | · | off | off | off | · | · |
+| Incremental passive DNS (only new records) | off | · | · | · | · | · | on | · | · |
+| Domain History period | Latest changes, up to Max changes | · | · | · | · | · | Custom number of days, up to Max changes | · | · |
+| Domain History days | 365 | · | · | · | · | · | 90 | · | · |
+| Max changes per domain | 1,000 | · | · | · | · | · | · | · | · |
+| Check hosting IPs for VPN, residential proxy and Tor | on | · | · | · | · | · | · | · | · |
+| VPNDB hosting IPs per run | 500 | 100 | · | · | 100 | 200 | 200 | · | · |
+| VPNDB full verdicts per run | 50 | 20 | · | · | 10 | 20 | 20 | 100 | · |
+| VPNDB neighbourhood and leads | on | · | · | · | off | off | off | · | · |
 | Only the VPNDB IP check | off | · | · | · | · | · | · | on | · |
 | CT log & co-occurrence telemetry | on | · | · | · | · | · | · | · | · |
 | Max certificates for CT lookups | 10 | · | · | · | · | 100 | · | · | · |
@@ -87,7 +88,7 @@ A dot (·) means the use case keeps the global default.
 
 ## Brand watchlist
 
-The brands you protect, set on **Settings → Brand watchlist** (saved in `dt_settings.json`). It is empty until you
+The brands you protect, set on **Settings → Brands & allowlist** (saved in `dt_settings.json`). It is empty until you
 add to it. The **Lookalike / Brand** detections compare every analyzed domain against it:
 
 | Detection | Fires when (example for the brand `paypal`) |
@@ -108,6 +109,15 @@ How to fill it in:
 
 Without a watchlist, only internationalized (punycode, `xn--`) domains are flagged (*IDN / Punycode Domain*). The
 detections check the analyzed domains; hostnames with a brand in a subdomain label are ranked by Subdomain Triage.
+
+**Hunt lookalikes in IrisQL** (under the watchlist, once it lists a brand) turns the watchlist into candidate names:
+typos, look-alike characters, the brand on other TLDs, and the brand plus a phishing word. It writes them into one
+IrisQL query, `DOMAIN EXACTLY_IN ["…", "…"]`, and opens it on the IrisQL page. Nothing is searched until you click
+**Search** there (one Iris Investigate query); the domains that exist are listed, ready to analyze.
+
+The **Infrastructure allowlist** on the same tab is the opposite list: your own or known-good infrastructure, which
+never links domains into clusters and keeps alerts naming it at Low confidence. See
+[Allowlist](USER_GUIDE.md#allowlist).
 
 The brand watchlist is not the [Impersonated brands](#impersonated-brands) list: that built-in list of brands phishing
 kits copy most (Microsoft, PayPal, DHL, ...) is used by Subdomain Triage and the CNAME rules, needs no setup and does
@@ -146,9 +156,11 @@ Limits (generated from `config.py`):
 | `SEED_DEFAULT_TARGETS` | 10 | derived domains / IPs pre-selected in the certificate input preview |
 | `SEED_MAX_TARGETS` | 100 | most derived domains / IPs one run may analyze |
 | `HOSTNAME_NEW_DAYS` | 30 | Hostname Inventory: a hostname first seen this recently is flagged "New" |
-| `PIVOT_STRONG_MAX` | 500 | Pivot Ranking: a value shared by 2..this many domains in Iris is a strong pivot |
-| `PIVOT_USEFUL_MAX` | 10,000 | ... up to this many a useful one; more is weak (shared infrastructure) |
-| `PIVOT_RESULT_LIMIT` | 500 | Pivot Ranking: domains fetched per Iris Investigate pivot search (one page) |
+| `PIVOT_STRONG_MAX` | 500 | Hunt map → All pivots: a value shared by 2..this many domains in Iris is a strong pivot |
+| `PIVOT_USEFUL_MAX` | 10,000 |  |
+| `RARE_LINK_MAX` | 50 | correlation: an IP / name server Iris sees on this few domains links them strongly |
+| `COMMON_LINK_MIN` | 10,000 | ... and one on more domains than this links nothing (shared hosting, big DNS)           # ... up to this many a useful one; more is weak (shared infrastructure) |
+| `PIVOT_RESULT_LIMIT` | 500 | Hunt map → All pivots: domains fetched per Iris Investigate pivot search (one page) |
 | `TRIAGE_BURST_MIN` | 5 | Subdomain Triage: hostnames of one domain first seen in the same hour to count as a burst |
 | `CERT_CTL_LIMIT` | 500 | CT log entries fetched per certificate (CT telemetry) |
 | `CT_LOOKUP_DEFAULT_MAX_HASHES` | 10 | two lookups per certificate; newest first, shared across domains |
@@ -178,10 +190,10 @@ Limits (generated from `config.py`):
 | `MAX_WORKERS` | 8 | lookups run in parallel |
 | `CERT_API_MAX_WORKERS` | 4 | SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s |
 | `CERT_RETRY_PAUSE_SECONDS` | 5 | pause before failed certificate lookups are retried once, one at a time |
-| `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Lookup cache) |
-| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB | Source groups that can keep cached results for their own lifetime (Settings → Lookup cache) |
+| `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Storage & cache) |
+| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
 | `CACHE_GROUP_DEFAULTS` | history: 604,800, vpndb: 21,600 | changes rarely: 7 days; changes often: 6 hours |
-| `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Lookup cache: label -> seconds (0: no cache) |
+| `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache) |
 
 ## Other built-in values
 
@@ -194,10 +206,10 @@ Values (generated from `config.py` and `core/window.py`):
 | Cache lifetime choices | Off, 30 minutes, 6 hours, 1 day, 7 days, 30 days |
 | Default cache lifetime | 24 hours |
 | Hostname counted as New (Hostname Inventory) | first seen within 30 days |
-| Pivot strength (Pivot Ranking) | strong: shared by 2–500 domains in Iris; useful: up to 10,000; weak: more |
+| Pivot strength (Hunt map → All pivots) | strong: shared by 2–500 domains in Iris; useful: up to 10,000; weak: more |
 | Burst of new subdomains (Subdomain Triage) | 5+ first seen in the same hour |
-| Offline datasets kept (default; change on Offline Datasets) | 20 newest |
-| Run snapshots kept per target set (default; change on Runs & Diffs) | 10 newest |
+| Offline datasets kept (default; change on Settings → Storage & cache) | 20 newest |
+| Run snapshots kept per target set (default; change on Settings → Storage & cache) | 10 newest |
 | Rows shown in raw tables | 50,000 |
 | Quota banner (products this app uses, DNSDB key) | yellow from 95% of the quota used or 30 days before expiry; red when used up or expired |
 
@@ -226,7 +238,7 @@ The lists (generated from the modules named under each one):
 
 ### Phishing keywords
 
-`PHISHING_KEYWORDS` in `core/intel_data.py`, 21 entries. Words phishing pages put next to a brand (combosquats such as `paypal-login`), matched by the lookalike rules.
+`PHISHING_KEYWORDS` in `core/intel_data.py`, 21 entries. .
 
 **Used by:** Lookalike rules (combosquats of your brands)
 
@@ -358,9 +370,9 @@ All in the project folder, local and git-ignored.
 
 | File or folder | Holds |
 | --- | --- |
-| `dt_settings.json` | Cache lifetime and each source's own lifetime, use case changes, custom profiles, the brand watchlist, watched target lists, how many runs and offline datasets to keep |
-| `dt_cache/` | The lookup cache (see *Settings → Lookup cache*) |
-| `dt_runs/` | Run snapshots for Runs & Diffs, with the API queries each run made |
+| `dt_settings.json` | Cache lifetime and each source's own lifetime, use case changes, custom profiles, the brand watchlist, the infrastructure allowlist, watched target lists, watched IrisQL queries, how many runs and offline datasets to keep (*Settings → Storage & cache → Retention*) |
+| `dt_cache/` | The lookup cache (see *Settings → Storage & cache*) |
+| `dt_runs/` | Run snapshots for the Runs page, with the API queries each run made |
 | `dt_offline/` | Offline datasets saved with *Save offline copy* |
 | `dt_suppressions.json` | Suppressed alerts |
 | `dt_triage.json` | Triage status of alerts and verdicts on domains (New, Investigating, Benign, Malicious) with notes |

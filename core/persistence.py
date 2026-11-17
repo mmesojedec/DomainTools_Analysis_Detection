@@ -406,12 +406,20 @@ def update_run_meta(key, run_id, name=None, note=None):
 def save_run_plan(key, run_id, plan):
     """Keeps the run's suggested hunt (core.hunt_plan.saved_plan) with the run, for the Hunt map. False if unchanged."""
     path = _run_path(key, run_id)
-    snapshot = _load_snapshot_file(path)
-    if snapshot is None or snapshot.get("plan") == plan:
+    stamp = (path.stat().st_mtime_ns if path.exists() else None, repr(plan))
+    if _SAVED_PLANS.get(path) == stamp:   # same plan as last time and the file not changed since: no read
         return False
-    snapshot["plan"] = plan
-    save_json(path, snapshot)
-    return True
+    snapshot = _load_snapshot_file(path)
+    if snapshot is None:
+        return False
+    if snapshot.get("plan") != plan:
+        snapshot["plan"] = plan
+        save_json(path, snapshot)
+    _SAVED_PLANS[path] = (path.stat().st_mtime_ns, repr(plan))
+    return snapshot.get("plan") is plan
+
+
+_SAVED_PLANS = {}   # run file -> (mtime, plan) last checked by save_run_plan
 
 
 def join_run(key, run_id, parent_id, via):

@@ -18,7 +18,7 @@ from config import THRESHOLD_SPECS  # noqa: E402
 from core.intel_data import MITRE_TACTICS, RULE_METADATA, TACTIC_ORDER  # noqa: E402
 from core.risk_profile import DIF_SEGMENTS  # noqa: E402
 from core.rule_catalog import RULE_CATALOG  # noqa: E402
-from core.use_cases import GLOBAL_DEFAULTS, OPTION_LABELS, PROFILE_KEYS, USE_CASES, builtin_settings  # noqa: E402
+from core.use_cases import GLOBAL_DEFAULTS, HISTORY_MODES, OPTION_LABELS, PROFILE_KEYS, USE_CASES, builtin_settings  # noqa: E402
 from core.window import WINDOW_PRESETS  # noqa: E402
 
 GUIDE = ROOT / "docs" / "USER_GUIDE.md"
@@ -131,9 +131,10 @@ def use_case_table():
     lines = ["| " + " | ".join(header) + " |", "| " + " | ".join("---" for _ in header) + " |"]
     for key in PROFILE_KEYS:
         default = GLOBAL_DEFAULTS[key]
-        cells = [_value(builtin_settings(case)[key]) if builtin_settings(case)[key] != default else "·"
+        shown = (lambda v: HISTORY_MODES[v].removesuffix(" (default)")) if key == "opt_history_mode" else _value
+        cells = [shown(builtin_settings(case)[key]) if builtin_settings(case)[key] != default else "·"
                  for case in USE_CASES]
-        lines.append(f"| {OPTION_LABELS[key]} | {_value(default)} | " + " | ".join(cells) + " |")
+        lines.append(f"| {OPTION_LABELS[key]} | {shown(default)} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
@@ -144,11 +145,11 @@ def other_values_table():
         ("Cache lifetime choices", ", ".join(config.CACHE_LIFETIMES)),
         ("Default cache lifetime", f"{config.FETCH_CACHE_TTL_SECONDS // 3600} hours"),
         ("Hostname counted as New (Hostname Inventory)", f"first seen within {config.HOSTNAME_NEW_DAYS} days"),
-        ("Pivot strength (Pivot Ranking)", f"strong: shared by 2–{config.PIVOT_STRONG_MAX:,} domains in Iris; useful: "
+        ("Pivot strength (Hunt map → All pivots)", f"strong: shared by 2–{config.PIVOT_STRONG_MAX:,} domains in Iris; useful: "
                                            f"up to {config.PIVOT_USEFUL_MAX:,}; weak: more"),
         ("Burst of new subdomains (Subdomain Triage)", f"{config.TRIAGE_BURST_MIN}+ first seen in the same hour"),
-        ("Offline datasets kept (default; change on Offline Datasets)", f"{config.MAX_OFFLINE_DATASETS} newest"),
-        ("Run snapshots kept per target set (default; change on Runs & Diffs)", f"{config.MAX_RUN_SNAPSHOTS} newest"),
+        ("Offline datasets kept (default; change on Settings → Storage & cache)", f"{config.MAX_OFFLINE_DATASETS} newest"),
+        ("Run snapshots kept per target set (default; change on Settings → Storage & cache)", f"{config.MAX_RUN_SNAPSHOTS} newest"),
         ("Rows shown in raw tables", f"{config.MAX_RAW_DISPLAY_ROWS:,}"),
         ("Quota banner (products this app uses, DNSDB key)", f"yellow from {config.QUOTA_WARN_PERCENT}% of the quota "
                                                              f"used or {config.EXPIRY_WARN_DAYS} days before expiry; "

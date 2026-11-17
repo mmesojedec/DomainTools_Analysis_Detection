@@ -10,11 +10,10 @@ from functools import lru_cache
 import pandas as pd
 
 from core.helpers import is_ip_address
+from core.intel_data import SEVERITY_COLORS  # noqa: F401 (imported from here by the views)
 from core.network_intel import cdn_for_ip, is_large_dns_provider, is_parking_ns, is_public_ip
 from core.run_history import SEVERITY_ORDER, alert_key_set, run_summary, snapshot_alerts
 
-SEVERITY_COLORS = {"Critical": "#b91c1c", "High": "#dc2626", "Medium-High": "#ea580c", "Medium": "#d97706",
-                   "Low": "#2563eb", "None": "#9ca3af"}
 SHARED_KINDS = ("IP", "Name Server", "Certificate", "JA4X", "Web Tracker", "Email")   # artifact kinds that link runs
 COMMON_LISTS = 5          # a value seen in more target lists than this is infrastructure everyone uses, not a link
 TREND_RUNS = 8            # runs per target list in a card's risk trend
@@ -113,7 +112,8 @@ def recent_overview(runs, limit=10):
             "alerts": int(summary.get("alerts") or 0), "top_severity": top_severity(summary),
             "max_risk": summary.get("max_unified_risk"),
             "queries": sum((snapshot.get("queries") or {}).values()) if "queries" in snapshot else None,
-            "parent": (snapshot.get("parent") or {}).get("id"), "change": change,
+            "parent": (snapshot.get("parent") or {}).get("id"), "via": (snapshot.get("parent") or {}).get("via") or "",
+            "change": change,
             "risk_trend": [None if value is None else float(value) for value in trend],
             "runs_of_list": len(history),
             "shared": {other: sorted(items) for other, items in shared.get(key, {}).items()},
@@ -255,3 +255,15 @@ def filter_overview(rows, text="", only_alerts=False, only_new=False):
             continue
         kept.append(row)
     return kept
+
+
+
+def group_by_list(rows):
+    """
+    One row per target list (Cards): the list's newest row of `rows` (newest first), with "repeats": every row of the
+    list, newest first. The order is that of the lists' newest runs.
+    """
+    groups = {}
+    for row in rows:
+        groups.setdefault(row["key"], []).append(row)
+    return [{**runs[0], "repeats": runs} for runs in groups.values()]

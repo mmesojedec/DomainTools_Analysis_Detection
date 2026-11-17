@@ -1,3 +1,12 @@
+# Secrets: old Iris session files (no longer written, kept ignored for older copies) and local credential files
+dt_token.json
+dt_session_data/
+credentials.toml
+.dtapi
+.dtdnsdb
+.dtcertapi
+.dtvpndb
+
 # Local analyst state (run snapshots, offline datasets, suppressions, saved settings)
 dt_runs/
 dt_offline/

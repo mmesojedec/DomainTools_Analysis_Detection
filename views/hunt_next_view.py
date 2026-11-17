@@ -1,6 +1,6 @@
 """
 The loaded run's hunting work on the Hunt map (moved there from the Summary, which keeps a short pointer): the alert
-decisions so far, what to check next (each with a button to the right page), and the strong leads of Pivot Ranking
+decisions so far, what to check next (each with a button to the right page), and the strong leads of All pivots
 the suggested hunt doesn't already list. Local data only: nothing here makes an API call until a button is clicked.
 """
 import pandas as pd
@@ -58,7 +58,7 @@ def render_check_next(ctx, alerts):
 
 
 def more_leads(ds, listed):
-    """Pivot Ranking's strong leads not already a branch or step of the suggested hunt (`listed`: lower-case values)."""
+    """All pivots's strong leads not already a branch or step of the suggested hunt (`listed`: lower-case values)."""
     leads = top_leads(dataset_pivots(ds))
     if leads is None or leads.empty:
         return leads
@@ -70,7 +70,7 @@ def render_more_leads(ds, listed):
     leads = more_leads(ds, listed)
     if leads is None or leads.empty:
         return
-    with st.expander(f"More leads from Pivot Ranking: {len(leads)}", icon=":material/hub:"):
+    with st.expander(f"More leads (All pivots): {len(leads)}", icon=":material/hub:"):
         st.caption("Rare values of the run's domains (shared by only a few hundred domains in Iris) that the suggested "
                    "hunt above doesn't list. Values two or more of your domains share come first.")
         for i, lead in leads.iterrows():

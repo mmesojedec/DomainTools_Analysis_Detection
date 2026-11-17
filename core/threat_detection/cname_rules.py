@@ -120,6 +120,7 @@ def rule_cname_retarget(ctx):
                   for h, o, n in hits[:MAX_IOC_LINES]),
         evidence=[evidence_record(n["First Seen"], "CNAME Retarget", f"{o['Target']} ➔ {n['Target']}", artifact=h)
                   for h, o, n in hits],
+        flag="cname_retarget",
     )
 
 

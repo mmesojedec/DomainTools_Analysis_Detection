@@ -45,19 +45,22 @@ COLUMN_GUIDE = [
 RULE_CATALOG = {
     # DNS / pDNS / Domain History
     "DGA / High Entropy Domain": ("Medium-High", "T1568.002 (Dynamic Resolution: DGA)",
-                                  "Domain label of 10+ characters with Shannon entropy above the DGA Entropy Score threshold.",
+                                  "Domain label of 13+ characters with Shannon entropy above the DGA Entropy Score threshold, or of 8+ "
+                                  "characters that looks generated (letter/digit mix, long consonant run).",
                                   "Algorithmically generated names are used by malware to find C2 servers."),
-    "Parked-to-Weaponized": ("Critical", "T1583.001 (Acquire Infrastructure)",
-                             "Dormant longer than Parked Dormancy (Days), then 3+ DNS changes within 48 hours.",
+    "Parked-to-Weaponized": ("High", "T1583.001 (Acquire Infrastructure)",
+                             "Dormant longer than Parked Dormancy (Days), then 3+ DNS changes within 48 hours that "
+                             "include a new address (A / AAAA).",
                              "Aged domains are bought or reactivated to evade new-domain reputation checks."),
     "Rapid IP Rotation (Fast-Flux)": ("High", "T1568.001 (Fast Flux DNS)",
-                                      "At least Rapid IP Rotation Event Count distinct IPs within 7 days. Confidence drops to Low "
-                                      "when every IP belongs to a CDN.",
+                                      "At least Rapid IP Rotation Event Count distinct IPs on one hostname within 7 days (each "
+                                      "subdomain counted apart). Confidence drops to Low when every IP belongs to a CDN.",
                                       "Rotating IPs hide the real hosting and resist takedowns."),
     "Multi-Network Fast-Flux (ASN-Diverse)": ("High", "T1568.001 (Fast Flux DNS)",
-                                              "Non-CDN IPs across at least Fast-Flux Min Distinct Networks ASNs or prefixes within 7 days.",
+                                              "Non-CDN IPs of one hostname across at least Fast-Flux Min Distinct Networks ASNs or prefixes "
+                                              "within 7 days.",
                                               "Spreading across networks is typical of botnet-hosted flux, not CDNs."),
-    "Sinkhole / Loopback Resolution": ("Medium", "T1568.001 (Dynamic Resolution)",
+    "Sinkhole / Loopback Resolution": ("Medium", "T1568 (Dynamic Resolution)",
                                        "A or NS record points to 127.0.0.1, 0.0.0.0, or a known sinkhole.",
                                        "Usually means the domain was taken over by researchers or law enforcement after abuse."),
     "Suspicious / Offshore Name Server": ("Medium-High", "T1583.001 (Acquire Infrastructure)",
@@ -65,7 +68,7 @@ RULE_CATALOG = {
                                           "These providers ignore abuse reports and are favored for malicious domains."),
     "High-Risk Mail Provider": ("Medium", "T1585.002 (Acquire Email Accounts)",
                                 "MX records (passive DNS, or the current MX in Iris Investigate) point to an anonymous, "
-                                "offshore, or temporary mail provider.",
+                                "throwaway mail provider (cock.li, guerrillamail, mailinator, ...; not large consumer providers).",
                                 "Disposable mail backends are common in phishing and fraud operations."),
     "Phishing/Spam Prep": ("Medium-High", "T1583.001 (Acquire Infrastructure)",
                            "MX / TXT / SPF records added after longer than Phishing Prep Dormancy (Days).",
@@ -78,22 +81,27 @@ RULE_CATALOG = {
                                      "authorizing any server to send mail.",
                                      "Lets anyone spoof the domain; rarely legitimate."),
     "Anomalous TXT Payload": ("High", "T1071.004 (DNS C2)",
-                              "TXT record longer than Anomalous TXT Length with almost no spaces.",
+                              "TXT record longer than Anomalous TXT Length with almost no spaces, that is neither a known "
+                              "SaaS / mail record (DKIM, verification tokens) nor a key=value setting.",
                               "Long encoded TXT data is a classic DNS tunneling / C2 channel."),
-    "Flash/Burst Campaign": ("Critical", "T1071.004 (App Layer Protocol: DNS)",
-                             "Over 1,000 queries on a record alive 7 days or less, above pDNS Burst Density.",
+    "Flash/Burst Campaign": ("High", "T1583.001 (Acquire Infrastructure: Domains)",
+                             "Over 1,000 queries on a record alive 7 days or less and no longer seen, above pDNS "
+                             "Burst Density (a record that is merely new does not count).",
                              "Short, intense query bursts match spam blasts and botnet check-ins."),
     "Query Volume Anomaly": ("Medium", "T1071.004 (App Layer Protocol: DNS)",
                              "Daily pDNS volume with a robust z-score above Query Volume Anomaly (100+ queries).",
                              "Sudden traffic spikes point to campaign activity; counts are approximate."),
-    "IPTV / Stream Distribution Endpoint": ("High", "T1584.001 (Compromise Infrastructure)",
-                                            "Subdomains such as m3u., stream., xtream., panel. in passive DNS.",
+    "IPTV / Stream Distribution Endpoint": ("Medium", "T1584.001 (Compromise Infrastructure)",
+                                            "Subdomains such as m3u., xtream., stalker. in passive DNS, or two or more "
+                                            "generic ones (stream., live., panel., ...).",
                                             "Typical of illegal IPTV / restreaming infrastructure."),
-    "ACME Certificate Sprawl": ("Medium-High", "T1588.004 (Obtain Digital Certificates)",
-                                "More than 3 _acme-challenge names in passive DNS.",
+    "ACME Certificate Sprawl": ("Low", "T1588.004 (Obtain Digital Certificates)",
+                                "More than 10 distinct _acme-challenge hostnames in passive DNS (renewals of one name "
+                                "count once).",
                                 "Mass automated certificate issuance supports fast setup of many hostnames."),
-    "Deeply Nested Subdomains": ("High", "T1584.001 (Compromise Infrastructure)",
-                                 "Hostnames 3 or more labels deeper than the domain.",
+    "Deeply Nested Subdomains": ("Medium", "T1584.001 (Compromise Infrastructure)",
+                                 "Hostnames 3 or more labels deeper than the domain, not counting service labels "
+                                 "(_domainkey, _acme-challenge, ...).",
                                  "Deep nesting is used for domain shadowing on compromised DNS accounts."),
     "Parked Domain (Parking Name Servers)": ("Low", "T1583.001 (Acquire Infrastructure: Domains)",
                                              "Domain is or was delegated to parking name servers.",
@@ -155,7 +163,8 @@ RULE_CATALOG = {
                                 "Created within Newly Registered Domain Age (Days).",
                                 "Most malicious domains are used within days of registration."),
     "Newly Registered & Weaponized Domain": ("High", "T1583.001 (Acquire Infrastructure: Domains)",
-                                             "Newly registered and already resolving, mailing, or serving certificates.",
+                                             "Newly registered and already resolving, mailing, or serving certificates (resolving does not "
+                                             "count while it is on parking name servers).",
                                              "A brand-new domain that is already operational is a strong abuse signal."),
     "High-Abuse / Offshore Hosting Provider": ("Medium-High", "T1583.003 (Acquire Infrastructure: Virtual Private Server)",
                                                "Currently resolves to a provider on the high-abuse / offshore watchlist.",
@@ -227,7 +236,8 @@ RULE_CATALOG = {
                                 "Small edit distance from a protected brand domain.",
                                 "Catches mistyped traffic and lends credibility to phishing."),
     "Combosquatting (Brand + Keyword)": ("High (Medium without a risky keyword)", "T1583.001 (Acquire Infrastructure: Domains)",
-                                         "Brand combined with words such as login, secure, support.",
+                                         "Brand as a whole word of the name, or joined only to words such as login, secure, support or digits "
+                                         "(`paypallogin`; `purchase` does not match `chase`).",
                                          "Brand + keyword names are the most common phishing domain pattern."),
     "Brand in Subdomain": ("Medium-High", "T1566.002 (Phishing: Spearphishing Link)",
                            "Protected brand appears as a subdomain of an unrelated domain.",
@@ -251,8 +261,10 @@ RULE_CATALOG = {
     "Rapid Weaponization (Cert-to-DNS Gap)": ("High", "T1588.004 (Obtain Digital Certificates)",
                                               "Certificate issued within Cert-to-DNS Gap (Hours) of the first DNS record.",
                                               "Certificate and DNS set up together point to scripted, disposable deployment."),
-    "Self-Signed Certificate Detected": ("High", "T1573.002 (Encrypted Channel)",
-                                         "Certificate subject equals its issuer.",
+    "Self-Signed Certificate Detected": ("Critical to Low (graded: High, Medium)", "T1573.002 (Encrypted Channel)",
+                                         "Certificate subject equals its issuer. Graded like the Certificates page: "
+                                         "a C2 framework's default certificate or one served on the domain now is "
+                                         "Critical, an expired one a step lower.",
                                          "Common on C2 servers and malware panels; untrusted by browsers."),
     "Known C2 Certificate Fingerprint (JA4X)": ("High", "T1588.002 (Obtain Capabilities: Tool)",
                                                 "The certificate's JA4X is on the built-in list of C2 framework and "
@@ -271,7 +283,8 @@ RULE_CATALOG = {
                                 "6-day profile.",
                                 "Context only: short lifetimes reflect good automation, so this is excluded from risk scores and DIF."),
     "Mega-SAN Cluster (Bulk Infrastructure)": ("High", "T1583.001 (Acquire Infrastructure)",
-                                               "One certificate covers at least Mega-SAN Min Root Domains registrable domains.",
+                                               "One certificate covers at least Mega-SAN Min Root Domains registrable domains. Low confidence "
+                                               "on CDN / shared-hosting certificates (Cloudflare, cPanel, ...).",
                                                "Bundling unrelated domains in one certificate links bulk-registered infrastructure."),
     "Multi-IP Certificate (Shared C2 / Proxy Cluster)": ("High", "T1008 (Fallback Channels)",
                                                          "Certificate for an IP target also lists other raw IPs.",
@@ -286,18 +299,19 @@ RULE_CATALOG = {
     "Pre-Certificate Staging (CT Log Only)": ("Low", "T1588.004 (Obtain Digital Certificates)",
                                               "Certificate seen only as a CT log precertificate.",
                                               "Shows infrastructure being prepared before it goes live."),
-    "CT Log Evasion / Missing SCTs": ("Medium-High", "T1562.001 (Disable or Modify Tools)",
-                                      "Non-self-signed certificate without embedded Signed Certificate Timestamps.",
+    "CT Log Evasion / Missing SCTs": ("Medium-High", "T1588.004 (Obtain Capabilities: Digital Certificates)",
+                                      "Final (not pre-) certificate from a public CA without embedded Signed Certificate Timestamps.",
                                       "Missing SCTs suggest an interception proxy or attempts to avoid CT monitoring."),
-    "Rogue Certificate Authority": ("Critical", "T1552.004 (Private Keys)",
+    "Rogue Certificate Authority": ("Critical", "T1553.004 (Subvert Trust Controls: Install Root Certificate)",
                                     "Endpoint serves a certificate with CA signing capability (CA=True).",
                                     "A host that can mint certificates enables traffic interception."),
     "Non-Compliant Validity Window": ("Medium", "T1588.004 (Obtain Digital Certificates)",
                                       "Publicly trusted certificate valid longer than the CA/B Forum limit on its issue date: "
                                       "398 days from 2020-09-01, 200 from 2026-03-15, 100 from 2027-03-15, 47 from 2029-03-15.",
                                       "Browsers reject such certificates; typical of private or misconfigured CAs."),
-    "Deprecated Signature Algorithm": ("High", "T1588 (Obtain Capabilities)",
-                                       "Certificate signed with MD5 or SHA-1.",
+    "Deprecated Signature Algorithm": ("High (Medium before 2017)", "T1588 (Obtain Capabilities)",
+                                       "Certificate signed with MD5 or SHA-1. Issued before 2017 (when public CAs "
+                                       "stopped SHA-1) it is Medium with Low confidence: history, not a new forgery.",
                                        "Weak signatures can be forged and indicate outdated or attacker-made certificates."),
     "Non-Public / Private CA Certificate": ("Medium", "T1588.004 (Obtain Digital Certificates)",
                                             "Issuer shows no sign of public trust (no SCTs, no CA/B policy, unknown CA).",
@@ -314,7 +328,7 @@ RULE_CATALOG = {
     "Suspicious CAA Stripping / Evasion": ("High", "T1562.001 (Disable or Modify Tools)",
                                            "Unauthorized certificate issued within 90 days after CAA records disappeared.",
                                            "Removing CAA before issuing is a way to bypass the owner's CA restrictions."),
-    "Wildcard Infrastructure Sprawl": ("High", "T1584.001 (Compromise Infrastructure: Domains)",
+    "Wildcard Infrastructure Sprawl": ("Medium", "T1584.001 (Compromise Infrastructure: Domains)",
                                        "Wildcard certificate bundling 5 or more names.",
                                        "Supports rotating subdomains for phishing or C2 without new certificates."),
     "Wildcard Certificate Observed": ("Low", "T1588.004 (Obtain Digital Certificates)",
@@ -331,14 +345,68 @@ RULE_CATALOG = {
                                           "reissued for the same names while the previous one still had over half its validity left. "
                                           "Scheduled renewals of short-lived certificates do not count.",
                                           "Replacing valid certificates early accompanies disposable or evasive infrastructure."),
+    # Lifecycle, certificate timing, compound and cross-domain rules
+    "Certificate Staged Before DNS": ("Medium", "T1608.003 (Stage Capabilities: Install Digital Certificate)",
+        "A certificate issued 1 to 30 days before a hostname it names first resolved (each hostname apart).",
+        "Infrastructure prepared ahead of going live is typical of phishing and C2 staging."),
+    'Backdated Certificate': ('Medium', 'T1588.004 (Obtain Digital Certificates)',
+        "Not Before more than 48 hours earlier than the certificate's first embedded CT log timestamp (SCT).",
+        'Backdating hides when a certificate was really made; CAs backdate by an hour at most.'),
+    "Unusual Certificate Fields": ("Medium", "T1587.003 (Develop Capabilities: Digital Certificates)",
+        "CA-issued certificate with a serial of 2 bytes or less, extended key usage without server authentication, or a default subject (Internet Widgits, Some-State, ...).",
+        "Fields that tools set and public CAs never do point to a hand-made or tool-made certificate."),
+    "Re-Registered Domain": ("Medium", "T1583.001 (Acquire Infrastructure: Domains)",
+        "Iris first saw the domain over a year before its current registration, or it has certificates issued more than 30 days before the registration.",
+        "Lapsed domains are drop-caught and reused for their history and reputation."),
+    'Disposable Registrant Email': ('Medium', 'T1585.002 (Establish Accounts: Email Accounts)',
+        "The registration's email domains include a throwaway mail service (mailinator, guerrillamail, cock.li, ...).",
+        'Nobody can be reached there for abuse reports; legitimate owners rarely register with one.'),
+    "Name Server Churn": ("Medium", "T1584.002 (Compromise Infrastructure: DNS Server)",
+        "Three or more name server providers within 30 days (parking name servers not counted).",
+        "Abusive domains move DNS repeatedly to stay ahead of takedowns."),
+    "Registrar Transfer then New Name Servers": ("Medium-High", "T1584.001 (Compromise Infrastructure: Domains)",
+        "A registrar change in Domain History followed within 14 days by name servers of a provider that is neither a large DNS provider nor parking.",
+        "The pattern of a hijacked or drop-caught domain being put to new use."),
+    "Phishing Kit Staging": ("Critical", "T1583.001 (Acquire Infrastructure: Domains)",
+        "Compound: a brand lookalike, newly registered (or re-registered), with a certificate issued as a hostname went live (Rapid Weaponization or Certificate Staged Before DNS).",
+        "Three independent signals together describe the setup of a phishing site."),
+    "Weaponized Reactivation": ("High", "T1583.001 (Acquire Infrastructure: Domains)",
+        "Compound: parked, dormant, re-registered or transferred domain (Parking Exit, Parked-to-Weaponized, Re-Registered, Registrar Transfer) that got a fresh, staged or backdated certificate.",
+        "Aged domains are bought or hijacked to borrow their reputation."),
+    "Subdomain Takeover in Progress": ("Critical", "T1584.001 (Compromise Infrastructure: Domains)",
+        "Compound: a dangling CNAME and a subdomain repointed to another provider on the same domain.",
+        "A takeover may already have happened, not only be possible."),
+    "Generated Fast-Flux Domain": ("Critical", "T1568.001 (Fast Flux DNS)",
+        "Compound: a generated-looking (DGA) name with fast-flux or ASN-diverse flux.",
+        "The pattern of botnet C2 domains."),
+    "Bulletproof-Hosted New Domain": ("High", "T1583.003 (Acquire Infrastructure: Virtual Private Server)",
+        "Compound: newly registered and on a suspicious name server, watchlisted hosting, an anonymizer exit, or with name server churn.",
+        "Set up to resist takedown from day one."),
+    "Mail-Capable Lookalike": ("High", "T1566.002 (Phishing: Spearphishing Link)",
+        "A brand lookalike with MX records and no DMARC record, no SPF, or SPF without -all.",
+        "It can send mail that passes as the brand."),
+    "Lure Subdomain": ("Medium", "T1566.002 (Phishing: Spearphishing Link)",
+        "Subdomains whose names alone score Medium or more in Subdomain Triage with a phishing word, brand, embedded domain or punycode.",
+        "Lure names hide the real domain in links sent to victims."),
+    "Bulk Registration Cohort": ("Medium", "T1583.001 (Acquire Infrastructure: Domains)",
+        "Analyzed domains registered within 48 hours at the same registrar that also share an own name server, a registrant mail domain or a hosting ASN.",
+        "Registered together by one operator, often for one campaign."),
+    "Campaign Wave (Same-Day Setup)": ("Medium", "T1583.001 (Acquire Infrastructure: Domains)",
+        "Three or more analyzed domains registered within 48 hours, each given a certificate by the same CA within 72 hours of registering.",
+        "One campaign set up in one go."),
+    "Linked to Confirmed-Malicious Domain": ("High", "T1583.001 (Acquire Infrastructure: Domains)",
+        "In a Strong infrastructure cluster with a domain you marked Malicious (domain verdict on Alerts or the Domain profile).",
+        "Domains sharing certificates, keys, trackers or rare hosting with a confirmed-bad one are usually the same operator."),
 }
 
-CATALOG_COLUMNS = ["Threat Type", "In This Run", "Severity", "Confidence", "Category", "MITRE ATT&CK", "Tactic", "Fires When",
-                   "Why It Matters"]
+CATALOG_COLUMNS = ["Threat Type", "In This Run", "Severity", "Confidence", "Your Verdicts", "Category", "MITRE ATT&CK",
+                   "Tactic", "Fires When", "Why It Matters"]
 
 
-def rule_catalog_frame(alerts=None):
-    """One row per rule, rules that fired in `alerts` first (by count), then by severity."""
+def rule_catalog_frame(alerts=None, feedback=None):
+    """One row per rule, rules that fired in `alerts` first (by count), then by severity. `feedback`
+    (core.triage.rule_feedback) fills Your Verdicts."""
+    feedback = feedback or {}
     counts = alerts["Threat Type"].value_counts() if alerts is not None and not alerts.empty else pd.Series(dtype=int)
     rows = []
     for threat_type, (severity, mitre, trigger, why) in RULE_CATALOG.items():
@@ -346,7 +414,9 @@ def rule_catalog_frame(alerts=None):
         technique = mitre.split(" ")[0]
         rows.append({
             "Threat Type": threat_type, "In This Run": int(counts.get(threat_type, 0)), "Severity": severity,
-            "Confidence": confidence, "Category": category, "MITRE ATT&CK": mitre,
+            "Confidence": confidence, "Category": category,
+            "Your Verdicts": (f"{feedback[threat_type]['Malicious']} malicious / {feedback[threat_type]['Benign']} benign"
+                              if threat_type in feedback else ""), "MITRE ATT&CK": mitre,
             "Tactic": MITRE_TACTICS.get(technique.split(".")[0], "Other"), "Fires When": trigger, "Why It Matters": why,
         })
     frame = pd.DataFrame(rows, columns=CATALOG_COLUMNS)

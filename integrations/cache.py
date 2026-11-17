@@ -1,7 +1,7 @@
 """
 Thread-safe TTL cache of successful FetchResults, in memory and on disk (CACHE_DIR, local and git-ignored), so a
 domain, name or certificate looked up again within the cache lifetime costs no API query, also after an app restart.
-The lifetime is the analyst's (Settings → Lookup cache, set_cache_ttl); 0 turns the cache off. Each source group
+The lifetime is the analyst's (Settings → Storage & cache, set_cache_ttl); 0 turns the cache off. Each source group
 (CACHE_GROUPS: passive DNS, Iris Investigate, Domain History, certificates, VPNDB) can keep its results for its own
 lifetime instead (set_group_ttl); with the cache off, every group is off.
 """

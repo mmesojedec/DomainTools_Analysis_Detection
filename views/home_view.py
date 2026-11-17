@@ -4,6 +4,7 @@ and a plan), then Analyze. Each card lists every lookup the run makes and its li
 """
 import streamlit as st
 
+from core.cert_inputs import CERT_PREFIXES
 from core.persistence import load_settings
 from core.use_cases import (
     OVERRIDES_SETTING,
@@ -17,7 +18,21 @@ from core.use_cases import (
     plan_lines,
 )
 from views import navigation
-from views.sidebar import apply_use_case
+from views.sidebar import SAVE_OFFLINE_KEY, TARGETS_KEY, apply_use_case, start_analyze
+
+START_TARGETS_KEY = "start_targets"
+_PREFIXES = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
+TARGETS_HELP = (
+    "Domains and IPs: defanged input (hxxp, [.]) and URLs are cleaned; subdomains are analyzed at their apex domain "
+    "(vpn.example.com → example.com). IPv4 and IPv6 addresses go to every source. **CIDR ranges** (`104.21.59.0/24`, "
+    "`2a00:1450::/32`) are looked up in VPNDB only: which VPN or proxy providers have exits in the range, and the "
+    "addresses VPNDB reached there.  \n\n**Certificates:** SHA-256 / SHA-1 / MD5 fingerprints are recognized "
+    "automatically (colons allowed); other hex values are read as serial numbers. Text that is not a domain or IP "
+    "(e.g. `DomainTools LLC`) is searched as a certificate organization. Other certificate fields can be given with a "
+    f"prefix; the whole line is the value:  \n{_PREFIXES}  \n\nOn **Analyze** you review how each certificate input "
+    "will be searched (and can change it), then pick which of the domains and IPs found to analyze. To find targets "
+    "first, use **IrisQL** or **CertsQL**; to re-analyze saved data, **Data → Saved datasets**."
+)
 
 
 def _card(case, overrides, active):
@@ -62,32 +77,44 @@ def render_home(has_data, render_recent):
     st.title("DomainTools Analytics and Detection",
              help="Unified digital risk and infrastructure intelligence combining Domain History, Passive DNS (Iris & "
                   "DNSDB Scout), SSL/TLS telemetry, and web analytics attribution.")
-    st.markdown("**What do you want to do?** Pick a use case: it sets the collection options (which lookups run and "
-                "their limits) and the analysis window that suit it, and gives you a short plan. Then enter the "
-                "targets in the sidebar and click **Analyze**. You can also go straight to any page in the menu above.")
-    with st.container(horizontal=True):
-        navigation.link("irisql", label="Run lookups with IrisQL", icon=":material/manage_search:")
-        navigation.link("certsql", label="Run lookups with CertsQL", icon=":material/badge:")
-        navigation.link("recent", label="Recent runs & Sightings", icon=":material/schedule:")
+    st.markdown("**What do you want to do?** Pick a use case below (optional): it sets the collection options and the "
+                "analysis window that suit it, and gives you a short plan. Then enter the targets and click **Analyze**. "
+                "You can also go straight to any page in the menu above.")
+    with st.container(border=True):
+        st.session_state.setdefault(START_TARGETS_KEY, st.session_state.get(TARGETS_KEY, ""))
+        st.text_area("Targets: domains, IPs or certificates (one per line)", key=START_TARGETS_KEY, height=180,
+                     placeholder="example.com\n203.0.113.7\ncn:login.example.com", help=TARGETS_HELP)
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.button("Analyze", type="primary", icon=":material/play_arrow:", key="start_analyze",
+                      on_click=start_analyze, args=(START_TARGETS_KEY,),
+                      disabled=not str(st.session_state.get(START_TARGETS_KEY) or "").strip())
+            navigation.link("irisql", label="Find targets with IrisQL", icon=":material/manage_search:")
+            navigation.link("certsql", label="Find targets with CertsQL", icon=":material/badge:")
+            navigation.link("recent", label="Runs & Sightings", icon=":material/schedule:")
+            st.checkbox("Save offline copy", key=SAVE_OFFLINE_KEY,
+                        help="Also saves everything this run collects to dt_offline/ (local, git-ignored) so it can be "
+                             "re-analyzed later with a different window, thresholds or filters without API calls. "
+                             "Large DNSDB limits produce large datasets. You can also save a run afterwards: *Save "
+                             "offline copy* on the status line at the top of every page.")
     render_recent()
     saved = load_settings()
     overrides, active = saved.get(OVERRIDES_SETTING) or {}, st.session_state.get("use_case")
     _grid(list(USE_CASES), overrides, active)
     profiles = custom_cases(saved.get(PROFILES_SETTING))
-    st.subheader("Your profiles", help="Your own sets of collection options, saved on Settings → Use cases & profiles.")
+    st.subheader("Your profiles", help="Your own sets of collection options, saved on Settings → Collection options.")
     if profiles:
         _grid(profiles, overrides, active)
     else:
         st.caption("No custom profiles yet.")
-    navigation.link("settings", label="Change a use case's lookups or create a profile (Settings → Use cases & "
-                                      "profiles)")
+    navigation.link("settings", label="Change a use case's lookups or create a profile (Settings → Collection "
+                                      "options)")
     if active:
         if has_data:
             st.info("Use case selected. Its window applies now; its collection options apply to the next **Analyze**. "
                     "Your plan is on the Summary page.")
             navigation.link("summary", label="Go to the Summary")
         else:
-            st.info("Use case selected. Enter targets in the sidebar and click **Analyze**.")
+            st.info("Use case selected. Enter targets above and click **Analyze**.")
     elif not has_data:
-        st.info("Enter target domains, IPs, or certificates in the sidebar and click **Analyze** to begin, or load an "
-                "offline dataset.")
+        st.info("Enter target domains, IPs, or certificates above and click **Analyze** to begin, or load a saved "
+                "dataset (Data → Saved datasets).")

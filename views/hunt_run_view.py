@@ -17,11 +17,9 @@ from views.hunt_actions import PIVOT_RESULTS_KEY
 from views.indicator_view import _certsql_search, show_indicator
 from views.sidebar import rerun_app_if_requested, start_hunt
 
-OPEN_PIVOTS_KEY = "_hunt_open_pivots"   # set by a run of Iris searches only: open Pivot Ranking
+OPEN_PIVOTS_KEY = "_hunt_open_pivots"   # set by a run of Iris searches only: open All pivots
 GUIDE_KEY = "hunt_guide"   # guided hunt: {"parent", "label", "items", "position"}
 LABEL = 22                 # characters of a value shown beside a graph node
-ACTION_TEXT = {"Analyze": "Analyze as a new run", "Iris": "Find in Iris", "CertsQL": "Search CertsQL (by hand)",
-               None: "Details only"}
 
 
 def _short(text, limit=LABEL):
@@ -30,7 +28,7 @@ def _short(text, limit=LABEL):
 
 
 def searched(item):
-    """Whether this session already made the step's Iris search (its results are on Pivot Ranking)."""
+    """Whether this session already made the step's Iris search (its results are on All pivots)."""
     return bool(item["search"]) and item["search"] in (st.session_state.get(PIVOT_RESULTS_KEY) or {})
 
 
@@ -57,9 +55,9 @@ def status(item):
 
 def start_steps(items, parent_id, prefix="Suggested hunt", guide_next=False):
     """
-    Button callback (runs before the page, so it may set the sidebar targets): makes the steps' Iris searches (results
-    kept for Pivot Ranking), then starts their targets as one new run linked to `parent_id`, straight through (no
-    certificate review screens). With nothing to analyze, the page opens Pivot Ranking (run_button).
+    Button callback (runs before the page, so it may set the targets): makes the steps' Iris searches (results
+    kept for All pivots), then starts their targets as one new run linked to `parent_id`, straight through (no
+    certificate review screens). With nothing to analyze, the page opens All pivots (run_button).
     """
     if guide_next:
         st.session_state[GUIDE_KEY]["position"] += 1
@@ -76,7 +74,7 @@ def start_steps(items, parent_id, prefix="Suggested hunt", guide_next=False):
 
 
 def run_button(label, items, parent_id, key, prefix="Suggested hunt", guide_next=False, container=None, **kwargs):
-    """A button that runs `items` (start_steps); afterwards the app reruns to analyze, or Pivot Ranking opens."""
+    """A button that runs `items` (start_steps); afterwards the app reruns to analyze, or All pivots opens."""
     (container or st).button(label, key=key, on_click=start_steps, args=(items, parent_id, prefix, guide_next),
                              **kwargs)
     if st.session_state.pop(OPEN_PIVOTS_KEY, False):
@@ -100,7 +98,7 @@ def _render_one(ds, alerts, item, parent_id, key):
         if item["search"] and navigation.page("pivots") is not None:
             run_button("Find in Iris", [{**item, "action": "Iris"}], parent_id, f"{key}::iris",
                        icon=":material/search:",
-                       help=f"Iris Investigate search `{item['search']}` (one query); results on Pivot Ranking")
+                       help=f"Iris Investigate search `{item['search']}` (one query); results on Hunt map → All pivots")
         if item["kind"] == "JA4X" and st.button("Search CertsQL", key=f"{key}::certsql", icon=":material/badge:",
                                                 help="Opens CertsQL with every certificate of this JA4X"):
             _certsql_search("ja4x", item["value"])

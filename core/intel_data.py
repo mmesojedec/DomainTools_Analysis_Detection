@@ -186,6 +186,14 @@ HOSTING_WATCHLIST = (
 )
 
 # Words phishing pages put next to a brand (combosquats such as `paypal-login`), matched by the lookalike rules
+# Throwaway / anonymous mail services: a registration that uses one cannot be reached for abuse reports
+DISPOSABLE_EMAIL_DOMAINS = frozenset({
+    "mailinator.com", "guerrillamail.com", "sharklasers.com", "yopmail.com", "10minutemail.com", "temp-mail.org",
+    "tempmail.com", "trashmail.com", "getnada.com", "dispostable.com", "maildrop.cc", "throwawaymail.com",
+    "cock.li", "airmail.cc", "firemail.cc", "dnmx.org", "onionmail.org", "mailnesia.com", "fakeinbox.com",
+    "emailondeck.com", "mohmal.com", "tempail.com", "burnermail.io",
+})
+
 PHISHING_KEYWORDS = (
     "login", "signin", "sign-in", "secure", "verify", "verification", "account", "update", "support", "wallet",
     "auth", "billing", "payment", "invoice", "recover", "unlock", "confirm", "webscr", "sso", "portal", "service",
@@ -336,8 +344,35 @@ RULE_METADATA = {
     "Suspicious Domain Validation (DV)": ("Certificates", "Low"),
     "Weak Cryptographic Key Material": ("Certificates", "High"),
     "Certificate Churn (Ephemeral SSL)": ("Certificates", "Medium"),
+    "Certificate Staged Before DNS": ("Certificates", "Medium"),
+    "Backdated Certificate": ("Certificates", "Medium"),
+    "Unusual Certificate Fields": ("Certificates", "Medium"),
+    "Re-Registered Domain": ("Registration & Lifecycle", "Medium"),
+    "Disposable Registrant Email": ("Registration & Lifecycle", "Medium"),
+    "Name Server Churn": ("DNS Behavior", "Medium"),
+    "Registrar Transfer then New Name Servers": ("Registration & Lifecycle", "Medium"),
+    "Phishing Kit Staging": ("Lookalike / Brand", "High"),
+    "Weaponized Reactivation": ("Registration & Lifecycle", "Medium"),
+    "Subdomain Takeover in Progress": ("Hosting & DNS Providers", "Medium"),
+    "Generated Fast-Flux Domain": ("DNS Behavior", "High"),
+    "Bulletproof-Hosted New Domain": ("Hosting & DNS Providers", "Medium"),
+    "Mail-Capable Lookalike": ("Lookalike / Brand", "Medium"),
+    "Lure Subdomain": ("Lookalike / Brand", "Medium"),
+    "Bulk Registration Cohort": ("Correlation", "Medium"),
+    "Campaign Wave (Same-Day Setup)": ("Correlation", "Medium"),
+    "Linked to Confirmed-Malicious Domain": ("Correlation", "Medium"),
 }
 CONFIDENCE_ORDER = ["High", "Medium", "Low"]
+SEVERITY_ORDER = ["Critical", "High", "Medium-High", "Medium", "Low"]
+SEVERITY_RANK = {name: rank for rank, name in enumerate(SEVERITY_ORDER)}
+# One palette for severities everywhere (charts, badges, reports): red → orange → amber → yellow → blue
+SEVERITY_COLORS = {"Critical": "#b91c1c", "High": "#ea580c", "Medium-High": "#f59e0b", "Medium": "#eab308",
+                   "Low": "#3b82f6", "Unknown": "#748590", "None": "#9ca3af"}
+# The same hues, lighter, for text on dark backgrounds (Hunt map nodes)
+SEVERITY_COLORS_ON_DARK = {"Critical": "#f87171", "High": "#fb923c", "Medium-High": "#fbbf24", "Medium": "#facc15",
+                           "Low": "#60a5fa"}
+SEVERITY_ICONS = {"Critical": "🔴", "High": "🟠", "Medium-High": "🟠", "Medium": "🟡", "Low": "🔵"}   # table cells
+SEVERITY_BADGES = {"Critical": "red", "High": "orange", "Medium-High": "orange", "Medium": "yellow", "Low": "blue"}
 # Shown as alerts but excluded from risk vectors, Unified Risk, and DIF: context, not evidence of abuse
 INFORMATIONAL_RULES = frozenset({"Short-Lived Certificate"})
 

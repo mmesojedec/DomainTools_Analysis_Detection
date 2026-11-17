@@ -29,7 +29,7 @@ MAX_ROWS = 200
 
 
 def kind_of(kind, value):
-    """Certificate, JA4X, IP, Host or Value for a start step kind or a Pivot Ranking type."""
+    """Certificate, JA4X, IP, Host or Value for a start step kind or a All pivots type."""
     text = str(value).lower()
     if kind == "JA4X" or (len(text) == 38 and text.count("_") == 2):
         return "JA4X"

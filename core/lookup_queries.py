@@ -3,7 +3,7 @@ The lookups a run made, rebuilt as queries an analyst can paste into the DomainT
 certificate search, names and record types for DNSDB Scout, domain lists for Iris Investigate, the IrisQL
 search a run's targets were picked from, plus the
 matching `domaintools` CLI command (installed with the DomainTools Python SDK) or curl command. Built from the run's
-Data Source Status rows with the same query builders the lookups use, so saved and offline runs get the same list.
+Data sources rows with the same query builders the lookups use, so saved and offline runs get the same list.
 """
 import json
 import re
@@ -213,7 +213,7 @@ def build_lookup_queries(collected, created=None):
                 page_size = min(int(request.get("max_results") or IRISQL_PAGE_SIZE), IRISQL_PAGE_SIZE)
                 built = irisql_commands(request["query"], page_size, request.get("sort_by") or "")
                 rows.append(_row(status, "IrisQL", "IrisQL query", request["query"],
-                                 built["DomainTools CLI"] + "\n" + built["curl"], pages=request.get("pages")))
+                                 built["DomainTools Python SDK"] + "\n" + built["curl"], pages=request.get("pages")))
         elif source == "CertsQL":
             request = status.get("Request") or {}
             if request.get("query"):

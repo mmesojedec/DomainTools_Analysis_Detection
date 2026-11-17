@@ -31,7 +31,7 @@ from integrations.collector import chase_cnames, reverse_cnames
 from integrations.credentials import load_dnsdb_key
 from integrations.dnsdb import CHASE_OUTCOMES
 from integrations.http import StatusLog
-from views.common import selected_rows, selection_key
+from views.common import metric_slots, selected_rows, selection_key
 from views.sidebar import APP_RERUN_KEY, TOAST_KEY, rerun_app_if_requested
 
 OTHER = "Other"
@@ -57,7 +57,7 @@ COLUMN_HELP = {
     "Count": "Times DNSDB saw this hostname → target CNAME (its count): the busiest CNAMEs are the most used",
     "Chased": "The chain was chased: filled in when you chase the hostname (from the collected passive DNS, free, or "
               "DNSDB lookups)",
-    "From Cache": "Every DNSDB lookup of the chase came from the lookup cache (Settings → Lookup cache), so the chain is "
+    "From Cache": "Every DNSDB lookup of the chase came from the lookup cache (Settings → Storage & cache), so the chain is "
                   "as DNSDB knew it at Chased at. Re-chase it for fresh lookups",
     "Chased At": "When the chase's DNSDB lookups were made (for cached ones, when they were first fetched). Empty when "
                  "the chain resolved in the collected passive DNS",
@@ -195,7 +195,7 @@ def render_cname_lens(ds, collected):
         ("Dynamic DNS / tunnel", int((cmap["Service Type"] == "Dynamic DNS / tunnel").sum()),
          SERVICE_TYPES["Dynamic DNS / tunnel"]),
     ]
-    for col, (label, value, help_text) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value, help_text) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, f"{value:,}", help=help_text)
     st.caption("Every CNAME record of the domains below. Select hostnames (or none for every one shown) and click "
                f"**Chase CNAMEs** to fill in their chains: from the collected passive DNS where it already knows the "
@@ -350,13 +350,6 @@ def _render_chain_table(ds, collected, cmap):
     groups = len(chain_groups(picked, by_hostname=by_hostname))
     st.markdown(f"**Chain map** · {min(groups, GRAPH_MAX_CHAINS):,} of {groups:,} chain(s)"
                 + (" (selected rows)" if not picked_rows.empty else " (rows shown)"))
-    if picked["Chased"].any():
-        st.graphviz_chart(_chain_graph(picked, ds.timezone, by_hostname))
-    else:
-        st.caption("Chase the hostnames to draw where their chains lead; until then the map only shows hostname → "
-                   "target.")
-        with st.expander("Show the map anyway"):
-            st.graphviz_chart(_chain_graph(picked, ds.timezone, by_hostname))
     with st.expander("How to read the chain map"):
         st.caption("One dashed box per analyzed domain (dark blue) with its hostnames (dark, grouped per target) → targets "
                    "colored by service type: red dynamic DNS / tunnel, orange takeover-prone, purple free hosting, blue "
@@ -374,6 +367,13 @@ def _render_chain_table(ds, collected, cmap):
             "latest record), or how the chain stopped.\n\n"
             "Current and earlier are judged within the **analysis window**: with *Last 30 days*, only CNAMEs seen in the "
             "last 30 days are drawn, and the latest of them is current. Pick *All time* for the full history.")
+    if picked["Chased"].any():
+        st.graphviz_chart(_chain_graph(picked, ds.timezone, by_hostname), width="content")   # its own size, shrunk to the page when wider
+    else:
+        st.caption("Chase the hostnames to draw where their chains lead; until then the map only shows hostname → "
+                   "target.")
+        with st.expander("Show the map anyway"):
+            st.graphviz_chart(_chain_graph(picked, ds.timezone, by_hostname), width="content")   # its own size, shrunk to the page when wider
     with st.expander(f"Copy {len(picked):,} chain(s)" + (" (selected)" if not picked_rows.empty else " (every row shown)")):
         st.code("\n".join(full_path(d, c, f, o) for d, c, f, o in
                           zip(picked["Domain"], picked["Chain"], picked["Final"], picked["Outcome"])), language=None)
@@ -484,7 +484,7 @@ def _render_related(ds, collected, cmap):
                ("Analyzed domains", len({d for ds_ in summary["Analyzed Domains"]
                                           for d in ds_.split(", ") if d}),
                 "Domains of this run pointing to the looked-up targets, in DNSDB or in their own chains")]
-    for col, (label, value, help_text) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value, help_text) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, f"{value:,}", help=help_text)
     st.dataframe(summary.assign(**{c: _local(summary[c], ds.timezone) for c in ("First Seen", "Last Seen")}),
                  hide_index=True, column_config={
@@ -586,4 +586,4 @@ def _render_links(cmap, domains, rdata=None):
                    "shared name, green a shared final address. CDN and parking links are left out. Links come from the "
                    "collected passive DNS and every chase (yours, or restored from the cache); chasing more can add "
                    "links.")
-        st.graphviz_chart(_links_graph(strong))
+        st.graphviz_chart(_links_graph(strong), width="content")   # its own size, shrunk to the page when wider

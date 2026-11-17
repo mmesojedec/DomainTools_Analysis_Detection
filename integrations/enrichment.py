@@ -175,11 +175,15 @@ def extract_iris_profile(result_obj):
             "isp": str(unwrap_value(entry.get("isp")) or "").strip(),
             "country": str(unwrap_value(entry.get("country_code")) or "").strip().upper(),
         })
-    name_servers = []
+    name_servers, name_server_counts = [], {}
     for entry in obj.get("name_server", []) or []:
         host = unwrap_value(entry.get("host")) if isinstance(entry, dict) else entry
         if host and str(host).strip():
-            name_servers.append(str(host).strip().lower().rstrip("."))
+            host = str(host).strip().lower().rstrip(".")
+            name_servers.append(host)
+            raw = entry.get("host") if isinstance(entry, dict) else None
+            if isinstance(raw, dict) and isinstance(raw.get("count"), int):
+                name_server_counts[host] = raw["count"]   # domains on the name server in Iris
     return {
         "create_date": _to_naive_ts(unwrap_value(obj.get("create_date"))),
         "expiration_date": _to_naive_ts(unwrap_value(obj.get("expiration_date"))),
@@ -187,6 +191,7 @@ def extract_iris_profile(result_obj):
         "registrar": str(unwrap_value(obj.get("registrar")) or "").strip(),
         "ips": ips,
         "name_servers": name_servers,
+        "name_server_counts": name_server_counts,
         "redirect": str(unwrap_value(obj.get("redirect")) or "").strip(),
         "redirect_domain": str(unwrap_value(obj.get("redirect_domain")) or "").strip().lower(),
         "server_type": str(unwrap_value(obj.get("server_type")) or "").strip(),
@@ -224,18 +229,19 @@ def extract_web_trackers(result_obj):
     if not isinstance(result_obj, dict):
         return trackers
 
-    def add(platform, value):
+    def add(platform, value, count=None):
         code = str(value).strip() if value is not None else ""
         if code:
-            trackers.append({"Platform": platform, "Code": code})
+            trackers.append({"Platform": platform, "Code": code, "Count": count})   # Count: domains in Iris
 
     for field_name, platform in TRACKER_FIELDS:
         field_val = result_obj.get(field_name)
         if isinstance(field_val, list):
             for item in field_val:
-                add(platform, unwrap_value(item) if isinstance(item, dict) else item)
+                add(platform, unwrap_value(item) if isinstance(item, dict) else item,
+                    item.get("count") if isinstance(item, dict) else None)
         elif isinstance(field_val, (dict, str)):
-            add(platform, unwrap_value(field_val))
+            add(platform, unwrap_value(field_val), field_val.get("count") if isinstance(field_val, dict) else None)
     return trackers
 
 

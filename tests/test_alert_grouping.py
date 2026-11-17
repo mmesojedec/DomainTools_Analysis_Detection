@@ -39,10 +39,10 @@ def test_evidence_record_normalizes_tz_aware_times_to_naive_utc():
 
 
 def test_dns_rule_emits_structured_evidence():
-    ev = pd.DataFrame([{"Domain": "a.com", "Date": pd.Timestamp("2024-01-01 09:30"), "Field": "MX", "Value": "mx.yandex.ru"}])
+    ev = pd.DataFrame([{"Domain": "a.com", "Date": pd.Timestamp("2024-01-01 09:30"), "Field": "MX", "Value": "mx.cock.li"}])
     result = detect_threat_flags(ev, {"risk_score": 0})
     row = result.alerts[result.alerts["Threat Type"] == "High-Risk Mail Provider"].iloc[0]
-    assert row["Evidence"] == [{"Time": pd.Timestamp("2024-01-01 09:30"), "Field": "MX", "Value": "mx.yandex.ru", "Artifact": None}]
+    assert row["Evidence"] == [{"Time": pd.Timestamp("2024-01-01 09:30"), "Field": "MX", "Value": "mx.cock.li", "Artifact": None}]
 
 
 def test_per_certificate_alerts_merge_into_one_with_all_evidence():

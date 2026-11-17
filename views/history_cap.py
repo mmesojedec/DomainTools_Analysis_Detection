@@ -40,7 +40,7 @@ def render_history_cap_notice(domains=None, compact=False, key="history_rest"):
     if compact:
         listed = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
         st.caption(f":blue[:material/history: Domain History reached Max changes for {_count(len(names))}: {listed}. "
-                   "More changes are available: use **Fetch the rest** on the Domain Profile or on Raw Records → "
+                   "More changes are available: use **Fetch the rest** on the Domain Profile or on Evidence → Records → "
                    "Domain History Logs.]", help=HOW)
         return
     if len(names) == 1:

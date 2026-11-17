@@ -11,7 +11,6 @@ from core.persistence import load_json, save_json
 
 STATUSES = ["New", "Investigating", "Benign", "Malicious"]
 OPEN = ("New", "Investigating")          # still needs a look
-REVIEWED = ("Benign", "Malicious")
 DOMAIN = "*"                             # threat type of a verdict on the whole domain
 STATUS_HELP = ("**New**: not looked at yet. **Investigating**: someone is on it. **Benign**: checked, expected or "
                "harmless. **Malicious**: confirmed bad; its indicators go into the confirmed-indicator export.")
@@ -75,3 +74,49 @@ def open_alerts(alerts):
     if alerts is None or alerts.empty or "Status" not in alerts:
         return alerts
     return alerts[alerts["Status"].isin(OPEN)]
+
+
+FEEDBACK_MIN = 5          # decisions on a rule before your verdicts change its confidence
+FEEDBACK_SHARE = 0.8      # ... and the share of them that must agree
+_STEP_DOWN = {"High": "Medium", "Medium": "Low", "Low": "Low"}
+
+
+def rule_feedback(entries):
+    """{threat type: {"Malicious": n, "Benign": n}} of your decisions on alerts (domain-level verdicts left out)."""
+    feedback = {}
+    for entry in entries.values():
+        threat_type, status = entry.get("threat_type"), entry.get("status")
+        if threat_type and threat_type != DOMAIN and status in ("Malicious", "Benign"):
+            counts = feedback.setdefault(threat_type, {"Malicious": 0, "Benign": 0})
+            counts[status] += 1
+    return feedback
+
+
+def feedback_text(counts):
+    return f"{counts['Malicious']} malicious / {counts['Benign']} benign" if counts else ""
+
+
+def calibrate_alerts(alerts, feedback):
+    """
+    `alerts` with the confidence of each rule moved by your verdicts on it: at least FEEDBACK_MIN decisions, of which
+    FEEDBACK_SHARE or more Benign lowers it one step, Malicious raises it to High. The Threat Logic says why.
+    """
+    if alerts is None or alerts.empty or not feedback:
+        return alerts
+    alerts = alerts.copy()
+    for idx, threat_type in alerts["Threat Type"].items():
+        counts = feedback.get(threat_type)
+        total = sum(counts.values()) if counts else 0
+        if total < FEEDBACK_MIN:
+            continue
+        if counts["Benign"] / total >= FEEDBACK_SHARE:
+            alerts.at[idx, "Confidence"] = _STEP_DOWN.get(alerts.at[idx, "Confidence"], alerts.at[idx, "Confidence"])
+            note = "lower"
+        elif counts["Malicious"] / total >= FEEDBACK_SHARE:
+            alerts.at[idx, "Confidence"] = "High"
+            note = "higher"
+        else:
+            continue
+        alerts.at[idx, "Threat Logic"] = (f"{alerts.at[idx, 'Threat Logic']} Confidence {note} from your verdicts on "
+                                          f"this rule ({feedback_text(counts)}).")
+    return alerts

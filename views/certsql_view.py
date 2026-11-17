@@ -1,5 +1,5 @@
 """
-CertsQL page (top menu, or Data source *CertsQL* in the sidebar): step 1 runs a CertsQL query (Certificate Search) and
+CertsQL page (top menu): step 1 runs a CertsQL query (Certificate Search) and
 lists the matching certificates with the domains, IPs and hostnames they name; step 2 picks domains and IPs (from the
 certificates ticked *Use*) and a use case, and analyzes them as a new run.
 """
@@ -34,7 +34,7 @@ from integrations.certificates import fetch_certsql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_editor, set_query
-from views.sidebar import add_to_targets, apply_use_case, start_hunt
+from views.sidebar import apply_use_case, start_hunt
 
 QUERY_KEY = "certsql_query"
 EXAMPLE_KEY = "certsql_example"
@@ -121,11 +121,6 @@ def _analyze(targets, case_key, state):
     start_hunt(targets, _label(state["query"]), hunt_parent("certsql"))
 
 
-def _add(targets, state):
-    st.session_state[ORIGIN_KEY] = search_status(state)
-    add_to_targets(targets)
-
-
 def render_certsql_page():
     st.header("CertsQL", help="Find certificates with a CertsQL query (DomainTools Certificate Search, technology "
                               "preview), then analyze the domains and IPs they name with a use case.")
@@ -174,10 +169,10 @@ def render_certsql_page():
                       "within the cache lifetime costs none."):
         with st.spinner("Searching certificates..."):
             _search(query, max_results, sort, int(preselect))
-    with st.expander("The same search outside the app (curl, Python)", icon=":material/terminal:"):
+    with st.expander("The same search outside the app (curl, Python script)", icon=":material/terminal:"):
         for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort).items():
             st.markdown(f"**{name}**")
-            st.code(command, language="python" if name.startswith("Python") else "bash")
+            st.code(command, language="python" if name == "Python script" else "bash")
     state = st.session_state.get(STATE_KEY)
     if state:
         st.divider()
@@ -245,7 +240,7 @@ def _render_results(state):
         st.json(result.data[:20], expanded=False)
         if len(result.data) > 20:
             st.caption(f"The first 20 of {len(result.data):,} records; the download has all of them.")
-    render_analyze_selection("certsql", selected(domains, "Target"), selected(ips, "Target"), _analyze, _add, state)
+    render_analyze_selection("certsql", selected(domains, "Target"), selected(ips, "Target"), _analyze, state)
 
 
 def _render_certificates(state, certs):

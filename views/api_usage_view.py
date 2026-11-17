@@ -2,7 +2,6 @@
 API usage helpers: what each service has left (known without a query) and the products a run skips because the
 account does not have them.
 """
-import pandas as pd
 import streamlit as st
 
 from core.account import STAGE_NAMES, STAGE_PRODUCTS, unavailable_stages
@@ -38,8 +37,4 @@ def skipped_products_note(products):
     """A line for the Analyze status when stages are skipped because the account lacks their product, else ''."""
     missing = missing_stage_lines(products)
     return ("Skipped, not in this DomainTools account: " + ", ".join(missing)) if missing else ""
-
-
-def quota_age(at):
-    return pd.Timestamp(at, unit="s", tz="UTC").strftime("%Y-%m-%d %H:%M UTC") if at else ""
 

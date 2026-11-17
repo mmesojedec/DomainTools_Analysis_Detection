@@ -131,9 +131,9 @@ def iris_search_params(search):
 
 
 def iris_curl(search):
-    """The Iris Investigate search as a curl command (credentials from $DT_API_USERNAME / $DT_API_KEY)."""
+    """The Iris Investigate search as a curl command, the key sent as a header (from $DT_API_KEY) as IrisQL does."""
     query = urlencode(iris_search_params(search))
-    return (f'curl -s "{IRIS_API_URL}?{query}&api_username=$DT_API_USERNAME&api_key=$DT_API_KEY"')
+    return f'curl -s "{IRIS_API_URL}?{query}" -H "X-Api-Key: $DT_API_KEY"'
 
 
 def pivot_domains_frame(results):

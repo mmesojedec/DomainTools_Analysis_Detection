@@ -11,7 +11,7 @@ import streamlit as st
 
 from core.hunt_combine import best_anchor, combined_result, cross_links, hunt_roots, related_hunts, run_values
 from core.hunt_result import link_text, run_yield
-from core.hunt_tree import hunt_members, hunt_root
+from core.hunt_tree import collapse_repeats, hunt_members, hunt_root
 from core.persistence import detach_run, join_run, load_all_runs, save_watch
 from core.run_history import format_created
 from views.hunt_actions import current_run_id
@@ -85,6 +85,14 @@ def combined_dot(hunts, labels, timezone="UTC", loaded_id=None, highlight=None, 
     Graphviz DOT of several hunts (`hunts`: {root id: members}): each hunt in a frame with its runs and the links
     between them, and dashed links between runs of different hunts that share values (`links`: cross_links()).
     """
+    collapsed = {root_id: collapse_repeats(members) for root_id, members in hunts.items()}   # reruns: one box
+    hunts = {root_id: members for root_id, (members, _, _) in collapsed.items()}
+    repeats = {run_id: runs for _, found, _ in collapsed.values() for run_id, runs in found.items()}
+    alias = {run_id: kept for _, _, found in collapsed.values() for run_id, kept in found.items()}
+    loaded_id = alias.get(loaded_id, loaded_id)
+    links = [{**link, "source": alias.get(link["source"], link["source"]),
+              "target": alias.get(link["target"], link["target"])} for link in links]
+    links = list({(link["source"], link["target"]): link for link in reversed(links)}.values())[::-1]   # once a pair
     snapshots = [snapshot for members in hunts.values() for _, snapshot, _ in members]
     gains = run_yield(snapshots)
     lines = [HEADER.replace("rankdir=LR", "rankdir=TB").replace("nodesep=0.18", "nodesep=0.35")]   # hunts side by side
@@ -102,7 +110,7 @@ def combined_dot(hunts, labels, timezone="UTC", loaded_id=None, highlight=None, 
             loaded = run_id == loaded_id
             hit = highlight and matches(highlight, snapshot=snapshot)
             border = ', color="#ff5252", penwidth=2.5' if hit else ', color="#4c8bf5", penwidth=2' if loaded else ""
-            lines.append(f'"run::{run_id}" [label={_run_label(snapshot, timezone, loaded, gains.get(run_id), None, not depth)}'
+            lines.append(f'"run::{run_id}" [label={_run_label(snapshot, timezone, loaded, gains.get(run_id), None, not depth, runs=repeats.get(run_id))}'
                          f', fillcolor="{FILL["loaded" if loaded else "run"]}"{border}{dim(hit)}];')
             parent = (snapshot.get("parent") or {}).get("id")
             if depth and parent in ids:
@@ -157,10 +165,10 @@ def _render_result(hunts, labels):
         domains = [row["Domain"] for row in result["cluster"]]
         if domains and st.button(f"Watch these {len(domains)} domains", key="hunt_combine_watch",
                                  icon=":material/visibility:",
-                                 help="Adds the combined cluster as a watched target list (Runs & Diffs)"):
+                                 help="Adds the combined cluster as a watched target list (Runs → Compare & trends → Watched Lists)"):
             name = " + ".join(_short(labels[root].split(" · ")[0], 30) for root in hunts)
             save_watch(f"Hunts: {name}", domains)
-            st.toast(f"Watching {len(domains)} domains: Runs & Diffs → Watched Lists")
+            st.toast(f"Watching {len(domains)} domains: Runs → Compare & trends → Watched Lists")
 
 
 def _render_join(hunts, labels):
@@ -218,7 +226,7 @@ def render_combined(timezone="UTC", ctx=None):
     columns[3].metric("Links between hunts", len(links), help="Pairs of runs of different hunts that share values "
                                                                "(the strongest few per pair of hunts)")
     highlight = _render_filter(snapshots, key=FILTER_KEY)
-    st.graphviz_chart(combined_dot(hunts, labels, timezone, loaded_id, highlight, links))
+    st.graphviz_chart(combined_dot(hunts, labels, timezone, loaded_id, highlight, links), width="content")   # its own size, shrunk to the page when wider
     st.caption("Each frame is one hunt; purple bold arrows are joined hunts. Dashed cyan lines: runs of different "
                "hunts that share values (thicker: more values).")
     unlinked = [root for root in picked if not any(root_of(hunts, link["source"]) == root

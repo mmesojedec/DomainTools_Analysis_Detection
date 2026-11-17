@@ -6,14 +6,14 @@ and the clusters of linked domains. Everything is built from the dataset; nothin
 import pandas as pd
 
 from core.helpers import extract_ip_addresses
+from core.intel_data import SEVERITY_ORDER
 from core.self_signed import self_signed_certificates
 from integrations.enrichment import extract_iris_profile
 
-SEVERITY_ORDER = ["Critical", "High", "Medium-High", "Medium", "Low"]
 RECENT_DAYS = 30           # "registered recently" and "expiring soon"
 ACTIVITY_WEEKS = 52        # weeks the activity chart shows (ending at the newest event)
 SHARED_TOP = 5             # values per infrastructure type
-IP_FIELDS = ("A", "AAAA", "IP")
+IP_FIELDS = ("A", "AAAA", "IP", "A RECORD")
 ACTIVITY_KINDS = ["Registration", "Name server change", "IP change", "New certificate", "New hostname"]
 
 

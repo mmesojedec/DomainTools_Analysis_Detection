@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from config import BASE_DIR
 
@@ -165,7 +164,7 @@ def _diagram_height(source):
 
 def render_mermaid(source):
     """Draws one diagram with Mermaid from the CDN; without internet access the diagram's text is shown instead."""
-    components.html(f"""
+    st.iframe(f"""
         <pre class="mermaid" style="color:#DFE5EF;font-size:12px">{html.escape(source)}</pre>
         <script type="module">
           import mermaid from "{MERMAID_JS}";
@@ -184,7 +183,7 @@ def render_mermaid(source):
           }};
           fit();
           window.addEventListener("resize", fit);
-        </script>""", height=_diagram_height(source), scrolling=True)
+        </script>""", height=_diagram_height(source))
 
 
 def _render_neighbours(order, topic):
@@ -207,13 +206,13 @@ def scroll_to_top(marker):
     picked far down a long one would otherwise open in the middle. The frame is same-origin, so it can reach the page;
     `marker` (the topic) makes each frame new, so its script runs again for every topic.
     """
-    components.html(f"<!-- {html.escape(marker)} -->" + """<script>
+    st.iframe(f"<!-- {html.escape(marker)} -->" + """<script>
       const page = window.parent.document;
       for (const element of page.querySelectorAll('[data-testid="stMain"], [data-testid="stAppViewContainer"], section.main')) {
         element.scrollTo({top: 0});
       }
       window.parent.scrollTo({top: 0});
-    </script>""", height=0)
+    </script>""", height=1)
 
 
 def render_doc_page(key, slug=""):

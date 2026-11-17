@@ -9,7 +9,9 @@ import pandas as pd
 
 from core.anonymizers import ANONYMIZER_CATEGORIES, by_ip, shared_exit
 from core.helpers import extract_ip_addresses, is_ip_address
+from core.intel_data import INFORMATIONAL_RULES
 from core.network_intel import cdn_for_ip, record_types
+from core.rule_catalog import RULE_CATALOG
 from integrations.enrichment import extract_iris_profile
 
 STIX_NAMESPACE = uuid.UUID("5b4b8f5e-6f1f-4d7e-9a6c-3c1f2d9e8a10")
@@ -131,6 +133,12 @@ def confirmed_indicators(iocs, alerts, verdicts, anonymizers=None):
     return frame.drop_duplicates(subset=["Type", "Value"]).sort_values(["Type", "Value"]).reset_index(drop=True)
 
 
+def _reason_rule(reason):
+    """The rule named in a confirmed indicator's reason (`... alert 'Threat Type'`), else ""."""
+    match = re.search(r"'([^']+)'", str(reason or ""))
+    return match.group(1) if match else ""
+
+
 def to_misp_event(indicators, info="DomainTools Analytics & Detection: confirmed indicators"):
     """A MISP event (JSON import format) with one attribute per indicator."""
     attributes = []
@@ -139,7 +147,10 @@ def to_misp_event(indicators, info="DomainTools Analytics & Detection: confirmed
         if not kind:
             continue
         shared = bool(row.get("Shared Exit"))   # a shared VPN / proxy exit: context, not a detection indicator
+        technique = _technique(RULE_CATALOG.get(_reason_rule(row.get("Reason")), ("", ""))[1])
+        tags = [{"name": f'misp-galaxy:mitre-attack-pattern="{technique[1]} - {technique[0]}"'}] if technique else []
         attributes.append({"type": kind, "category": "Network activity", "value": row["Value"], "to_ids": not shared,
+                           "Tag": tags,
                            "comment": "; ".join(str(part) for part in (row.get("Domain"), row.get("Reason"),
                                                                        f"VPNDB: {row['VPNDB']}" if row.get("VPNDB") else "",
                                                                        "shared exit" if shared else "")
@@ -168,31 +179,87 @@ def _stix_pattern(ioc_type, value):
     return None
 
 
-def to_stix_bundle(iocs, alerts, producer="DT Analytics & Detection"):
-    """STIX 2.1 bundle: an identity, one indicator per IOC (annotated with alert types), and a report."""
+STIX_CONFIDENCE = {"High": 85, "Medium": 60, "Low": 30}
+
+
+def _technique(mitre):
+    """("T1583.001", "Acquire Infrastructure: Domains") from an alert's MITRE ATT&CK text, else None."""
+    match = re.match(r"^(T\d{4}(?:\.\d{3})?)\s*(?:\((.*)\))?", str(mitre or "").strip())
+    return (match.group(1), match.group(2) or match.group(1)) if match else None
+
+
+def _malicious(group):
+    """Alerts that justify calling an indicator malicious: not informational, not Low, at least Medium confidence."""
+    if group is None or group.empty:
+        return group
+    keep = ~group["Threat Type"].isin(INFORMATIONAL_RULES)
+    if "Severity" in group.columns:
+        keep &= group["Severity"] != "Low"
+    if "Confidence" in group.columns:
+        keep &= group["Confidence"].isin(["High", "Medium"])
+    return group[keep]
+
+
+def to_stix_bundle(iocs, alerts, producer="DT Analytics & Detection", correlation=None):
+    """
+    STIX 2.1 bundle: an identity; one indicator per IOC, `malicious-activity` only when a Medium+ confidence,
+    non-Low alert backs it (else `anomalous-activity`), with a confidence; an attack-pattern per ATT&CK technique of
+    those alerts and an `indicates` relationship; an infrastructure object per infrastructure cluster; and a report.
+    """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     identity = {"type": "identity", "spec_version": "2.1", "id": _stix_id("identity", producer), "created": now, "modified": now,
                 "name": producer, "identity_class": "system"}
-    threats_by_domain = {}
-    if alerts is not None and not alerts.empty:
-        for domain, group in alerts.groupby("Domain"):
-            threats_by_domain[domain] = sorted(set(group["Threat Type"]))
-    objects = [identity]
+    alerts_by_domain = {domain: group for domain, group in alerts.groupby("Domain")} \
+        if alerts is not None and not alerts.empty else {}
+    objects, patterns, relationships = [identity], {}, []
     for _, ioc in iocs.iterrows():
         pattern = _stix_pattern(ioc["Type"], ioc["Value"])
         if not pattern:
             continue
-        related_threats = sorted({t for d in str(ioc["Domain"]).split(", ") for t in threats_by_domain.get(d, [])})
+        related = [alerts_by_domain[d] for d in str(ioc["Domain"]).split(", ") if d in alerts_by_domain]
+        related = pd.concat(related) if related else pd.DataFrame(columns=["Threat Type", "Severity"])
+        backing = _malicious(related)
+        threats = sorted(set(related["Threat Type"]))
+        best = backing["Confidence"].map(STIX_CONFIDENCE).max() if not backing.empty and "Confidence" in backing else None
         indicator = {
             "type": "indicator", "spec_version": "2.1", "id": _stix_id("indicator", f"{ioc['Type']}:{ioc['Value']}"),
             "created": now, "modified": now, "created_by_ref": identity["id"],
             "name": f"{ioc['Type']}: {ioc['Value']}", "pattern": pattern, "pattern_type": "stix", "valid_from": now,
-            "indicator_types": ["malicious-activity"] if related_threats else ["unknown"],
+            "indicator_types": ["malicious-activity"] if not backing.empty else
+                               (["anomalous-activity"] if threats else ["unknown"]),
             "description": f"Related targets: {ioc['Domain']}. Sources: {ioc['Source']}."
-                           + (f" Detections: {', '.join(related_threats)}." if related_threats else "")
+                           + (f" Detections: {', '.join(threats)}." if threats else "")
                            + (f" Note: {ioc['Note']}" if ioc["Note"] else ""),
         }
+        if best is not None and pd.notna(best):
+            indicator["confidence"] = int(best)
         objects.append(indicator)
+        for mitre in sorted(set(backing.get("MITRE ATT&CK", pd.Series(dtype=str)).astype(str))):
+            technique = _technique(mitre)
+            if not technique:
+                continue
+            if technique[0] not in patterns:
+                patterns[technique[0]] = {
+                    "type": "attack-pattern", "spec_version": "2.1", "id": _stix_id("attack-pattern", technique[0]),
+                    "created": now, "modified": now, "name": technique[1],
+                    "external_references": [{"source_name": "mitre-attack", "external_id": technique[0],
+                                             "url": f"https://attack.mitre.org/techniques/{technique[0].replace('.', '/')}/"}],
+                }
+            relationships.append({
+                "type": "relationship", "spec_version": "2.1",
+                "id": _stix_id("relationship", f"{indicator['id']}>{technique[0]}"), "created": now, "modified": now,
+                "relationship_type": "indicates", "source_ref": indicator["id"],
+                "target_ref": patterns[technique[0]]["id"]})
+    for cluster in (correlation.clusters if correlation is not None else []):
+        objects.append({
+            "type": "infrastructure", "spec_version": "2.1",
+            "id": _stix_id("infrastructure", ",".join(cluster["Domains"])), "created": now, "modified": now,
+            "created_by_ref": identity["id"], "name": f"Cluster {cluster['Cluster']}: {', '.join(cluster['Domains'][:5])}"
+            + (" ..." if len(cluster["Domains"]) > 5 else ""), "infrastructure_types": ["unknown"],
+            "description": f"{cluster['Strength']} cluster of {cluster['Size']} domains sharing "
+                           + "; ".join(f"{kind} ({len(values)})" for kind, values in cluster["Shared Artifacts"].items()),
+        })
+    objects += list(patterns.values()) + relationships
     if len(objects) > 1:
         objects.append({
             "type": "report", "spec_version": "2.1", "id": _stix_id("report", now), "created": now, "modified": now,

@@ -11,7 +11,6 @@ ALERT_COLUMNS = [
     "Domain", "Risk", "Risk Evidence", "Threat Type", "Severity", "Confidence", "Category", "MITRE ATT&CK", "Threat Logic", "Triggering IOCs",
     "Evidence", "Occurrences",
 ]
-EVIDENCE_KEYS = ("Time", "Field", "Value", "Artifact")
 
 IP_FIELDS = {"A", "IP", "A RECORD", "AAAA"}
 NS_FIELDS = {"NS", "NAME_SERVER"}
@@ -148,3 +147,17 @@ def event_line(row, value_col="Value", max_len=None, label=None):
 def upper_fields(events):
     """Upper-cased record type names with any `pDNS:`/`DH:` display prefix removed."""
     return events["Field"].astype(str).str.upper().str.replace(r"^(?:PDNS|DH):\s*", "", regex=True)
+
+
+def by_host(rows, domain):
+    """
+    [(hostname, rows)] of `rows` per owner name (`RRName`, the domain itself when missing), largest first. The pDNS
+    lookups cover every subdomain, so per-host rules must not pool unrelated hosts of one domain.
+    """
+    if rows.empty:
+        return []
+    hosts = rows["RRName"] if "RRName" in rows.columns else pd.Series(pd.NA, index=rows.index)
+    hosts = hosts.astype("string").str.strip().str.rstrip(".").str.lower().fillna(str(domain).lower())
+    hosts = hosts.mask(hosts.isin(("", "<na>", "nan", "none")), str(domain).lower())
+    groups = [(host, group) for host, group in rows.groupby(hosts, sort=False)]
+    return sorted(groups, key=lambda pair: -len(pair[1]))

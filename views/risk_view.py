@@ -11,18 +11,17 @@ from core.persistence import add_suppression
 from core.risk_profile import DIF_SEGMENTS, VECTOR_COLUMNS, decode_profiles
 from core.rule_catalog import COLUMN_GUIDE, CONFIDENCE_LEVELS, SEVERITY_LEVELS, rule_catalog_frame
 from core.timezone import apply_tz_shift
-from core.triage import STATUS_COLORS, STATUS_HELP, STATUSES, set_status
+from core.triage import STATUS_COLORS, STATUS_HELP, STATUSES, load_triage, rule_feedback, set_status
+from views import navigation
 from views.alert_tools import (
     apply_first_detected,
     render_alert_filters,
     render_alert_overview,
-    render_exports,
     render_first_detected_toggle,
     render_run_diff,
     render_suppression_manager,
 )
 from views.common import chart, table
-from views.export_view import render_confirmed_export
 
 SANKEY_PALETTE = [DT_BLUE, DT_GREEN, DT_ORANGE, "#E13A3E", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
 SEVERITY_LABEL_COLORS = {"Critical": "red", "High": "orange", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
@@ -123,7 +122,7 @@ def _detection_reasons_dialog(alerts):
         st.table(pd.DataFrame(CONFIDENCE_LEVELS, columns=["Confidence", "Meaning"]).set_index("Confidence"))
     with st.expander("Alert columns explained"):
         st.table(pd.DataFrame(COLUMN_GUIDE, columns=["Column", "Meaning"]).set_index("Column"))
-    catalog = rule_catalog_frame(alerts)
+    catalog = rule_catalog_frame(alerts, rule_feedback(load_triage()))
     fired = int((catalog["In This Run"] > 0).sum())
     only_fired = st.toggle(f"Only rules that fired in this run ({fired} of {len(catalog)})", value=fired > 0,
                            key="reasons_only_fired")
@@ -133,6 +132,9 @@ def _detection_reasons_dialog(alerts):
         "In This Run": st.column_config.NumberColumn("In This Run", help="Active detections of this rule in the current run"),
         "Severity": st.column_config.TextColumn("Severity", help="As assigned by the rule; some rules depend on the evidence"),
         "Confidence": st.column_config.TextColumn("Confidence", help="Default per rule; some rules adjust it at runtime"),
+        "Your Verdicts": st.column_config.TextColumn(
+            "Your Verdicts", help="Your Malicious / Benign decisions on this rule's alerts. From 5 decisions, 80% "
+                                  "Benign lowers the rule's confidence one step and 80% Malicious raises it to High."),
         "Fires When": st.column_config.TextColumn("Fires When", width="large"),
         "Why It Matters": st.column_config.TextColumn("Why It Matters", width="large"),
     })
@@ -145,15 +147,16 @@ def _render_engine_status(threats, min_risk):
     with col_a:
         if min_risk > 0:
             if threats.skipped_domains:
-                st.info(f"**Risk Score Threshold Active:** Skipped threat analysis for **{len(threats.skipped_domains)} domain(s)** "
-                        f"with a known risk score below **{min_risk}**: {md_escape(', '.join(threats.skipped_domains))}")
+                st.info(f"**Risk Score Threshold Active:** **{len(threats.skipped_domains)} domain(s)** with a known risk "
+                        f"score below **{min_risk}** get only the rules that stand on their own (lookalikes, subdomain "
+                        f"takeover, CAA breaches, known C2 JA4X): {md_escape(', '.join(threats.skipped_domains))}")
             else:
                 st.info(f"**Risk Score Threshold Active:** All scored domains meet or exceed threshold **{min_risk}**.")
         else:
             st.warning("**Risk Score Threshold Disabled:** Evaluating all domains regardless of risk score.")
         if threats.unscored_domains:
             st.warning(f"**No risk score available** for {len(threats.unscored_domains)} domain(s); they were evaluated anyway: "
-                       f"{md_escape(', '.join(threats.unscored_domains))}. Iris Investigate has no score for them; check the Data Source Status panel for Iris Investigate errors.")
+                       f"{md_escape(', '.join(threats.unscored_domains))}. Iris Investigate has no score for them; check the Data sources page for Iris Investigate errors.")
     with col_b:
         st.info(f"**Current Filter Level:**\n\n* **Filter Active (Score >= {min_risk})**")
 
@@ -349,8 +352,9 @@ def _render_risk_evidence(risk):
 
 
 def render_risk_lens(ds, profiles, threats, thresholds, view):
-    st.subheader("Digital Risk & Threat Engine",
-                 help="Combines DomainTools risk score baselines with telemetry penalty vectors into a Unified Digital Risk score and DIF fingerprints.")
+    st.header("Alerts",
+              help="The detections of the run with their evidence, triage and exports, and the risk profiles: the DomainTools "
+                   "risk score combined with the detections into a Unified Risk score and DIF fingerprints.")
     if not profiles.empty:
         _render_profiles(profiles)
     _render_engine_status(threats, thresholds["risk_score"])
@@ -363,8 +367,9 @@ def render_risk_lens(ds, profiles, threats, thresholds, view):
         filtered = apply_first_detected(filtered, view, only_new)
     _render_threats(filtered, threats, len(view.active), ds.timezone, layout, mode)
     render_suppression_manager(view)
-    render_exports(ds, filtered, profiles, threats.correlation)
-    render_confirmed_export(ds, view.active)
+    navigation.jump_button("export", "Export detections, IOCs and reports", button_key="alerts_export",
+                           icon=":material/download:",
+                           help="Every export (detections, IOCs, STIX, MISP, evidence and case reports) is on "
+                                "Data → Export & report.")
     if not ds.risk.empty:
         _render_risk_evidence(ds.risk)
-    st.divider()

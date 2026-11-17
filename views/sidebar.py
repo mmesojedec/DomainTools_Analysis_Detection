@@ -1,5 +1,5 @@
 """
-Sidebar controls (targets, Analyze, analysis window, timezone, view filters) and the settings kept in session state
+Sidebar controls (Analyst options: selection and display options; view filters), the pending Analyze request and the settings kept in session state
 that the Settings page edits (collection options, thresholds, cache lifetime): they persist while other pages show.
 """
 import html
@@ -30,7 +30,6 @@ from config import (
     VPNDB_NEIGHBOUR_MAX,
     VPNDB_REVERSE_MAX,
 )
-from core.cert_inputs import CERT_PREFIXES
 from core.helpers import md_escape
 from core.hostnames import apex_of, candidate_hostnames, focus_from_hostnames
 from core.offline import format_size, list_offline_datasets
@@ -38,6 +37,7 @@ from core.persistence import load_settings, save_setting
 from core.use_cases import (
     COLLECTION_DEFAULTS,
     HISTORY_MODES,
+    OPTION_LABELS,
     OVERRIDES_SETTING,
     PROFILES_SETTING,
     effective_settings,
@@ -64,7 +64,6 @@ from integrations.credentials import (
     save_credentials,
     saved_sections,
 )
-from views import navigation
 from views.idn_display import UNICODE_KEY, display_name
 
 
@@ -112,7 +111,8 @@ STICKY_KEYS = (*COLLECTION_DEFAULTS, *(spec.state_key for spec in THRESHOLD_SPEC
                "analysis_window_range", "display_timezone", "use_case", "profile_domain", UNICODE_KEY,
                "irisql_query", "irisql_max_results", "irisql_sort", "irisql_preselect",   # IrisQL search (irisql_view)
                "certsql_query", "certsql_max_results", "certsql_sort", "certsql_sort_order", "certsql_preselect",   # CertsQL (certsql_view)
-               "irisql_analyze_scope", "certsql_analyze_scope")   # domains / IPs / both (analyze_selection)
+               "irisql_analyze_scope", "certsql_analyze_scope",   # domains / IPs / both (analyze_selection)
+               "hunt_map_details", "hunt_map_layout", "hunt_map_size", "hunt_map_open")   # Hunt map → Map options
 
 
 def init_state():
@@ -233,15 +233,16 @@ LIVE_MODE = "Live lookups"
 IRISQL_MODE = "IrisQL"
 CERTSQL_MODE = "CertsQL"
 QUERY_MODES = {IRISQL_MODE: "irisql", CERTSQL_MODE: "certsql"}   # data source -> its query page
-HISTORY_TAB_KEY = "history_tab"            # Runs & Diffs' tab row
-OFFLINE_SELECT_KEY = "offline_manage"       # the dataset picked on Manage Data → Offline Datasets
+HISTORY_TAB_KEY = "history_tab"            # Runs → Compare & trends' tab row
+OFFLINE_SELECT_KEY = "offline_manage"       # the dataset picked on Data → Saved datasets
 OFFLINE_LOAD_KEY = "offline_load"           # a dataset whose Load button was clicked: the next app run loads it
-OFFLINE_JUMP_KEY = "_offline_jump"          # Data source just switched to Offline dataset: open Offline Datasets
+OFFLINE_JUMP_KEY = "_offline_jump"          # Data source just switched to Offline dataset: open Saved datasets
 OFFLINE_ARRIVE_KEY = "_offline_arrive"      # ... and keep it selected there (a page switch drops the radio's change)
 LIVE_JUMP_KEY = "_live_jump"               # Data source just switched to Live lookups: open Start
+START_RUN_KEY = "_start_run"   # Analyze clicked on the Start page: the next app run analyzes TARGETS_KEY
 LAST_PAGE_KEY = "last_page"   # the page of the previous app run (the IrisQL / CertsQL data source follows its page)
 DATA_MODE_KEY = "data_mode"
-TARGETS_KEY = "targets_input"
+TARGETS_KEY = "targets_input"   # the targets of the next / last Analyze (no widget)
 APP_RERUN_KEY = "_rerun_app"
 TOAST_KEY = "_pending_toast"   # message from a button callback, shown on the next full run
 OFFLINE_MODE = "Offline dataset"
@@ -254,48 +255,23 @@ def render_logo():
             return
 
 
-def render_offline_controls():
-    """
-    Offline mode: the datasets are picked and loaded on Manage Data → Offline Datasets (opened when this mode is
-    chosen); a Load click there comes back here as a run. Loading makes no API calls.
-    """
-    if st.session_state.pop(OFFLINE_JUMP_KEY, False):
-        navigation.go("offline", **{OFFLINE_ARRIVE_KEY: True})
+def offline_load_settings():
+    """LookupSettings that load the dataset *Load offline dataset* asked for (Saved datasets page), else None."""
     dataset_id = st.session_state.pop(OFFLINE_LOAD_KEY, None)
     manifest = next((m for m in list_offline_datasets() if m["id"] == dataset_id), None) if dataset_id else None
-    st.sidebar.caption("Pick a saved dataset under **Manage Data → Offline Datasets** and click **Load "
-                       "offline dataset**. It is re-analyzed without any API calls.")
-    st.sidebar.button("Open Offline Datasets", icon=":material/folder_open:", key="offline_open",
-                      on_click=open_offline_datasets, width="stretch")
-    render_unicode_toggle()
-    return LookupSettings("", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0,
-                          False, manifest is not None, mode="offline", offline_id=dataset_id if manifest else None)
-
-
-def open_offline_datasets():
-    """Callback: the next app run opens Manage Data → Offline Datasets."""
-    st.session_state[OFFLINE_JUMP_KEY] = True
+    if manifest is None:
+        return None
+    return LookupSettings("", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0, False, True, mode="offline",
+                          offline_id=dataset_id)
 
 
 def request_offline_load(dataset_id):
-    """Callback of *Load offline dataset* on Offline Datasets: the next app run loads `dataset_id` (sidebar offline mode)."""
-    st.session_state[DATA_MODE_KEY] = OFFLINE_MODE
+    """Callback of *Load offline dataset* on Saved datasets: the next app run loads `dataset_id` (no API calls)."""
     st.session_state[OFFLINE_LOAD_KEY] = dataset_id
 
 
-def _data_mode_changed():
-    """Data source radio clicked: Offline dataset opens Manage Data → Offline Datasets, Live lookups the Start page
-    (IrisQL / CertsQL open their query page below). Only a click jumps: the app switching the source back to live
-    when you leave a query page keeps you where you went."""
-    mode = st.session_state.get(DATA_MODE_KEY)
-    if mode == OFFLINE_MODE:
-        st.session_state[OFFLINE_JUMP_KEY] = True
-    elif mode == LIVE_MODE:
-        st.session_state[LIVE_JUMP_KEY] = True
-
-
-def render_unicode_toggle():
-    st.sidebar.toggle(
+def render_unicode_toggle(container=None):
+    (container or st.sidebar).toggle(
         "Show international domains in Unicode", key=UNICODE_KEY,
         help="Shows punycode names (xn--bcher-kva.de) as Unicode (bücher.de) in every table, text and chart. Display "
              "only: lookups always use the ASCII form the APIs store, and exports, downloads and the copyable queries "
@@ -303,104 +279,82 @@ def render_unicode_toggle():
     )
 
 
-def render_lookup_controls(settings_page=None):
-    """Sidebar: data source, targets, Analyze. Collection options live on the Settings page (`settings_page`)."""
-    st.sidebar.toggle("Analyst mode", key=ANALYST_KEY,
-                      help="On: every page, including Hunt and Evidence (pivots, hostname inventory, raw records, "
-                           "lookup queries). Off: a simpler set of pages for a quick review.")
-    st.sidebar.header("Lookups")
-    mode = st.sidebar.radio(
-        "Data source", [LIVE_MODE, IRISQL_MODE, CERTSQL_MODE, OFFLINE_MODE], horizontal=True, key=DATA_MODE_KEY,
-        on_change=_data_mode_changed,
-        help="Live lookups opens the Start page and queries the DomainTools APIs for the targets you enter. IrisQL opens the IrisQL page, which "
-             "finds the targets first: an IrisQL query lists matching domains from Iris Investigate, and the ones you "
-             "pick are analyzed with live lookups. CertsQL opens the CertsQL page: a CertsQL query lists matching "
-             "certificates (Certificate Search), and the domains and IPs they name that you pick are analyzed with "
-             "live lookups. Offline dataset opens Manage Data → Offline Datasets, where you load data "
-             "saved from an earlier live run and re-analyze it (different window, thresholds, or filters) without any "
-             "API calls.",
-    )
-    if mode == OFFLINE_MODE:
-        return render_offline_controls()
-    if mode in QUERY_MODES:
-        page = QUERY_MODES[mode]
-        if st.session_state.get(LAST_PAGE_KEY) != page:   # just chosen on another page: open its query page
-            navigation.go(page)
-        found = "domains" if mode == IRISQL_MODE else "certificates"
-        st.sidebar.caption(f"Write a {mode} query on the **{mode}** page and search: it lists the matching {found}. "
-                           "Then pick the domains and IPs to analyze and a use case; they are analyzed with live "
-                           "lookups.")
-        navigation.link(page, label=f"Open the {mode} page", container=st.sidebar)
-        render_credential_chip(settings_page)
-        return LookupSettings("", DNSDB_DEFAULT_LIMIT, False, 0, False, False, 0, 0, False, False, mode=page)
-    if st.session_state.pop(LIVE_JUMP_KEY, False):   # Live lookups just chosen: start from the Start page
-        navigation.go("home")
-    prefixes = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
-    raw_input = st.sidebar.text_area(
-        "Targets: domains, IPs, or certificates (one per line)", height=110, key=TARGETS_KEY,
-        help="Domains and IPs: defanged input (hxxp, [.]) and URLs are cleaned; subdomains are analyzed at their apex "
-             "domain (vpn.example.com → example.com). IPv4 and IPv6 addresses go to every source. **CIDR ranges** "
-             "(`104.21.59.0/24`, `2a00:1450::/32`) are looked up in VPNDB only: which VPN or proxy providers have exits "
-             "in the range, and the addresses VPNDB reached there.  \n\n**Certificates:** SHA-256 / SHA-1 / MD5 fingerprints are "
-             "recognized automatically (colons allowed); other hex values are read as serial numbers. Text that is not a "
-             "domain or IP (e.g. `DomainTools LLC`) is searched as a certificate organization. Other certificate "
-             f"fields can be given with a prefix; the whole line is the value:  \n{prefixes}  \n\nOn **Analyze** you "
-             "review how each certificate input will be searched (and can change it), then pick which of the domains "
-             "and IPs found to analyze.",
-    )
-    save_offline = st.sidebar.checkbox(
-        "Save offline copy", value=False, key="save_offline",
-        help="Also saves everything this run collects to dt_offline/ (local, git-ignored) so it can be re-analyzed later with a "
-             "different window, thresholds, or filters without API calls. Large DNSDB limits produce large datasets. "
-             "You can also save a run afterwards: *Save offline copy* on the status line at the top of every page.",
-    )
-    render_unicode_toggle()
-    run = st.sidebar.button("Analyze", type="primary", width="stretch")
+SAVE_OFFLINE_KEY = "save_offline"   # Start page: also save the next run's data as an offline dataset
+
+
+def render_analyst_options(settings_page=None):
+    """
+    Sidebar *Analyst options*: what the next Analyze collects (use case, collection options, API credentials), then
+    the display options (Analyst mode, Unicode names, analysis window, timezone). Returns (WindowChoice, timezone).
+    """
+    st.sidebar.header("Analyst options")
+    st.sidebar.markdown("##### Selection")
     case, changed = use_case_status()
-    if case is not None:
-        st.sidebar.caption(f"**Use case:** {case.title}" + (" (options changed since)" if changed else ""))
-    st.sidebar.caption(f"**Options:** {options_summary()}")
+    st.sidebar.caption((f"**{case.title}**" + (" (changed)" if changed else "") + " · " if case is not None else "")
+                       + f"{options_summary()}")
     if settings_page is not None:
         st.sidebar.page_link(settings_page, label="Change collection options", icon=":material/tune:")
     render_credential_chip(settings_page)
-    return lookup_settings(raw_input, run, save_offline)
+    st.sidebar.markdown("##### Config options")
+    st.sidebar.toggle("Analyst mode", key=ANALYST_KEY,
+                      help="On: every page, including Hunt and Evidence (hunt map, pivots, hostname inventory, raw "
+                           "records, lookup queries). Off: a simpler set of pages for a quick review.")
+    render_unicode_toggle()
+    window_choice = render_analysis_window()
+    st.session_state.setdefault("display_timezone", "UTC")
+    timezone = st.sidebar.selectbox("Display timezone", pytz.common_timezones, key="display_timezone",
+                                    help="Shifts timelines and tempo charts to this timezone. Detection always runs "
+                                         "on UTC.")
+    return window_choice, timezone
 
 
-def render_collection_options(prefix="", force_refresh=True):
+def pending_lookup():
+    """
+    The run asked for this app run: a dataset loaded on Saved datasets, or the targets of an Analyze button (Start
+    page, IrisQL, CertsQL, hunt leads), which put them in session state (TARGETS_KEY). There is no sidebar target box.
+    """
+    offline = offline_load_settings()
+    if offline is not None:
+        return offline
+    run = st.session_state.pop(START_RUN_KEY, False)
+    save_offline = st.session_state.pop(SAVE_OFFLINE_KEY + "_run", False) if run else False
+    return lookup_settings(st.session_state.get(TARGETS_KEY, ""), run, save_offline)
+
+
+def render_collection_options(prefix=""):
     """
     Settings page: every collection option (session state, so it holds for the next Analyze). With a `prefix` the same
     widgets edit a use case's saved options (keys `prefix + option`) instead.
     """
     st.markdown("**Passive DNS (DNSDB Scout)**")
     c1, c2 = st.columns(2)
-    c1.selectbox("DNSDB result limit per domain", DNSDB_LIMIT_OPTIONS, key=prefix + "opt_dnsdb_limit", format_func=lambda v: f"{v:,}",
+    c1.selectbox(OPTION_LABELS["opt_dnsdb_limit"], DNSDB_LIMIT_OPTIONS, key=prefix + "opt_dnsdb_limit", format_func=lambda v: f"{v:,}",
                  help="Maximum passive DNS records fetched per queried name, from the DNSDB v2 REST API with your DNSDB "
                       "key (see API credentials). Very large limits slow down charts and tables.")
     c1, c2 = st.columns(2)
-    c1.checkbox("TXT lookup", key=prefix + "opt_txt",
+    c1.checkbox(OPTION_LABELS["opt_txt"], key=prefix + "opt_txt",
                 help="Runs an extra TXT-only passive DNS query per domain (name/TXT and *.name/TXT) "
                      "and merges the latest records. Large result limits are often filled "
                      "by A/NS/CNAME records before any TXT record appears, leaving TXT fingerprinting and SPF/tunneling "
                      "detections empty.")
-    c2.number_input("Latest TXT records per domain", min_value=1, max_value=500, step=1, key=prefix + "opt_txt_records",
+    c2.number_input(OPTION_LABELS["opt_txt_records"], min_value=1, max_value=500, step=1, key=prefix + "opt_txt_records",
                     disabled=not st.session_state[prefix + "opt_txt"])
-    c1.checkbox("CAA lookup", key=prefix + "opt_caa",
+    c1.checkbox(OPTION_LABELS["opt_caa"], key=prefix + "opt_caa",
                 help="Queries the CAA record of each domain name directly (name/CAA). "
                      "Without it, a CAA record can fall outside a truncated pDNS result and the domain looks "
                      "unprotected.")
-    c2.checkbox("CNAME lookup", key=prefix + "opt_cname",
+    c2.checkbox(OPTION_LABELS["opt_cname"], key=prefix + "opt_cname",
                 help="Queries CNAME records of each domain and its subdomains (*.name/CNAME and "
                      "name/CNAME), up to 5,000 records, where the main lookup stopped at its "
                      "limit (it then holds only some of the CNAMEs). DNSDB returns them aggregated, one record per "
                      "hostname and target. Needed for CNAME chains and the CNAME detections on busy domains.")
-    c1.checkbox("Pivot on hosting IPs (domain hopping)", key=prefix + "opt_pivot",
+    c1.checkbox(OPTION_LABELS["opt_pivot"], key=prefix + "opt_pivot",
                 help="DNSDB reverse lookups on each domain's current non-CDN IPs (from Iris Investigate and passive DNS) to "
                      "find other domains that used them over time. One extra DNSDB query per IP.")
-    c2.number_input("Max IPs to pivot on", min_value=1, max_value=200, step=1, key=prefix + "opt_pivot_max",
+    c2.number_input(OPTION_LABELS["opt_pivot_max"], min_value=1, max_value=200, step=1, key=prefix + "opt_pivot_max",
                     disabled=not st.session_state[prefix + "opt_pivot"])
-    st.checkbox("Incremental passive DNS (only records seen since the last offline copy)",
-                key=prefix + "opt_pdns_incremental",
-                help="For target lists you analyze again and again (Monitor changes). When an offline copy of the same "
+    st.checkbox(OPTION_LABELS["opt_pdns_incremental"], key=prefix + "opt_pdns_incremental",
+                help="Only the records seen since the last offline copy of the same targets. For target lists you analyze again and again (Monitor changes). When an offline copy of the same "
                      "targets exists (same DNSDB limit), DNSDB returns only the records seen since a day "
                      "before that copy, and the copy's older records are added. Each target is still one DNSDB query, "
                      "but the result limit holds new records instead of old ones, and the lookup is faster. Without an "
@@ -410,7 +364,7 @@ def render_collection_options(prefix="", force_refresh=True):
                 "what the pages show. These options decide which changes Domain History fetches.")
     mode = st.session_state[prefix + "opt_history_mode"]
     c1, c2, c3 = st.columns([2, 1, 1])
-    c1.selectbox("Domain History period", list(HISTORY_MODES), key=prefix + "opt_history_mode",
+    c1.selectbox(OPTION_LABELS["opt_history_mode"], list(HISTORY_MODES), key=prefix + "opt_history_mode",
                  format_func=HISTORY_MODES.get,
                  help="Which changes Domain History fetches for each domain. It returns the newest changes first, "
                       "100 per query.\n\n"
@@ -425,9 +379,9 @@ def render_collection_options(prefix="", force_refresh=True):
                       "as a safeguard). Long histories take many queries and longer to collect and process.\n\n"
                       "A period or a low *Max changes* costs fewer queries, but detections that compare with older history "
                       "(dormancy, parking) see only what was fetched.")
-    c2.number_input("Days", min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
+    c2.number_input(OPTION_LABELS["opt_history_days"], min_value=1, max_value=3650, step=30, key=prefix + "opt_history_days",
                     disabled=mode != "days", help="With *Custom number of days*: the changes of the last N days.")
-    c3.number_input("Max changes", min_value=100, max_value=DOMAIN_HISTORY_CAP_MAX, step=500,
+    c3.number_input(OPTION_LABELS["opt_history_max"], min_value=100, max_value=DOMAIN_HISTORY_CAP_MAX, step=500,
                     key=prefix + "opt_history_max", disabled=mode == "unlimited",
                     help=f"Most changes fetched per domain (default {DOMAIN_HISTORY_MAX_CHANGES:,}; 100 per query). "
                          "A domain that reaches it has more changes, and the app says so.")
@@ -442,52 +396,46 @@ def render_collection_options(prefix="", force_refresh=True):
     if not prefix:
         st.caption(f"Next Analyze: {history_option_text()}.")
     st.markdown("**VPNDB**")
-    st.checkbox("Check hosting IPs for VPN, residential proxy and Tor", key=prefix + "opt_vpndb",
+    st.checkbox(OPTION_LABELS["opt_vpndb"], key=prefix + "opt_vpndb",
                 help="On in every use case. Sends the run's public IPv4 hosting addresses (IP targets, current Iris IPs, "
                      "passive DNS; no CDN addresses) to VPNDB in one bulk request, then fetches the full verdict and "
                      "weekly history of the ones it attributes to a VPN, proxy or Tor, within the budget below (each "
                      "use case sets its own). Each IP counts as one VPNDB query. Needs a VPNDB key (API credentials); without one the check is skipped.")
     off = not st.session_state[prefix + "opt_vpndb"] and not st.session_state[prefix + "opt_vpndb_only"]
     c1, c2 = st.columns(2)
-    c1.number_input("Hosting IPs per run", min_value=1, max_value=VPNDB_MAX_IPS * 4, step=50,
+    c1.number_input(OPTION_LABELS["opt_vpndb_max_ips"], min_value=1, max_value=VPNDB_MAX_IPS * 4, step=50,
                     key=prefix + "opt_vpndb_max_ips", disabled=off or st.session_state[prefix + "opt_vpndb_only"],
                     help="Public IPv4 hosting addresses sent in the bulk request (IP targets first, then each domain's "
                          "current Iris IPs and passive DNS addresses, most recent first). Each IP is one VPNDB query.")
-    c2.number_input("Full verdicts per run", min_value=0, max_value=500, step=10, key=prefix + "opt_vpndb_details",
+    c2.number_input(OPTION_LABELS["opt_vpndb_details"], min_value=0, max_value=500, step=10, key=prefix + "opt_vpndb_details",
                     disabled=off,
                     help="Exits (or, with *Only the VPNDB IP check*, IPv4 targets) given the full verdict (sharing, IOC "
                          "value, Tor role, evidence) and the weekly history that tells whether the IP was an exit while "
                          "the domain used it. Two VPNDB queries each.")
-    st.checkbox("Neighbourhood and leads (neighbouring /24s, hosting networks, other domains on dedicated exits)",
-                key=prefix + "opt_vpndb_context", disabled=off or st.session_state[prefix + "opt_vpndb_only"],
-                help=f"Up to {VPNDB_NEIGHBOUR_MAX} /24 ranges and {VPNDB_ASN_MAX} hosting networks in VPNDB (one "
+    st.checkbox(OPTION_LABELS["opt_vpndb_context"], key=prefix + "opt_vpndb_context", disabled=off or st.session_state[prefix + "opt_vpndb_only"],
+                help=f"Neighbouring /24s, hosting networks and other domains on dedicated exits: up to {VPNDB_NEIGHBOUR_MAX} /24 ranges and {VPNDB_ASN_MAX} hosting networks in VPNDB (one "
                      f"query each) and up to {VPNDB_REVERSE_MAX} DNSDB reverse lookups on dedicated exits. Feeds "
                      "*Hosted Among Anonymizer Exits* and the VPNDB page's Neighbourhood and Leads tabs.")
-    st.checkbox("Only the VPNDB IP check (no other source)", key=prefix + "opt_vpndb_only",
-                help="For runs on IP addresses and CIDR ranges only. Looks up the IP targets (IPv4 and IPv6) and CIDR "
+    st.checkbox(OPTION_LABELS["opt_vpndb_only"], key=prefix + "opt_vpndb_only",
+                help="No other source: for runs on IP addresses and CIDR ranges only. Looks up the IP targets (IPv4 and IPv6) and CIDR "
                      "ranges in VPNDB and nothing else: no Iris, passive DNS, Domain History or certificates. Domain "
                      "targets are skipped (Data sources says so). Off in every use case except *Check IP addresses*; "
                      "turn it on in a profile only if that profile is meant for IP lists.")
     st.markdown("**Certificate API**")
     c1, c2 = st.columns(2)
-    c1.checkbox("Fetch CT log & certificate co-occurrence telemetry", key=prefix + "opt_ct",
+    c1.checkbox(OPTION_LABELS["opt_ct"], key=prefix + "opt_ct",
                 help="Two extra API calls per Cert API certificate. Disable for faster runs on large targets.")
-    c2.number_input("Max certificates for CT/co-occurrence lookups", min_value=1, max_value=5000, step=5, key=prefix + "opt_ct_max",
+    c2.number_input(OPTION_LABELS["opt_ct_max"], min_value=1, max_value=5000, step=5, key=prefix + "opt_ct_max",
                     disabled=not st.session_state[prefix + "opt_ct"],
                     help="The newest certificates are looked up first, taking turns between domains so one busy domain "
                          "does not use the whole budget. Each certificate costs two calls, so large values make runs slow.")
-    c1.number_input("Certificate inputs: pre-select derived targets", min_value=1, max_value=SEED_MAX_TARGETS, step=5,
+    c1.number_input(OPTION_LABELS["opt_seed_preselect"], min_value=1, max_value=SEED_MAX_TARGETS, step=5,
                     key=prefix + "opt_seed_preselect",
                     help="Domains / IPs found through certificate inputs are pre-selected up to this many (most "
                          "certificates first). You can change the selection before the run.")
     st.caption("Iris Investigate has no options: current hosting, registration, risk score, website and trackers are "
-               "fetched for every domain (batched requests).")
-    if not force_refresh:
-        return
-    st.markdown("**All sources**")
-    st.checkbox("Force refresh on the next Analyze (delete the whole cache first)", key=prefix + "opt_force_refresh",
-                help="Deletes every cached lookup, then re-queries every source and reloads credentials. To refresh only "
-                     "the current targets, use Re-run with fresh lookups on the Data sources page.")
+               "fetched for every domain (batched requests). To bypass the lookup cache: *Clear cache* under Settings → "
+               "Storage & cache, or *Re-run with fresh lookups* on the Data sources page for the current targets.")
 
 
 def render_credential_chip(settings_page=None):
@@ -694,8 +642,7 @@ def render_idn_notice(conversions):
 
 
 def render_analysis_window():
-    """Analysis window selector (shown above Timezone Alignment). Defaults to the last 30 days."""
-    st.sidebar.markdown("#### Analysis Window")
+    """Analysis window selector (sidebar, Analyst options). Defaults to the last 30 days."""
     options = list(WINDOW_PRESETS)
     st.session_state.setdefault("analysis_window", DEFAULT_WINDOW)
     preset = st.sidebar.selectbox(
@@ -714,15 +661,6 @@ def render_analysis_window():
         else:
             st.sidebar.caption("Select both a start and an end date.")
     return WindowChoice(preset, custom_range)
-
-
-def render_timezone_selector():
-    st.sidebar.markdown("#### Timezone Alignment")
-    st.session_state.setdefault("display_timezone", "UTC")
-    return st.sidebar.selectbox(
-        "Display Timezone", pytz.common_timezones, key="display_timezone",
-        help="Shifts visual timelines and tempo charts to the selected timezone. Detection always runs on UTC.",
-    )
 
 
 def reset_thresholds():
@@ -806,21 +744,7 @@ def focus_key():
     return f"host_focus::{st.session_state.get('run_created')}"
 
 
-def add_to_targets(lines):
-    """
-    Button callback: appends lines to the sidebar target box and switches to live lookups, so the next Analyze runs
-    on them. The calling view reruns the whole app (rerun_app_if_requested) to redraw the sidebar.
-    """
-    current = [line for line in str(st.session_state.get(TARGETS_KEY) or "").splitlines() if line.strip()]
-    added = [line for line in dict.fromkeys(lines) if line and line not in current]
-    st.session_state[TARGETS_KEY] = "\n".join(current + added)
-    st.session_state[DATA_MODE_KEY] = LIVE_MODE
-    st.session_state[APP_RERUN_KEY] = True
-    st.session_state[TOAST_KEY] = (f"Added {len(added):,} target(s) to the sidebar. Click **Analyze** to run them."
-                                   if added else "Those targets are already in the sidebar.")
-
-
-HUNT_KEY = "hunt_request"   # {"id": parent run id, "via": what led here}: the next app run analyzes the target box
+HUNT_KEY = "hunt_request"   # {"id": parent run id, "via": what led here}: the next app run analyzes TARGETS_KEY
 
 
 RUN_OPTION_KEYS = tuple(k for k in COLLECTION_DEFAULTS if k != "opt_force_refresh")   # what Run again restores
@@ -857,7 +781,7 @@ def run_again(lines, options, via="Run again"):
 
 def start_hunt(lines, via, parent_id=None, direct=False):
     """
-    Button callback: replaces the sidebar targets with `lines` and analyzes them right away as a new run, linked to
+    Button callback: makes `lines` the targets and analyzes them right away as a new run, linked to
     run `parent_id` through `via` (hunt tree). `direct`: certificate targets skip the review screens (suggested hunt).
     """
     st.session_state[TARGETS_KEY] = "\n".join(dict.fromkeys(line for line in lines if line))
@@ -867,7 +791,7 @@ def start_hunt(lines, via, parent_id=None, direct=False):
 
 
 def focus_on_hostnames(hostnames):
-    """Button callback: adds hostnames to the sidebar hostname focus (see add_to_targets for the rerun)."""
+    """Button callback: adds hostnames to the sidebar hostname focus (the calling view reruns the whole app)."""
     key = focus_key()
     st.session_state[key] = list(dict.fromkeys(list(st.session_state.get(key) or []) + list(hostnames)))
     st.session_state[APP_RERUN_KEY] = True
@@ -893,7 +817,7 @@ def render_cache_settings():
              "(in this or a later run, also after an app restart) costs no API query. Covers passive DNS and its TXT / "
              "CAA / CNAME lookups, CNAME chases and reverse lookups, IP pivots, certificates, Domain History, "
              "Iris Investigate (per batch of domains, with risk scores) and VPNDB. Each source can keep its results "
-             "for its own lifetime (below). Kept in dt_cache/ (local, git-ignored). Data Source Status "
+             "for its own lifetime (below). Kept in dt_cache/ (local, git-ignored). The Data sources page "
              "marks each reused lookup *From cache*. Off: always query.")
     save_setting("cache_seconds", CACHE_LIFETIMES[label])
     set_cache_ttl(CACHE_LIFETIMES[label])
@@ -955,3 +879,11 @@ def render_hostname_focus(collected, selected_domains):
              "for every hostname.",
     )
     return focus_from_hostnames(chosen)
+
+
+def start_analyze(source_key):
+    """Start page *Analyze* callback: its target box becomes the targets, and the next app run analyzes them."""
+    st.session_state[TARGETS_KEY] = st.session_state.get(source_key, "")
+    st.session_state[SAVE_OFFLINE_KEY + "_run"] = bool(st.session_state.get(SAVE_OFFLINE_KEY))
+    st.session_state[DATA_MODE_KEY] = LIVE_MODE
+    st.session_state[START_RUN_KEY] = True

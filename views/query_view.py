@@ -20,7 +20,7 @@ TOOL_HELP = {
                    "subdomains, and the domain itself is listed too when that lookup hit its limit; the curl commands "
                    "are the DNSDB API requests the app sent, with the key from $DNSDB_API_KEY",
     "VPNDB": "Each VPNDB request the run made: the endpoint, the path to call (or, for a bulk request, the IPs it sent, "
-             "one per line) and the curl command, with the key from $VPNDB_API_KEY. The answers are on Raw Records → "
+             "one per line) and the curl command, with the key from $VPNDB_API_KEY. The answers are on Evidence → Records → "
              "VPNDB Responses",
 }
 LANGUAGE = {"DomainTools Certificates": "sql", "IrisQL": "text", "CertsQL": "text"}
@@ -30,15 +30,15 @@ COLUMN_HELP = {
     "Query": "What to enter in the tool, on one line (the copy block below keeps the original layout)",
     "Requests": "Requests the lookup made: 2 for a DNSDB lookup that hit its limit, since the exact name was then "
                 "looked up too; 0 when the result was reused from the cache",
-    "Cached": "Reused from the cache (Settings → Lookup cache): no API query was made",
+    "Cached": "Reused from the cache (Settings → Storage & cache): no API query was made",
     "Cached At": "When the cached result was originally fetched (UTC)",
     "Records": "Records the lookup returned in this run",
-    "Status": "Outcome of the lookup in this run (Data Source Status)",
+    "Status": "Outcome of the lookup in this run (Data sources page)",
 }
 
 
 def render_query_lens(collected, created=None):
-    st.header("Lookup Queries", help="Every lookup this run made, rebuilt as queries you can run again in the "
+    st.subheader("Lookup queries", help="Every lookup this run made, rebuilt as queries you can run again in the "
                                      "DomainTools (Iris Investigate and IrisQL included), DNSDB and VPNDB tools to check or extend a finding. Paging is left out of the "
                                      "commands.")
     queries = build_lookup_queries(collected, created)

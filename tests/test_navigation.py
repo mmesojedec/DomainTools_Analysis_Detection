@@ -18,7 +18,7 @@ from core.use_cases import (
     remove_profile,
     upsert_profile,
 )
-from views.navigation import SPECS
+from views.navigation import ALIASES, SPECS
 from views.profile_view import latest_dns
 from views.summary_view import domain_overview
 
@@ -29,7 +29,7 @@ def alerts(rows):
 
 def test_every_use_case_step_and_setting_exists():
     for case in USE_CASES:
-        assert all(page in SPECS for page, _ in case.steps), case.key
+        assert all(page in SPECS or page in ALIASES for page, _ in case.steps), case.key
         assert all(key in COLLECTION_DEFAULTS or key == "analysis_window" for key in case.settings), case.key
         assert set(builtin_settings(case)) == set(PROFILE_KEYS) and clean_settings(case.settings) == case.settings
 
@@ -102,3 +102,21 @@ def test_domain_overview_and_latest_dns():
                          "Last Seen": pd.to_datetime(["2026-01-01", "2026-02-01", "2026-01-15"])})
     dns = latest_dns(pdns, "a.com", per_type=1)
     assert list(zip(dns["Type"], dns["Value"])) == [("A", "2.2.2.2"), ("NS", "ns1.x.net")]
+
+
+def test_a_jump_sets_the_target_pages_state_on_its_next_run_not_during_this_one(monkeypatch):
+    """Runs → a run's *Compare & trends* jumps to a tab of the same page, whose tab row is already drawn: setting
+    that widget's state in the same run raised StreamlitAPIException."""
+    from views import navigation
+    state, switched = {"recent_tab": "Recent runs"}, []
+    monkeypatch.setattr(navigation.st, "session_state", state)
+    monkeypatch.setattr(navigation.st, "switch_page", switched.append)
+    monkeypatch.setitem(navigation._PAGES, "recent", "recent page")
+    navigation.go("history", pick="run-1")
+    assert state["recent_tab"] == "Recent runs" and switched == ["recent page"]   # nothing set in this run
+    assert state[navigation.PENDING_STATE_KEY] == {"recent_tab": "Compare & trends",
+                                                   navigation.SCROLL_TAB_KEY: "Compare & trends", "pick": "run-1"}
+    monkeypatch.setattr(navigation.st, "navigation", lambda sections, position: None)
+    navigation.build({spec: (lambda: None) for spec in navigation.SPECS})   # the next run, before any widget
+    assert state["recent_tab"] == "Compare & trends" and state["pick"] == "run-1"
+    assert navigation.PENDING_STATE_KEY not in state

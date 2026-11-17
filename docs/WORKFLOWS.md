@@ -29,14 +29,14 @@ flowchart TD
     B -- "No" --> E
     B -- "Yes" --> C["Step 1: review the recognized certificate searches (no API calls)"]
     C --> D["Step 2: searches run, pick the derived domains / IPs and optional hostname focus"]
-    D --> E["Collection: 9 stages, one after another"]
-    E --> F["Data Source Status: one row per lookup"]
+    D --> E["Collection: two waves of stages run in parallel"]
+    E --> F["Data sources: one row per lookup"]
     E --> G["Build the views: analysis window, view filters, hostname focus"]
-    G --> H["Score gate: skip domains below Min Risk Score"]
+    G --> H["Score gate: below Min Risk Score only the standalone rules"]
     H --> I["Detection rules per domain / IP, then cross-domain clusters"]
     I --> J["Merge repeated alerts, apply suppressions"]
     J --> K["Unified Risk and DIF per domain"]
-    K --> L["Summary and the other pages"]
+    K --> L["Summary (or the Hunt map when the run continues a hunt) and the other pages"]
     K --> M["Save the run to history, and optionally an offline copy"]
 ```
 
@@ -55,8 +55,7 @@ Each line or token of the target box is classified before anything is looked up:
 | A 64 / 40 / 32-character hex value, `cn:`, `san:`, `org:`, `issuer:`, `serial:`, ... | Certificate input | Goes through the [two review steps](#certificate-inputs-the-two-review-steps) first. |
 | `DomainTools LLC`, `DomainTools` (words without a dot) | Organization name | A certificate input: certificates whose subject organization contains the text. |
 
-The full list of certificate prefixes is in [Certificate inputs](USAGE.md#certificate-inputs). **Force refresh
-(bypass cache)** deletes the lookup cache (*Cache lifetime*, default 1 day) before the run.
+The full list of certificate prefixes is in [Certificate inputs](USAGE.md#certificate-inputs). To skip the lookup cache (*Cache lifetime*, default 1 day), use *Clear cache* on Settings → Storage & cache, or *Re-run with fresh lookups* on the Data sources page.
 
 ## Certificate inputs: the two review steps
 
@@ -80,8 +79,8 @@ flowchart TD
 
 ## IrisQL: finding the targets first
 
-Used instead of the target box when the targets are not known yet (**IrisQL** in the menu, or *Data source → IrisQL*
-in the sidebar).
+Used instead of the target box when the targets are not known yet (**IrisQL** in the menu, or *Find targets with
+IrisQL* on the Start page).
 
 ```mermaid
 flowchart TD
@@ -90,8 +89,11 @@ flowchart TD
     C --> D["Domain table (risk, dates, registrar, hosting) and IP table (result domains, Iris domains)"]
     D --> E["Tick domains and IPs (the 10 riskiest pre-selected, at most 100); choose domains, IPs or both"]
     E --> F["Pick a use case: its collection options and window"]
-    F --> G["Analyze: domains, IPs or both; a normal run on them, via IrisQL in Runs & Diffs"]
+    F --> G["Analyze: domains, IPs or both; a normal run on them, noted via IrisQL on the Runs page"]
 ```
+
+A query can also be watched (*Watch this query*): *Watched queries → Check now* runs it again later and ticks only
+the domains that are new since the last check.
 
 ## Collection order
 
@@ -99,7 +101,7 @@ Stages that do not need each other run at the same time. In the first wave, Doma
 the certificates (search, then events) run in the background while passive DNS (DNSDB Scout) runs in front. In the second wave, the CT telemetry (it needs the certificates) runs while the IP pivots
 and the VPNDB check run (they need passive DNS and Iris). Within a stage, lookups run in parallel (up to 8 at a time,
 4 for the Certificate API). The Certificate API stages stay one after another, because that API
-answers too many parallel calls with HTTP 503. Every lookup adds a row to **Data Source Status**; *Partial* means it
+answers too many parallel calls with HTTP 503. Every lookup adds a row to the **Data sources** page; *Partial* means it
 stopped at a limit or failed part-way.
 
 Before the first wave, the app checks the DomainTools account's products (the Account Information answer, at most one
@@ -112,15 +114,15 @@ flowchart TD
     A["Account products checked (at most one query an hour)"] --> W1
     subgraph W1["Wave 1, at the same time"]
         S1["1. Domain History: change events per domain"]
-        S4["4. Iris Investigate: current profile and risk score, 100 domains per call"]
-        S2["2. Certificate Search, then 8. Certificate Events"]
-        S5["5. Passive DNS: DNSDB Scout, with TXT / CAA / CNAME lookups"]
+        S4["3. Iris Investigate: current profile and risk score, 100 domains per call"]
+        S2["2. Certificate Search, then 7. Certificate Events"]
+        S5["4. Passive DNS: DNSDB Scout, with TXT / CAA / CNAME lookups"]
     end
     W1 --> W2
     subgraph W2["Wave 2, at the same time"]
-        S9["9. CT log and SHA-256 events for the newest certificates (if on)"]
-        S7["7. IP pivots (if on, DNSDB Scout)"]
-        S7w["7b-7d. VPNDB: verdicts, exits' history, neighbourhood, Tor overview (if on, with a key)"]
+        S9["8. CT log and SHA-256 events for the newest certificates (if on)"]
+        S7["5. IP pivots (if on, DNSDB Scout)"]
+        S7w["6-6c. VPNDB: verdicts, exits' history, neighbourhood, Tor overview (if on, with a key)"]
     end
     W2 --> Z["Done"]
 ```
@@ -129,21 +131,21 @@ flowchart TD
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Domain History | DomainTools API (SDK) | Each domain | Every recorded change: IPs, name servers, registrar, MX, SSL, ... | Max changes: 1,000 change events per domain by default, 100 to 20,000, or no limit (100 per query, newest first) | Always. Also provides historical SSL certificates. With a *Domain History period* (the analysis window or a number of days; Monitor changes: 90 days), paging stops at the first older change. A domain that reaches Max changes is listed as having more changes. |
 | 2 | Certificate Search | Certificate API | Each domain and IP | CertsQL: certificates naming the domain or any subdomain (`san_dns equals` / `ends_with`), or naming the IP | 2,500 certificates per target | Always. Certificates found through certificate inputs are merged in. [Hostname gap-fill](#certificate-logic) if capped. |
-| 4 | Iris Investigate | DomainTools API (SDK) | All domains, 100 per call | Current registration, IPs and ASNs, name servers, MX, SPF, SSL, web trackers, website response, redirects, popularity rank, and the DomainTools risk score with its components (proximity, threat profile, ...) | 100 domains per call | Always. The risk score feeds the score gate; no separate Risk Evidence query is made. |
-| 5 | Passive DNS | DNSDB Scout | Each domain and IP | DNS records ever seen for the domain and its subdomains, or names seen on the IP | Your DNSDB limit (default 5,000) per name | Always. TXT / CAA / CNAME lookups and hostname gap-fill as described in [Passive DNS logic](#passive-dns-logic). With *Incremental passive DNS*, only records seen since the last offline copy of the same targets. |
-| 7 | IP pivots | DNSDB Scout | Up to 3 hosting IPs per domain, 10 in total (Settings) | Other names that resolved to the domain's IPs, and when | 2,000 records per IP | Only when *Pivot on hosting IPs* is on and the provider is DNSDB Scout. IPs come from Iris (current) first, then the latest passive DNS; CDN and private IPs are skipped. |
-| 7b | VPN / proxy / Tor | VPNDB | Public IPv4 hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); up to the use case's *Hosting IPs per run* (500 by default, 100 per domain at most); CIDR targets | Which VPN, residential proxy or Tor operator is behind each IP, with confidence, sharing and IOC value; per range its providers and every address | One bulk request; full verdict of up to *Full verdicts per run* exits (50 by default); per range one prefix query, up to 200 addresses and a bulk request for up to 1,024 addresses | Only with a VPNDB key and *Check hosting IPs for VPN, residential proxy and Tor* on (on in every use case). CDN, private and IPv6 addresses are skipped. |
-| 7c | VPNDB context | VPNDB, DNSDB | The exits (weekly history, as many as the full verdicts), and with *Neighbourhood and leads*: the /24s around the other hosting IPs (30), current Iris ASNs (20), dedicated exits (DNSDB reverse IP, 10) | Was the IP an exit while the domain used it; hosted among exits; other domains on dedicated exits | 1 query each | Only with a VPNDB key and the VPNDB check on; the neighbourhood is off in the takeover, phishing and monitoring use cases; the DNSDB lookups need a DNSDB key. Feeds the exit rules, *Hosted Among Anonymizer Exits* and the VPNDB page. |
-| 7d | Tor network | VPNDB | Once per run | The Tor overview (`/tor`): relays and each network's, country's and prefix's share of Tor exit traffic | One call, not counted against the quota | With the VPNDB check and in *Check IP addresses*. Feeds the Tor network page (Infrastructure) and each IP card. |
-| 8 | Certificate Events | Certificate API | Each domain (with subdomains) and IP | Where certificates were observed on hostnames / IPs | 2,500 events per target, last 365 days | Always. Hostname gap-fill if capped. |
-| 9 | CT / co-occurrence | Certificate API | The newest Certificate API certificates, taking turns between domains | CT log submissions (500 per certificate) and SHA-256 observations (1,000 per certificate) | Settings cap, default 10 certificates (two calls each) | Only when *Fetch CT log & certificate co-occurrence telemetry* is on. |
+| 3 | Iris Investigate | DomainTools API (SDK) | All domains, 100 per call | Current registration, IPs and ASNs, name servers, MX, SPF, SSL, web trackers, website response, redirects, popularity rank, and the DomainTools risk score with its components (proximity, threat profile, ...) | 100 domains per call | Always. The risk score feeds the score gate; no separate Risk Evidence query is made. |
+| 4 | Passive DNS | DNSDB Scout | Each domain and IP | DNS records ever seen for the domain and its subdomains, or names seen on the IP | Your DNSDB limit (default 5,000) per name | Always. TXT / CAA / CNAME lookups and hostname gap-fill as described in [Passive DNS logic](#passive-dns-logic). With *Incremental passive DNS*, only records seen since the last offline copy of the same targets. |
+| 5 | IP pivots | DNSDB Scout | Up to 3 hosting IPs per domain, 10 in total (Settings) | Other names that resolved to the domain's IPs, and when | 2,000 records per IP | Only when *Pivot on hosting IPs* is on. IPs come from Iris (current) first, then the latest passive DNS; CDN and private IPs are skipped. |
+| 6 | VPN / proxy / Tor | VPNDB | Public IPv4 hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); up to the use case's *VPNDB hosting IPs per run* (500 by default, 100 per domain at most); CIDR targets | Which VPN, residential proxy or Tor operator is behind each IP, with confidence, sharing and IOC value; per range its providers and every address | One bulk request; full verdict of up to *VPNDB full verdicts per run* exits (50 by default); per range one prefix query, up to 200 addresses and a bulk request for up to 1,024 addresses | Only with a VPNDB key and *Check hosting IPs for VPN, residential proxy and Tor* on (on in every use case). CDN, private and IPv6 addresses are skipped. |
+| 6b | VPNDB context | VPNDB, DNSDB | The exits (weekly history, as many as the full verdicts), and with *VPNDB neighbourhood and leads*: the /24s around the other hosting IPs (30), current Iris ASNs (20), dedicated exits (DNSDB reverse IP, 10) | Was the IP an exit while the domain used it; hosted among exits; other domains on dedicated exits | 1 query each | Only with a VPNDB key and the VPNDB check on; the neighbourhood is off in the takeover, phishing and monitoring use cases; the DNSDB lookups need a DNSDB key. Feeds the exit rules, *Hosted Among Anonymizer Exits* and the VPNDB page. |
+| 6c | Tor network | VPNDB | Once per run | The Tor overview (`/tor`): relays and each network's, country's and prefix's share of Tor exit traffic | One call, not counted against the quota | With the VPNDB check and in *Check IP addresses*. Feeds the Tor network page (Infrastructure) and each IP card. |
+| 7 | Certificate Events | Certificate API | Each domain (with subdomains) and IP | Where certificates were observed on hostnames / IPs | 2,500 events per target, last 365 days | Always. Hostname gap-fill if capped. |
+| 8 | CT / co-occurrence | Certificate API | The newest Certificate API certificates, taking turns between domains | CT log submissions (500 per certificate) and SHA-256 observations (1,000 per certificate) | Settings cap, default 10 certificates (two calls each) | Only when *CT log & co-occurrence telemetry* is on. |
 
 Failed Certificate API lookups are retried once, one at a time, after a 5-second pause (bursts of parallel calls
 can return HTTP 503). All HTTP lookups also retry on rate limits and server errors, and so do the DomainTools SDK
 calls (Iris Investigate, Domain History, Account): after 2 s and 4 s on HTTP 429 / 5xx or a connection error. The SDK
 also spaces its calls to each product's per-minute limit. Successful lookups are cached on disk, so re-running the
 same targets, or a new run that repeats a domain, costs no API query for them: for the *Cache lifetime* (default
-1 day), or a source's own lifetime (Domain History 7 days, VPNDB 6 hours by default; Settings → Lookup cache).
+1 day), or a source's own lifetime (Domain History 7 days, VPNDB 6 hours by default; Settings → Storage & cache).
 
 ## Passive DNS logic
 
@@ -173,7 +175,7 @@ flowchart TD
   *Certificate, never resolved* for it, since the records may simply be missing. Raise **DNSDB Result Limit per
   Domain** when you need more.
 - **Incremental passive DNS (DNSDB):** with *Incremental passive DNS* on (Monitor changes), and an offline copy of
-  the same targets saved with the same provider and DNSDB limit, the main lookup asks DNSDB only for records last
+  the same targets saved with the same DNSDB limit, the main lookup asks DNSDB only for records last
   seen since a day before that copy (`time_last_after`). The copy's older records are added; a record seen again
   replaces its earlier version. Each target is still one DNSDB query, but the result limit holds new records, not
   old ones, and the lookup is faster. Targets missing from the copy, and runs without one, are looked up in full.
@@ -207,7 +209,7 @@ flowchart TD
 
 Each step follows the most recently seen CNAME, and each lookup is one record type of one exact name, so a busy
 name's other records cannot push the CNAME out of a capped result. Every lookup adds a *DNSDB CNAME Chase (type)* row
-to Data Source Status and to Lookup Queries. A chase stopped by the query limit keeps its path and continues from
+to the Data sources page and to *Evidence → Lookup queries*. A chase stopped by the query limit keeps its path and continues from
 there on the next click. Chase lookups use the lookup cache; *Re-chase (skip cache)* in the page repeats them fresh.
 
 From the page, a **reverse CNAME** lookup (`rdata/name/{target}/CNAME`, up to 5,000 records, one *DNSDB CNAME RDATA*
@@ -248,7 +250,7 @@ flowchart TD
     E --> F["Hosting IPs, up to the budget"]
     F --> G["Bulk verdict per IP"]
     G --> H["Exits: full verdict and weekly history"]
-    H --> I{"Neighbourhood and leads?"}
+    H --> I{"VPNDB neighbourhood and leads?"}
     I -- "Yes" --> J["/24s, hosting ASNs, DNSDB on dedicated exits"]
     I -- "No" --> K["VPNDB rules"]
     J --> K
@@ -260,8 +262,9 @@ first (public IPv4, no CDN addresses). The rules then weigh whether each IP was 
 dedicated exits, hosting that moved onto or rotates across exits, new domains on an exit, exits several analyzed
 domains share, and hosting next to exits.
 
-Every VPNDB lookup is a row in Data Source Status with the request it made (Lookup Queries → VPNDB rebuilds it as a
-curl command), and its answer is kept as received (Raw Records → VPNDB Responses, Data Export → VPNDB responses). A
+Every VPNDB lookup is a row on the Data sources page with the request it made (*Evidence → Lookup queries → VPNDB*
+rebuilds it as a curl command), and its answer is kept as received (*Evidence → Records → VPNDB Responses*, *Export &
+report → VPNDB responses*). A
 miss (`observed: false`) counts as *No data*, not an error; a quota or key problem is an error with VPNDB's own note.
 
 ## After collection
@@ -271,11 +274,11 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Analysis window | Records outside the chosen period are left out of detections and charts | Yes |
 | View filters | Domains, Domain History types, passive DNS record types | Yes |
 | Hostname focus | Passive DNS, certificates and certificate events of a domain narrowed to chosen hostnames | Yes |
-| Score gate | Domains with a DomainTools risk score below **Min Risk Score** skip the behavioral rules; domains without a score are still checked | Yes |
-| Detection | Every rule runs per domain / IP, then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping). A domain among the 10,000 most popular in Iris has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert | Yes |
+| Score gate | Domains with a DomainTools risk score below **Min Risk Score** get only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X, Phishing Kit Staging, Mail-Capable Lookalike, Lure Subdomain); domains without a score are fully checked | Yes |
+| Detection | Every rule runs per domain / IP (including the lifecycle and compound rules), then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping, bulk-registration cohorts, campaign waves, links to a domain you marked Malicious). A domain among the 10,000 most popular in Iris, or on the DomainTools zerolist, has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert. Your allowlist and your verdicts on a rule can move the confidence too | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
-| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (sidebar, before Analyze; or after it on the status line or under *Manage Data*) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the *Recent runs* page lists and its *Indicator Sightings* tab searches | - |
+| Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (Start page Targets box, before Analyze; or after it on the status line) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the **Runs** page lists (*Recent runs*) and searches (*Indicator Sightings*) | - |
 
 ## What each source feeds
 
@@ -284,7 +287,7 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Domain History | Timeline of changes, historical certificates | Parked-to-Weaponized, Parking Exit, Phishing/Spam Prep, domain story timeline |
 | Certificate Search | Certificates naming the domain, its subdomains or IP | Mega-SAN, Certificate Churn, CAA breach, weak keys, validity, CT Log Evasion (missing SCTs), Pre-Certificate Staging, Cert-to-DNS gap (with passive DNS), Hostname Inventory, Subdomain Triage |
 | Iris Investigate risk score | DomainTools risk score and components (from the Iris records) | Score gate, Unified Risk, KPI banner |
-| Iris Investigate | Current registration, hosting, mail (MX, SPF), trackers, website, popularity rank | Newly Registered Domain, hosting watchlist, Shared Web Tracker, Cross-Domain Redirect, streaming panels, High-Risk Mail Provider and Highly Permissive SPF (+all) from the current MX / SPF, lower confidence on popular domains, Pivot Ranking (Iris pivot counts), Domain profile |
+| Iris Investigate | Current registration, hosting, mail (MX, SPF), trackers, website, popularity rank | Newly Registered Domain, hosting watchlist, Shared Web Tracker, Cross-Domain Redirect, streaming panels, High-Risk Mail Provider and Highly Permissive SPF (+all) from the current MX / SPF, lower confidence on popular domains, *Hunt map → All pivots* (Iris pivot counts), cluster link strength, Domain profile |
 | Passive DNS | Every DNS record and when it was seen | Fast-flux, DNS tunneling / TXT payloads, SPF, sinkholes, nested subdomains, origin IP exposure, CNAME chains and their detections |
 | TXT / CAA / CNAME lookups | Complete TXT, CAA and CNAME records on busy domains | SPF and TXT detections, CAA audit, CNAME Chains page |
 | CNAME chases | Where CNAMEs that leave the collected data end | Dangling CNAME (subdomain takeover), long chains and loops, final addresses in the CNAME Chains page |
@@ -295,4 +298,4 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | VPNDB ranges and networks | Known exits around the hosting IPs and on the Iris hosting ASNs; CIDR targets | Hosted Among Anonymizer Exits; Neighbourhood and CIDR ranges tabs |
 | DNSDB on dedicated exits | Other names on an exit few customers share | Leads tab (*Analyze*) |
 | VPNDB Tor overview | Where Tor exit traffic leaves: networks, countries, prefixes | Hosted Among Tor Exits; Tor network page, Tor share on each IP card |
-| CT / co-occurrence | CT log submissions, other hosts sharing a certificate | CT log panel in the Certificates page, certificate co-occurrence in Raw Records (context, not detections) |
+| CT / co-occurrence | CT log submissions, other hosts sharing a certificate | CT log panel in the Certificates page, certificate co-occurrence in *Evidence → Records* (context, not detections) |

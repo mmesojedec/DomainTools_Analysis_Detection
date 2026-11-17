@@ -1,13 +1,13 @@
-"""Pivot Ranking lens: the run's shared values (IPs, name servers, emails, certificates, trackers) ranked by how rare they are."""
+"""All pivots lens: the run's shared values (IPs, name servers, emails, certificates, trackers) ranked by how rare they are."""
 import streamlit as st
 
 from config import PIVOT_RESULT_LIMIT
 from core.pivots import SIGNALS, build_pivot_ranking, iris_curl, iris_search_params, pivot_domains_frame
 from integrations.enrichment import fetch_iris_pivot
-from views.common import selected_rows, selection_key
+from views.common import metric_slots, selected_rows, selection_key
 from views.hunt_actions import HUNT_MAX_DOMAINS, analyze_button
 from views.hunt_actions import PIVOT_RESULTS_KEY as RESULTS_KEY
-from views.sidebar import add_to_targets, rerun_app_if_requested
+from views.sidebar import rerun_app_if_requested
 
 TABLE_COLUMNS = ["Signal", "Type", "Value", "Iris Domains", "Run Domains", "Shared With", "Analyze As"]
 COLUMN_HELP = {
@@ -17,7 +17,7 @@ COLUMN_HELP = {
     "Run Domains": "Domains of this run that have this value",
     "Shared With": "Which domains of this run have it",
     "Analyze As": "Target-box line to analyze it directly (IPs, certificates, redirect domains); empty when the app "
-                  "cannot take it as a target, use Find domains in Iris instead",
+                  "cannot take it as a target, use Find in Iris instead",
 }
 MAX_SEARCHES = 5   # Iris Investigate searches per click
 
@@ -29,7 +29,7 @@ def dataset_pivots(ds):
 
 
 def render_pivot_lens(ds):
-    st.header("Pivot Ranking", help="Every value in the run's Iris Investigate records that other domains can share, "
+    st.subheader("All pivots", help="Every value in the run's Iris Investigate records that other domains can share, "
                                     "with the number of domains in Iris that share it. Rare values (a few to a few "
                                     "hundred domains) usually lead to the same operator; values shared by millions "
                                     "(CDN IPs, large registrars) are noise.")
@@ -45,7 +45,7 @@ def render_pivot_lens(ds):
                 "Strong or useful values that two or more of this run's domains share: the run's domains are probably "
                 "linked"),
                ("Values ranked", len(ranking), "Every pivotable value of the selected domains")]
-    for col, (label, value, help_text) in zip(st.columns(len(metrics)), metrics):
+    for col, (label, value, help_text) in zip(metric_slots(len(metrics)), metrics):
         col.metric(label, value, help=help_text)
     _render_pivot_table(ranking)
 
@@ -90,13 +90,12 @@ def _render_actions(picked):
     targets = [t for t in picked["Analyze As"] if t]
     searches = list(dict.fromkeys(picked["Iris Search"]))
     c_targets, c_iris = st.columns(2)
-    c_targets.button(f"Add {len(targets):,} to targets" if targets else "Add to targets", disabled=not targets,
-                     on_click=add_to_targets, args=(targets,), key="pivot_add_targets", icon=":material/add:",
-                     help="Puts the selected IPs, certificates and redirect domains in the sidebar target box and "
-                          "switches to live lookups; click Analyze to run them. Other types cannot be targets: use "
-                          "Find domains in Iris.")
-    find = c_iris.button(f"Find domains in Iris ({min(len(searches), MAX_SEARCHES)})" if searches else
-                         "Find domains in Iris", disabled=not searches, key="pivot_find", icon=":material/search:",
+    analyze_button(targets, "Pivot " + ", ".join(searches[:3]), key="pivot_analyze_targets", container=c_targets,
+                   label=f"Analyze now ({len(targets):,})" if targets else "Analyze now", disabled=not targets,
+                   help="Analyzes the selected IPs, certificates and redirect domains right away as a new run, linked "
+                        "to this one on the Hunt map. Other types cannot be targets: use Find in Iris.")
+    find = c_iris.button(f"Find in Iris ({min(len(searches), MAX_SEARCHES)})" if searches else
+                         "Find in Iris", disabled=not searches, key="pivot_find", icon=":material/search:",
                          help=f"Searches Iris Investigate for the domains sharing each selected value: one query per "
                               f"value, up to {MAX_SEARCHES} per click and {PIVOT_RESULT_LIMIT:,} domains each. Uses "
                               "API quota, also when an offline dataset is loaded.")
@@ -139,13 +138,11 @@ def _render_results():
                 continue
             st.dataframe(domains, hide_index=True, column_config={
                 "Risk Score": st.column_config.ProgressColumn("Risk Score", min_value=0, max_value=100, format="%d")})
-            c_hunt, c_add, c_copy = st.columns([1.4, 1.2, 2])
+            c_hunt, c_copy = st.columns([1.4, 3.2])
             top = list(domains["Domain"].head(HUNT_MAX_DOMAINS))
             analyze_button(top, f"Iris search {search}", key=f"pivot_hunt::{search}", container=c_hunt,
-                           label=f"Analyze the top {len(top)} as a new run",
+                           label=f"Analyze now ({len(top)} domains)",
                            help=f"Analyzes the {len(top)} highest-risk domains right away as a new run, linked to "
                                 "this one in the hunt tree (Hunt → Hunt map).")
-            c_add.button(f"Add {len(domains):,} domains to targets", on_click=add_to_targets,
-                         args=(list(domains["Domain"]),), key=f"pivot_add::{search}", icon=":material/add:")
             with c_copy.popover("Copy domains"):
                 st.code("\n".join(domains["Domain"]), language=None)

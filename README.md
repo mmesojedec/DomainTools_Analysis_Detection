@@ -5,10 +5,10 @@ Domain History, passive DNS from DNSDB Scout, and the Certificate API with searc
 SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
 threat engine over the combined telemetry.
 
-![Start page: pick a use case, enter targets in the sidebar and click Analyze](docs/images/start-page.png)
+![Start page: pick a use case, enter targets in the Targets box and click Analyze](docs/images/start-page.png)
 
 *The Start page: choose a use case (it sets the lookups, limits and analysis window), enter domains, IPs or
-certificates in the sidebar and click **Analyze**. The last run links to the Recent runs page.*
+certificates in the Targets box and click **Analyze**. The last run links to the Runs page.*
 
 ## Documentation
 
@@ -27,9 +27,10 @@ certificates in the sidebar and click **Analyze**. The last run links to the Rec
   truncated results are never silent. Targets can be domains, IPs, or certificates (fingerprints, CN, SAN,
   public key, serial, organization, issuer), which are resolved to the domains and IPs they cover. Where passive DNS
   stops at its limit, TXT, CAA and CNAME lookups fill in what the detections need.
-- **Detects** 72 behaviors (fast-flux, parked-to-weaponized, CAA breaches, abnormal certificate rotation, DNS tunneling,
-  dangling CNAMEs, shared infrastructure, domain hopping, lookalikes, ...), each with a severity, a confidence, a
-  category and a MITRE ATT&CK technique.
+- **Detects** 91 behaviors (fast-flux, parked-to-weaponized, CAA breaches, abnormal certificate rotation, DNS tunneling,
+  dangling CNAMEs, shared infrastructure, domain hopping, lookalikes, re-registered domains, phishing kit staging,
+  campaign waves, ...), each with a severity, a confidence, a category and a MITRE ATT&CK technique. Your verdicts on
+  a rule's alerts tune its confidence, and an infrastructure allowlist keeps your own infrastructure out.
 - **Chases CNAME chains** like DNSDB Scout: every alias followed to its final addresses, with the target service
   (dynamic DNS / tunnel, takeover-prone, free hosting, CDN), dead ends that point to subdomain takeover, and the
   names and addresses that link the analyzed domains through their chains; reverse CNAME (RDATA) lookups find
@@ -40,14 +41,13 @@ certificates in the sidebar and click **Analyze**. The last run links to the Rec
   checks VPNDB within its own query budget; *Check IP addresses* looks up IPs and CIDR ranges in VPNDB only, with
   every address of a range checked.
 - **Finds targets with IrisQL**: an Iris Investigate query in IrisQL (`domain contains "domaintools"`) lists the
-  matching domains with their risk, dates, registrar and hosting (menu *IrisQL*, or Data source *IrisQL* in the
-  sidebar); tick domains and IPs, pick a use case and analyze them. The query editor suggests the fields, then only
-  the operators each field accepts, then the value in the right form.
+  matching domains with their risk, dates, registrar and hosting; tick domains and IPs, pick a use case and analyze
+  them. The query editor suggests the fields, then only the operators each field accepts, then the value in the right
+  form. A watched query, checked again later, shows only the domains that are new.
 - **Finds targets with CertsQL**: a Certificate Search query in CertsQL (`san_dns contains "login"`) lists the
-  matching certificates with the domains, IPs and hostnames they name (menu *CertsQL*, or Data source *CertsQL*); the
-  query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. Tick
+  matching certificates with the domains, IPs and hostnames they name; the query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. Tick
   domains and IPs and analyze them.
-- **Ranks pivots**: every IP, name server, email, registrant, certificate and tracker in Iris Investigate, by how many
+- **Ranks pivots** (*Hunt map → All pivots*): every IP, name server, email, registrant, certificate and tracker in Iris Investigate, by how many
   domains share it, so rare links to the same operator come first; one click finds their other domains in Iris.
 - **Triages subdomains** on shared platforms (pages.dev, workers.dev, free subdomain services) by phishing words,
   brands, embedded domains, generated names and bursts of new names.
@@ -59,19 +59,19 @@ certificates in the sidebar and click **Analyze**. The last run links to the Rec
   hostname's certificate hashes; a hostname focus narrows every view to chosen hostnames.
 - **Tracks** runs over time: changes since the last run, first-detected alerts, trends, per-domain history,
   offline re-analysis without API calls; with *Monitor changes*, re-runs fetch only new passive DNS records. The
-  *Recent runs* page shows the last runs as a timeline, cards (what changed, risk trend, shared indicators) or a
-  table, and runs one again or loads its offline copy. The *Hunt map* (Hunt menu) draws each hunt with
+  *Runs* page shows the last runs as a timeline, one card per target list (what changed, risk trend, shared
+  indicators) or a table (per list, or every run), runs one again or loads its offline copy, and compares runs and trends. The *Hunt map* (Hunt menu) draws each hunt with
   its open and done steps, and how runs connect: leads followed, and infrastructure different investigations share.
-- **Finds earlier sightings** of an indicator (*Recent runs → Indicator Sightings*): every saved run and offline
+- **Finds earlier sightings** of an indicator (*Runs → Indicator Sightings*): every saved run and offline
   dataset where an IP, domain, name server, MX host, certificate hash, JA4X, tracker code or email was observed, with
   no API query. An indicator a run shares with other investigations opens its sightings in one click.
 - **Watches API usage**: red and yellow banners on every page when a product the app uses has used up 95% or all of
-  its monthly quota, or expires within 30 days or has expired; every lookup records the queries it made (Data sources, Runs & Diffs), sources missing from the account are
+  its monthly quota, or expires within 30 days or has expired; every lookup records the queries it made (Data sources, Runs), sources missing from the account are
   skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
   same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
 - **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
   tools, and keeps every VPNDB answer as received.
-- **Exports** detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, a printable case
+- **Exports** (*Data → Export & report*) detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, a printable case
   report for managers or takedown requests (summary, top alerts, risk, infrastructure, IOCs), and hands IOCs,
   tables and raw records to other teams as CSV / NDJSON.
 
@@ -105,9 +105,9 @@ service uses. Environment variables and the `~/.dtapi` / `~/.dtdnsdb` files work
 over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
-`san:`, `spki:`, ... lines) in the sidebar and click **Analyze**: the **Summary** opens with what to check next. The
-top menu groups every page (Start, IrisQL, CertsQL, Recent runs, Overview, Infrastructure, Hunt, Evidence, Manage Data,
-Data sources, Settings, Account, Help); see
+`san:`, `spki:`, ... lines) in the Targets box and click **Analyze**: the **Summary** opens, and the
+**Hunt map** (Analyst mode) lists what to check next. The top menu groups every page (Start, IrisQL, CertsQL, Runs,
+Overview, Infrastructure, Hunt, Evidence, Data, Settings); see
 [The app at a glance](docs/USAGE.md#the-app-at-a-glance) and [Certificate inputs](docs/USAGE.md#certificate-inputs).
 
 ## Project structure
@@ -129,7 +129,7 @@ core/
   api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, what is left, Data sources statistics
   query_assist.py              IrisQL / CertsQL editor suggestions: fields, each field's operators, value templates, flagged lines
   hostnames.py                 Hostname focus filter, Hostname Inventory (lifecycle, flags) and hostname-certificate links
-  pivots.py                    Pivot Ranking: shared Iris Investigate values ranked by Iris pivot count
+  pivots.py                    All pivots (Hunt map): shared Iris Investigate values ranked by Iris pivot count
   subdomain_triage.py          Subdomain Triage: name and lifecycle signals, score and level per subdomain
   cname.py                     CNAME chains: target service types, chains through collected data and DNSDB chases, per-domain chase plan, cross-domain links
   use_cases.py                 Use cases and custom profiles: collection options, window, plan, lookups and limits
@@ -139,9 +139,11 @@ core/
   hunt_result.py               Hunt status and result: what each run added, link to the start, cluster, core indicators
   hunt_combine.py              Combined hunts: what hunts share, links between their runs, where a joined hunt attaches
   hunt_tree.py                 Hunts: which run a run was started from, the trail to any run, a hunt's runs
-  run_views.py                 Recent runs and All investigations data: change since the previous run, risk trend, shared artifacts, links
+  run_views.py                 Runs page and All investigations data: change since the previous run, risk trend, shared artifacts, links
   ja4x.py                      JA4X: known C2 fingerprints, layout notes, rarity, per-run summary
-  triage.py                    Triage status of alerts and domain verdicts (New, Investigating, Benign, Malicious), kept in dt_triage.json
+  triage.py                    Triage status of alerts and domain verdicts (New, Investigating, Benign, Malicious), kept in dt_triage.json; rule confidence tuned by your verdicts
+  allowlist.py                 Infrastructure allowlist (IPs, ranges, ASNs, name servers, certificate organizations, trackers, registrars)
+  query_watch.py               Watched IrisQL queries: a query saved with the domains it returned, so a check shows only new ones
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
   lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
   rule_catalog.py              Detection reference: per-rule trigger, rationale, severity and confidence levels
@@ -159,7 +161,7 @@ core/
   export.py                    IOC lists, confirmed indicators, STIX 2.1 bundles, MISP events, HTML/Markdown evidence reports
   case_report.py               Case report: one run as a printable, self-contained HTML page (summary, top alerts, risk, infrastructure, IOCs)
   seen.py                      Indicator Sightings: where an indicator was observed across saved runs and offline datasets
-  data_export.py               Data Export page: IOCs, tables and raw records as CSV / NDJSON, zipped with a manifest
+  data_export.py               Export & report page data: IOCs, tables and raw records as CSV / NDJSON, zipped with a manifest
   cert_utils.py                Certificate helpers (weak keys, duration, self-signed, IP names)
   pdns_features.py             Shared pDNS / Domain History feature engineering (gaps, lifespans, tempo)
   timezone.py                  Timezone shifting for display frames
@@ -174,9 +176,11 @@ core/
                                history decides whether an exit counted while the domain used it)
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
-    enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular domains
+    enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
     intel_rules.py             Registration age, hosting watchlist, redirects, parking, ASN-aware flux, volume anomalies,
                                CDN origin exposure, lookalikes
+    lifecycle_rules.py         Lifecycle rules (re-registered domain, throwaway registrant mail, name server churn, registrar transfer then new name servers)
+    compound_rules.py          Compound and cross-domain rules (phishing kit staging, takeover in progress, mail-capable lookalike, lure subdomains, bulk registration cohorts, campaign waves)
     txt_fingerprints.py        TXT SaaS fingerprinting and encoded-payload detection
 
 integrations/
@@ -191,20 +195,34 @@ integrations/
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
   enrichment.py                Iris Investigate (SDK, batched), pivot searches, IrisQL searches (JSON POST) and web tracker extraction
+  progress.py                  Live progress of a collection: one row per planned lookup, drawn by the collecting thread
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
-  sidebar.py                   Sidebar: targets, data source, Analyze, window, filters; run options and Run again
-  home_view.py                 Start page (use cases, the last run)
+  sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options), view filters; Run again
+  home_view.py                 Start page (Targets box, Save offline copy and Analyze, use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
-  certsql_view.py              CertsQL page (menu, or Data source CertsQL): Certificate Search query, pick certificates / domains / IPs, analyze them
-  irisql_view.py               IrisQL page (menu, or Data source IrisQL): query Iris Investigate, pick domains / IPs, analyze them with a use case
+  certsql_view.py              CertsQL page: Certificate Search query, pick certificates / domains / IPs, analyze them
+  irisql_view.py               IrisQL page: query Iris Investigate, pick domains / IPs, analyze them with a use case; watched queries
   query_editor.py              IrisQL / CertsQL query editor with autocomplete (CodeMirror 5, bundled in views/assets/codemirror)
-  summary_view.py              Summary: KPIs, domains, analysis details, top alerts, hunt status, plan, what to check next, leads, linked domains, run statistics, what's new
+  summary_view.py              Summary: KPIs, domains, analysis details, linked domains, hunt pointer, top alerts, run statistics, what's new
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
-  profile_view.py              Domain profile: one domain on one screen
+  profile_view.py              Domain profile: one domain on one screen, with an action row (sightings, IrisQL, CertsQL, copy)
+  risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
+  alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools
+  indicator_view.py            One indicator in focus (dialog): what the run knows about it, its alerts, sightings, next steps
+  infra_view.py                DNS & Hosting: Timeline, Subdomains & IPs, and Web & TXT tabs
+  campaign_view.py             DNS & Hosting → Campaign & hosting (timelines, graph, clusters, hosting map, hopping)
+  cname_view.py                CNAME Chains page: chains, chases, cross-domain links, reverse CNAME
+  ssl_view.py                  Certificates page (6 tabs: Overview, Self-Signed, Validity & keys, JA4X & C2, Issuers & policies, CT logs)
+  pivot_view.py                Hunt map → All pivots: shared values ranked by rarity, Find in Iris
+  hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
+  triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals
+  raw_view.py                  Evidence → Records, and the lookup status panel shown when a run returned no data
+  query_view.py                Evidence → Lookup queries: every lookup as a reusable query and command
+  seed_view.py                 Certificate inputs: preview of the domains / IPs they resolve to, and their provenance
   history_cap.py               Domains whose Domain History stopped at Max changes: notice and Fetch the rest
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
@@ -213,23 +231,23 @@ views/                         One module per page + sidebar, alert tools, certi
   ip_card.py                   One IP in full: VPNDB verdict and whole answer, weekly history, where the run saw it,
                                Iris, its /24 and network, Tor share; fetches a full verdict on demand
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards
-  settings_view.py             Settings: collection options, use cases & profiles, thresholds, brand watchlist, cache, credentials
+  settings_view.py             Settings: collection options (next Analyze, use cases, profiles), thresholds, brands & allowlist, storage & cache, credentials
   account_view.py              Account: DomainTools account, product limits, usage this month and today, expiry; DNSDB and VPNDB quotas
   quota_banner.py              Red / yellow banners on every page: a product's quota used up or near it, expiry close or past
-  recent_view.py               Recent runs page: runs (timeline, cards, table, filters, shared indicators) and Sightings tab
+  recent_view.py               Runs page: Recent runs (timeline, cards, table, filters, shared indicators), Compare & trends and Sightings tabs
   seen_view.py                 Indicator Sightings tab (search, sightings over time, shared indicators to start from)
   api_usage_view.py            What each service has left, skipped products
   sources_view.py              Data sources: the run in numbers, lookups per source by status, by source / target, needs attention, API queries, all lookups
-  history_view.py              Runs & Diffs (previous runs, comparison, trends, watched lists), Offline Datasets, run actions
-  run_visuals.py               Recent runs timeline, run cards and runs and detections per day; the All investigations figure
+  history_view.py              Runs → Compare & trends (previous runs, comparison, trends, watched lists), Saved datasets, retention, run actions
+  run_visuals.py               Runs timeline, run cards and runs and detections per day; the All investigations figure
   hunt_map_view.py             Hunt map page (Hunt menu): a hunt's runs, open and done steps, the next steps to run
   hunting_graph_view.py        Hunt map → All investigations: runs linked by leads and shared artifacts
   hunt_run_view.py             Run the suggested hunt: clickable graph, picked steps, Run suggested hunt…, guided hunt
   hunt_plan_view.py            Suggested hunt (Hunt map): where to start, ranked branches, leads set aside
   hunt_next_view.py            Hunt map's alert decisions, what to check next and more leads (moved from the Summary)
   hunt_combine_view.py         Hunt map's Combined hunts tab: several hunts on one map, combined result, join / detach
-  export_view.py               Data Export: case report, confirmed indicators, IOCs, tables and raw records
-  docs_view.py                 In-app documentation (Help → Documentation, /docs)
+  export_view.py               Export & report: case report, confirmed indicators, detections, IOCs, STIX, reports, tables and raw records
+  docs_view.py                 In-app documentation (Settings → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)
 scripts/generate_docs_tables.py Regenerates the User Guide and Reference tables from the code

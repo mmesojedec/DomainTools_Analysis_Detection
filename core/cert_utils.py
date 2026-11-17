@@ -5,7 +5,6 @@ import pandas as pd
 
 from core.helpers import is_ip_address, optional_bool, safe_bool
 
-AUTOMATED_CA_MARKERS = ("let's encrypt", "letsencrypt", "zerossl", "we1", "cpanel", "cloudflare", "google trust services")
 # Issuer name fragments (CN / O / DN, lowercase) of publicly trusted CAs and their intermediates
 PUBLIC_CA_MARKERS = (
     "let's encrypt", "letsencrypt", "isrg", "digicert", "geotrust", "thawte", "rapidssl", "sectigo", "comodo", "usertrust",
@@ -17,6 +16,16 @@ PUBLIC_CA_MARKERS = (
 # Bare intermediate common names used without an organization in some sources (Let's Encrypt, Google Trust Services)
 PUBLIC_CA_CN_PATTERN = re.compile(r"^(?:r\d{1,2}|e\d{1,2}|w[er]\d|wr\d|we\d|gts ca \w+)$")
 CABF_POLICY_PREFIX = "2.23.140.1."
+# CA families named in the risk breakdown and the DIF: (key, label, issuer-text markers, bare intermediate CN pattern).
+# The one classifier both use, so a certificate never reads "Let's Encrypt" in one and "unknown CA" in the other.
+CA_FAMILIES = (
+    ("letsencrypt", "Let's Encrypt (Automated ACME)", ("let's encrypt", "letsencrypt", "isrg"), re.compile(r"^[re]\d{1,2}$")),
+    ("zerossl", "ZeroSSL (Automated ACME)", ("zerossl",), None),
+    ("google", "Google Trust Services", ("pki.goog", "google trust services", "gts ca"), re.compile(r"^w[er]\d$")),
+    ("digicert", "DigiCert Inc", ("digicert", "thawte", "geotrust", "rapidssl"), None),
+    ("sectigo", "Sectigo / Comodo", ("sectigo", "comodo", "usertrust"), None),
+    ("amazon", "Amazon Trust Services", ("amazon", "awstrust"), None),
+)
 
 MIN_RSA_BITS = 2048
 MIN_EC_BITS = 224
@@ -109,6 +118,17 @@ def publicly_trusted(cert):
     return None
 
 
-def is_automated_ca(issuer):
-    issuer_lower = str(issuer or "").lower()
-    return any(marker in issuer_lower for marker in AUTOMATED_CA_MARKERS)
+
+def issuer_family(cert, self_signed=None):
+    """
+    (key, label) of the certificate's CA family from its issuer CN / organization / DN: ("self_signed", "Self-Signed")
+    first, then CA_FAMILIES, else ("other", the issuer name or "Third-Party Public CA").
+    """
+    if self_signed if self_signed is not None else cert_is_self_signed(cert):
+        return "self_signed", "Self-Signed"
+    issuer_cn = str(cert.get("Issuer") or "").strip()
+    text = " ".join(str(cert.get(k) or "").lower() for k in ("Issuer", "Issuer Org", "Issuer DN"))
+    for key, label, markers, cn_pattern in CA_FAMILIES:
+        if any(marker in text for marker in markers) or (cn_pattern and cn_pattern.match(issuer_cn.lower())):
+            return key, label
+    return "other", issuer_cn[:28] or "Third-Party Public CA"

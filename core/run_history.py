@@ -3,10 +3,11 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from core.intel_data import SEVERITY_ORDER  # noqa: F401 (imported from here by other modules)
+
 ALERT_FIELDS = ["Domain", "Threat Type", "Severity", "Confidence", "Category", "MITRE ATT&CK", "Threat Logic"]
 ALERT_KEY = ["Domain", "Threat Type"]   # stable across runs (logic text contains counts and dates that change)
 PROFILE_FIELDS = ["Domain", "Unified Risk", "Base Domain Risk Score", "DIF Fingerprint"]
-SEVERITY_ORDER = ["Critical", "High", "Medium-High", "Medium", "Low"]
 
 
 def snapshot_alerts(snapshot):

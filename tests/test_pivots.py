@@ -63,8 +63,8 @@ def test_empty_enrichment_gives_an_empty_ranking():
 def test_iris_search_helpers():
     assert iris_search_params("email=actor@mail.example") == {"email": "actor@mail.example"}
     assert iris_curl("ssl_subject=CN=bad.example") == (
-        'curl -s "https://api.domaintools.com/v1/iris-investigate/?ssl_subject=CN%3Dbad.example'
-        '&api_username=$DT_API_USERNAME&api_key=$DT_API_KEY"')
+        'curl -s "https://api.domaintools.com/v1/iris-investigate/?ssl_subject=CN%3Dbad.example" '
+        '-H "X-Api-Key: $DT_API_KEY"')
 
 
 def test_pivot_domains_frame_sorts_by_risk():

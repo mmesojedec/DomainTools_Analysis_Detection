@@ -14,8 +14,18 @@ from core.cert_utils import (
 )
 from core.helpers import hostname_matches, is_ip_address, registrable_domain
 from core.ja4x import cert_ja4x, known_ja4x, layout_note
-from core.threat_detection.context import evidence_record, fmt_ts
+from core.network_intel import explode_ip_events
+from core.self_signed import assess as assess_self_signed
+from core.threat_detection.context import by_host, evidence_record, fmt_ts
 
+SHA1_SUNSET = pd.Timestamp("2017-01-01")
+BACKDATE_HOURS = 48          # Not Before this much earlier than the first CT log timestamp: backdated
+STAGING_MIN_HOURS = 24       # certificate issued at least this long before its hostname first resolved ...
+STAGING_MAX_DAYS = 30        # ... and at most this long: prepared in advance, not an old certificate
+TINY_SERIAL_HEX = 4          # serial numbers of 2 bytes or less are made by tools, never by public CAs (16+ bytes)
+DEFAULT_SUBJECT_MARKERS = ("internet widgits", "some-state", "default company", "acme co", "my company")     # public CAs stopped issuing SHA-1 certificates by then
+# Issuer / CN fragments of certificates that bundle unrelated customers by design (CDN SNI, shared hosting)
+SHARED_HOSTING_CERT_MARKERS = ("cloudflare", "sni.cloudflaressl", "cpanel", "incapsula", "imperva", "fastly", "akamai")
 CABF_VALIDITY_CUTOFF = pd.Timestamp("2020-09-01")
 # CA/B Forum maximum validity by issuance date (ballot SC-081 from 2026); newest first
 CABF_VALIDITY_LIMITS = (
@@ -58,12 +68,24 @@ def cert_evidence(cert, info=None):
 # Domain-level pre-pass (must run before per-cert compound rules)
 # ---------------------------------------------------------------------------
 
-def rule_rapid_weaponization(ctx, certs):
-    """Certificate issued within `gap_hours` of the first DNS observation."""
+def first_resolution(ctx):
+    """{hostname: first time it resolved to an address} from the domain's A / AAAA events (each host apart)."""
     if ctx.events.empty:
-        return
-    first_dns = ctx.events["Date"].min()
-    if pd.isna(first_dns):
+        return {}
+    ip_rows = explode_ip_events(ctx.events)
+    return {host: rows["Date"].min() for host, rows in by_host(ip_rows, ctx.domain) if pd.notna(rows["Date"].min())}
+
+
+def _cert_hosts(cert, ctx):
+    """The certificate's hostnames under the domain (wildcards as their parent name), the domain itself first."""
+    names = [str(n).lower().rstrip(".").removeprefix("*.") for n in cert_alt_names(cert)]
+    names = [n for n in dict.fromkeys(names) if n == ctx.domain or n.endswith("." + ctx.domain)]
+    return names or [ctx.domain]
+
+
+def rule_rapid_weaponization(ctx, certs, first_seen):
+    """A certificate issued within `gap_hours` of the first resolution of a hostname it names (each host apart)."""
+    if not first_seen:
         return
     gap_limit = float(ctx.thresholds["gap_hours"])
     best = None
@@ -71,20 +93,51 @@ def rule_rapid_weaponization(ctx, certs):
         issued = _cert_date(cert, "Not Before Date", "Not Before")
         if pd.isna(issued):
             continue
-        signed_gap = (issued - first_dns).total_seconds() / 3600
-        if abs(signed_gap) <= gap_limit and (best is None or abs(signed_gap) < best[0]):
-            best = (abs(signed_gap), cert, signed_gap, issued)
+        for host in _cert_hosts(cert, ctx):
+            first_dns = first_seen.get(host)
+            if first_dns is None:
+                continue
+            signed_gap = (issued - first_dns).total_seconds() / 3600
+            if abs(signed_gap) <= gap_limit and (best is None or abs(signed_gap) < best[0]):
+                best = (abs(signed_gap), cert, signed_gap, issued, host, first_dns)
     if best is None:
         return
-    _, cert, signed_gap, issued = best
+    _, cert, signed_gap, issued, host, first_dns = best
     order = "after" if signed_gap >= 0 else "before"
     ctx.add(
         "Rapid Weaponization (Cert-to-DNS Gap)", "High", "T1588.004 (Obtain Digital Certificates)",
-        f"SSL cert issued {abs(signed_gap) * 60:.0f} mins {order} first DNS record.",
-        f"Cert Issued: {fmt_ts(issued)}\nFirst DNS Event: {fmt_ts(first_dns)}\nCert Hash: {str(cert.get('Hash'))[:16]}...",
+        f"SSL cert issued {abs(signed_gap) * 60:.0f} mins {order} {host} first resolved.",
+        f"Hostname: {host}\nCert Issued: {fmt_ts(issued)}\nFirst Resolution: {fmt_ts(first_dns)}\n"
+        f"Cert Hash: {str(cert.get('Hash'))[:16]}...",
         flag="rapid_weaponization",
-        evidence=[cert_evidence(cert), evidence_record(first_dns, "First DNS Event", ctx.domain)],
+        evidence=[cert_evidence(cert), evidence_record(first_dns, "First Resolution", host)],
     )
+
+
+def rule_certificate_staging(ctx, certs, first_seen):
+    """A certificate issued 1-30 days before the hostname it names first resolved: infrastructure prepared ahead."""
+    if not first_seen:
+        return
+    for _, cert in certs.iterrows():
+        issued = _cert_date(cert, "Not Before Date", "Not Before")
+        if pd.isna(issued) or cert_flag(cert, "Is Precertificate") is True:
+            continue
+        for host in _cert_hosts(cert, ctx):
+            first_dns = first_seen.get(host)
+            if first_dns is None:
+                continue
+            lead = (first_dns - issued).total_seconds() / 3600
+            if STAGING_MIN_HOURS <= lead <= STAGING_MAX_DAYS * 24:
+                ctx.add(
+                    "Certificate Staged Before DNS", "Medium", "T1608.003 (Stage Capabilities: Install Digital Certificate)",
+                    f"Certificate for {host} issued {lead / 24:.1f} days before the hostname first resolved: the "
+                    "infrastructure was prepared before it went live.",
+                    f"Hostname: {host}\nCert Issued: {fmt_ts(issued)}\nFirst Resolution: {fmt_ts(first_dns)}\n"
+                    f"Cert Hash: {cert.get('Hash')}",
+                    flag="cert_staging",
+                    evidence=[cert_evidence(cert), evidence_record(first_dns, "First Resolution", host)],
+                )
+                return
 
 
 # ---------------------------------------------------------------------------
@@ -92,11 +145,63 @@ def rule_rapid_weaponization(ctx, certs):
 # ---------------------------------------------------------------------------
 
 def rule_self_signed(ctx, cert, info):
+    """Graded like the Certificates page (core.self_signed.assess): a C2 framework's default is Critical, an expired
+    lab certificate Low."""
     if info["self_signed"]:
+        sources = set(ctx.ssl.loc[ctx.ssl["Hash"] == cert.get("Hash"), "Source"].astype(str)) \
+            if {"Hash", "Source"} <= set(ctx.ssl.columns) else set()
+        severity, reasons, _ = assess_self_signed(cert, [ctx.domain], sources, ctx.now)
         ctx.add(
-            "Self-Signed Certificate Detected", "High", "T1573.002 (Encrypted Channel)",
-            "Domain utilizes a self-signed certificate (Subject matches Issuer).",
-            f"Common Name: {info['cn'] or 'N/A'}\nIssuer: {info['issuer'] or 'N/A'}\nCert Hash: {cert.get('Hash', 'N/A')}",
+            "Self-Signed Certificate Detected", severity, "T1573.002 (Encrypted Channel)",
+            "Domain utilizes a self-signed certificate (Subject matches Issuer): " + "; ".join(reasons[:2]) + ".",
+            f"Common Name: {info['cn'] or 'N/A'}\nIssuer: {info['issuer'] or 'N/A'}\nCert Hash: {cert.get('Hash', 'N/A')}"
+            + "".join(f"\n- {reason}" for reason in reasons),
+            confidence="High" if severity == "Critical" else None,
+        )
+
+
+def rule_backdated(ctx, cert, info):
+    """Not Before far earlier than the certificate's first CT log timestamp (embedded SCTs)."""
+    scts = cert.get("Signed Certificate Timestamps")
+    if not isinstance(scts, list) or not scts or pd.isna(info["not_before"]):
+        return
+    stamps = [pd.to_datetime(s.get("timestamp"), errors="coerce", utc=True) for s in scts if isinstance(s, dict)]
+    stamps = [t.tz_localize(None) for t in stamps if pd.notna(t)]
+    if not stamps:
+        return
+    logged = min(stamps)
+    hours = (logged - info["not_before"]).total_seconds() / 3600
+    if hours > BACKDATE_HOURS:
+        ctx.add(
+            "Backdated Certificate", "Medium", "T1588.004 (Obtain Digital Certificates)",
+            f"Certificate claims validity from {fmt_ts(info['not_before'])}, {hours / 24:.1f} days before it was first "
+            "logged in CT: backdating hides when it was really made (CAs backdate by an hour at most).",
+            f"Not Before: {fmt_ts(info['not_before'])}\nFirst SCT: {fmt_ts(logged)}\nCert Hash: {cert.get('Hash')}",
+            flag="backdated_cert",
+        )
+
+
+def rule_unusual_fields(ctx, cert, info):
+    """CA-issued certificate fields that tools set and CAs never do: tiny serial, no serverAuth, default subject."""
+    if info["self_signed"]:
+        return   # graded by the self-signed rule
+    reasons = []
+    serial = str(cert.get("Serial Number") or "").strip().lower().removeprefix("0x").replace(":", "").lstrip("0")
+    if cert.get("Serial Number") not in (None, "") and len(serial) <= TINY_SERIAL_HEX:
+        reasons.append(f"serial number {cert.get('Serial Number')!s} (public CAs use 16+ random bytes)")
+    eku = [str(e).lower() for e in (cert.get("Extended Key Usage") or []) if str(e).strip()] \
+        if isinstance(cert.get("Extended Key Usage"), list) else []
+    if eku and not any("server" in e for e in eku):
+        reasons.append(f"no server authentication usage ({', '.join(eku[:3])}) on a certificate naming a website")
+    subject = " ".join(str(cert.get(k) or "") for k in ("Subject DN", "Subject Org")).lower()
+    marker = next((m for m in DEFAULT_SUBJECT_MARKERS if m in subject), None)
+    if marker:
+        reasons.append(f"default subject '{marker}' (filled in by OpenSSL or a tool, not a person)")
+    if reasons:
+        ctx.add(
+            "Unusual Certificate Fields", "Medium", "T1587.003 (Develop Capabilities: Digital Certificates)",
+            "Certificate has fields that certificate tools set and public CAs never do: " + "; ".join(reasons) + ".",
+            f"Issuer: {info['issuer'] or 'N/A'}\nCert Hash: {cert.get('Hash')}\n" + "\n".join(f"- {r}" for r in reasons),
         )
 
 
@@ -118,10 +223,14 @@ def rule_mega_san(ctx, cert, info):
     roots.discard("")
     threshold = ctx.thresholds["ssl_san"]
     if len(roots) >= threshold:
+        # CDN and hosting platforms bundle unrelated customers on purpose (Cloudflare SNI, cPanel, ...): context only
+        shared_host = any(marker in str(info["issuer"]).lower() or marker in str(info["cn"]).lower()
+                          for marker in SHARED_HOSTING_CERT_MARKERS)
         ctx.add(
             "Mega-SAN Cluster (Bulk Infrastructure)", "High", "T1583.001 (Acquire Infrastructure)",
             f"Certificate bundles {len(roots)} registrable domains (threshold >= {int(threshold)}).",
             f"Cert Hash: {str(cert.get('Hash'))[:12]}...\nRoot Domains: {', '.join(sorted(roots)[:5])}{'...' if len(roots) > 5 else ''}",
+            confidence="Low" if shared_host else None,
         )
 
 
@@ -178,9 +287,12 @@ def rule_precertificate(ctx, cert, info):
 
 
 def rule_missing_scts(ctx, cert, info):
-    if cert_flag(cert, "Has Embedded SCTs") is False and not info["self_signed"]:
+    # Only a certificate with other evidence of a public CA (policy OID, validation level, known issuer) is expected
+    # to embed SCTs; a precertificate never carries them, and private CAs are covered by Non-Public CA
+    if cert_flag(cert, "Has Embedded SCTs") is False and info["public_trust"] is True \
+            and cert_flag(cert, "Is Precertificate") is not True:
         ctx.add(
-            "CT Log Evasion / Missing SCTs", "Medium-High", "T1562.001 (Disable or Modify Tools)",
+            "CT Log Evasion / Missing SCTs", "Medium-High", "T1588.004 (Obtain Capabilities: Digital Certificates)",
             "Publicly trusted certificate lacks embedded Signed Certificate Timestamps (SCT evasion/proxy appliance).",
             f"Issuer: {info['issuer']}\nHas SCTs: False",
         )
@@ -190,7 +302,7 @@ def rule_rogue_ca(ctx, cert, info):
     constraints = cert.get("Basic Constraints")
     if isinstance(constraints, dict) and constraints.get("is_ca") is True and not info["self_signed"]:
         ctx.add(
-            "Rogue Certificate Authority", "Critical", "T1552.004 (Private Keys)",
+            "Rogue Certificate Authority", "Critical", "T1553.004 (Subvert Trust Controls: Install Root Certificate)",
             "Target endpoint is serving a certificate possessing CA signing capabilities.",
             f"Basic Constraints: CA=True\nIssuer: {info['issuer']}",
         )
@@ -214,10 +326,14 @@ def rule_validity_window(ctx, cert, info):
 def rule_deprecated_signature(ctx, cert, info):
     sig_algo = str(cert.get("Signature Algo") or "").lower()
     if "md5" in sig_algo or "sha1" in sig_algo:
+        # public CAs stopped SHA-1 in 2016: an older certificate is history, a newer one was made outside the rules
+        issued = info["not_before"]
+        historic = pd.notna(issued) and issued < SHA1_SUNSET
         ctx.add(
-            "Deprecated Signature Algorithm", "High", "T1588 (Obtain Capabilities)",
+            "Deprecated Signature Algorithm", "Medium" if historic else "High", "T1588 (Obtain Capabilities)",
             f"Certificate signed using deprecated cryptographic hash algorithm ({sig_algo}).",
-            f"Signature Algorithm: {cert.get('Signature Algo')}",
+            f"Signature Algorithm: {cert.get('Signature Algo')}\nNot Before: {fmt_ts(issued, '%Y-%m-%d')}",
+            confidence="Low" if historic else None,
         )
 
 
@@ -287,7 +403,7 @@ def rule_wildcard_sprawl(ctx, cert, info):
     san_count = _san_count(cert, info)
     if info["wildcard"] and san_count >= 5:
         ctx.add(
-            "Wildcard Infrastructure Sprawl", "High", "T1584.001 (Compromise Infrastructure: Domains)",
+            "Wildcard Infrastructure Sprawl", "Medium", "T1584.001 (Compromise Infrastructure: Domains)",
             f"Wildcard SAN bundling {int(san_count)} alternative names.",
             f"Wildcard Active: True\nSAN Count: {int(san_count)}\nIssuer: {info['issuer']}",
         )
@@ -352,6 +468,8 @@ def rule_known_ja4x(ctx, cert, info):
 
 PER_CERT_RULES = (
     rule_self_signed,
+    rule_backdated,
+    rule_unusual_fields,
     rule_known_ja4x,
     rule_short_lived,
     rule_mega_san,
@@ -431,7 +549,9 @@ def run_ssl_rules(ctx):
         return
     unique_certs = certs.drop_duplicates(subset=["Hash"]) if "Hash" in certs.columns else certs
 
-    rule_rapid_weaponization(ctx, unique_certs)
+    first_seen = first_resolution(ctx)
+    rule_rapid_weaponization(ctx, unique_certs, first_seen)
+    rule_certificate_staging(ctx, unique_certs, first_seen)
 
     caa_dates = []
     for record in ctx.caa_policy.records:

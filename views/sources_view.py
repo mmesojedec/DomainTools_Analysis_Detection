@@ -21,7 +21,7 @@ from core.api_usage import (
 from integrations.account import known_products
 from views.api_usage_view import service_quotas
 from views.collection_progress import clock
-from views.common import chart, table
+from views.common import chart, metric_slots, table
 
 STATUS_COLORS = {"OK": "#16A34A", "Partial": "#F59E0B", "No data": "#9CA3AF", "Error": "#DC2626"}
 STATUS_HELP = ("**OK**: records returned. **Partial**: stopped at a limit (cap, page limit) or failed after some "
@@ -68,7 +68,7 @@ def render_overview(statuses, progress_rows=None):
         slow = slowest_lookups(progress_rows)
         metrics.append(("Collection time", clock(seconds), "From the first lookup to the last of the last Analyze "
                                                            "in this session" + (f". Slowest: {slow}" if slow else "")))
-    for col, (name, value, help_text) in zip(st.columns(len(metrics)), metrics):
+    for col, (name, value, help_text) in zip(metric_slots(len(metrics)), metrics):
         col.metric(name, value, help=help_text)
     if stats["Errors"] or stats["Partial"]:
         st.caption(f":red[{stats['Errors']:,} failed] · :orange[{stats['Partial']:,} partial]: see the *Needs "
