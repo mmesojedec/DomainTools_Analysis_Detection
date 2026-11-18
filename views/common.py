@@ -1,5 +1,6 @@
 """Shared Streamlit rendering helpers for all dashboard views."""
 import hashlib
+import html
 
 import pandas as pd
 import streamlit as st
@@ -27,18 +28,21 @@ def chart(fig, key=None, height=None, selectable=False):
     return []
 
 
-def render_window_banner(ds, outside_count=0, outside_alerts=None):
-    """Shows the active analysis window, how much data it keeps, and how many detections it hides."""
+def render_window_banner(ds):
+    """Shows the active analysis window and how much data it keeps."""
     if ds.window.is_all_time:
         st.caption(f"Analysis window: **{ds.window.describe(ds.timezone)}**")
         return
     kept = ", ".join(f"{name} {inside:,}/{total:,}" for name, (inside, total) in ds.window_stats.items() if total)
-    message = f"**Analysis window — {ds.window.describe(ds.timezone)}.** Records in window: {kept or 'none'}."
-    if outside_count:
-        message += (f"  \n{outside_count} older detection(s) fall outside this window and are hidden from alerts, IOCs, and DIF "
-                    "scoring — choose a longer window or *All time* in the sidebar to review them.")
-    st.info(message)
-    if outside_count and outside_alerts is not None and not outside_alerts.empty:
+    st.info(f"**Analysis window — {ds.window.describe(ds.timezone)}.** Records in window: {kept or 'none'}.")
+
+
+def render_outside_window(outside_count, outside_alerts):
+    """How many detections the window hides (only full history has them), with the list."""
+    st.caption(f":orange[:material/history:] **{outside_count} older detection(s)** fall outside this window and are "
+               "hidden from alerts, IOCs and DIF scoring; choose a longer window or *All time* in the toolbar (*Show "
+               "activity from*) to review them.")
+    if outside_alerts is not None and not outside_alerts.empty:
         with st.expander(f"Detections outside the window ({outside_count})", expanded=False):
             table(outside_alerts[["Domain", "Threat Type", "Severity", "Confidence", "Threat Logic"]])
 
@@ -52,7 +56,7 @@ def table(df, **kwargs):
 def capped_table(df, label="rows", **kwargs):
     """Renders at most MAX_RAW_DISPLAY_ROWS rows and states when the view is truncated."""
     if len(df) > MAX_RAW_DISPLAY_ROWS:
-        st.caption(f"Showing the first {MAX_RAW_DISPLAY_ROWS:,} of {len(df):,} {label}. Narrow the sidebar filters to see the rest.")
+        st.caption(f"Showing the first {MAX_RAW_DISPLAY_ROWS:,} of {len(df):,} {label}. Narrow the toolbar filters to see the rest.")
         df = df.head(MAX_RAW_DISPLAY_ROWS)
     return table(df, **kwargs)
 
@@ -151,3 +155,20 @@ def metric_slots(count, width=190):
     """`count` containers for metrics in one row that wraps on narrow screens (columns stack into one long list)."""
     row = st.container(horizontal=True, wrap=True, gap="medium")
     return [row.container(width=width) for _ in range(count)]
+
+
+def metric(container, label, value, note=None, help=None):
+    """
+    A metric whose text is never cut off: st.metric for a short value (a number), with `note` as a caption under it;
+    a longer value (text such as a policy state or a date range) is drawn the same size but wraps.
+    """
+    value = "–" if value is None else str(value)
+    if len(value) <= 9:
+        container.metric(label, value, help=help)
+    else:
+        container.markdown(f"<span style='font-size:0.875rem'>{html.escape(label)}</span>", help=help,
+                           unsafe_allow_html=True)
+        container.markdown(f"<div style='font-size:1.4rem;line-height:1.25;overflow-wrap:break-word;hyphens:auto'>"
+                           f"{html.escape(value)}</div>", unsafe_allow_html=True)
+    if note:
+        container.caption(note)

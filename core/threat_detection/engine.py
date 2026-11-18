@@ -37,7 +37,7 @@ GATE_EXEMPT_RULES = frozenset({
     "Brand in Subdomain", "Brand Name on Alternate TLD",
     "Dangling CNAME (Subdomain Takeover Risk)", "Unverified CNAME to Takeover-Prone Service",
     "Unauthorized CA Certificate Issuance (CAA Breach)", "Wildcard Issuance Forbidden by CAA Policy",
-    "Known C2 Certificate Fingerprint (JA4X)",
+    "Known C2 Certificate Fingerprint (JA4X)", "Code-Generated Certificate Layout (JA4X)",
 })
 
 

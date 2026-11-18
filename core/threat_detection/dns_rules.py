@@ -119,7 +119,7 @@ def rule_fast_flux(ctx):
     if ip_records.empty:
         return
     threshold = ctx.thresholds["flux_ips"]
-    for host, records in by_host(_explode_values(ip_records), ctx.domain):
+    for host, records in by_host(_explode_values(ip_records), ctx.domain, {"_val": threshold}):
         found = _flux_window(records, threshold)
         if found is None:
             continue

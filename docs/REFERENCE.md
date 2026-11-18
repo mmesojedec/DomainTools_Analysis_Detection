@@ -334,7 +334,7 @@ Cloudflare: 22 ranges; Fastly: 19 ranges; Amazon CloudFront: 216 ranges; Akamai:
 
 ### Known C2 and malware JA4X fingerprints
 
-`KNOWN_JA4X` in `core/intel_data.py`, 8 entries. JA4X certificate fingerprints of C2 frameworks and malware (FoxIO JA4+ database, as published with JA4+). A JA4X says how a certificate was generated, not what it names, so an unrelated certificate built with the same fields and extensions has the same value: confirm a match with the certificate itself. Editable; verify before acting.
+`KNOWN_JA4X` in `core/intel_data.py`, 8 entries. JA4X certificate fingerprints of C2 frameworks and malware (FoxIO JA4+ database, ja4plus-mapping.csv, and the JA4+ introduction: blog.apnic.net/2023/11/22/ja4-network-fingerprinting). A JA4X says how a certificate was generated, not what it names, so an unrelated certificate built with the same fields and extensions has the same value: confirm a match with the certificate itself. Editable; verify before acting.
 
 **Used by:** Known C2 Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS
 
@@ -347,6 +347,14 @@ Cloudflare: 22 ranges; Fastly: 19 ranges; Amazon CloudFront: 216 ranges; Akamai:
 **Used by:** Dual-Use Tool Certificate Fingerprint (JA4X), the JA4X tab of SSL/TLS
 
 `d55f458d5a6c_d55f458d5a6c_0fc8c171b6ae` → SoftEther VPN
+
+### Network device JA4X fingerprints
+
+`DEVICE_JA4X` in `core/intel_data.py`, 1 entries. JA4X fingerprints of network devices' built-in (default) certificates (FoxIO ja4plus-mapping.csv): the host serves a device's management interface. Small-office routers are a common target for compromise and for relay networks (operational relay boxes). Editable; verify before acting.
+
+**Used by:** Network Device Default Certificate (JA4X), the JA4X tab of SSL/TLS
+
+`fba10053814e_fba10053814e_795797892f9c` → Cisco RV32x router (default certificate)
 
 ### Homoglyphs
 

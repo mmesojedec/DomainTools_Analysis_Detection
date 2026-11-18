@@ -240,6 +240,26 @@ def normalize(text):
     return "\n".join(lines)
 
 
+def certificates_query(target):
+    """
+    Domain profile's CertsQL search for a target: certificates naming the IP (an IP), an address in the range (a
+    CIDR range), or the domain or its subdomains.
+    """
+    target = str(target).strip()
+    try:
+        address = ipaddress.ip_address(target)
+        return f'{HEADER}\nsan_ip_v{address.version} equals "{address}"'
+    except ValueError:
+        pass
+    try:
+        network = ipaddress.ip_network(target, strict=False) if "/" in target else None
+    except ValueError:
+        network = None
+    if network is not None:
+        return f'{HEADER}\nsan_ip_v{network.version} between ["{network[0]}", "{network[-1]}"]'
+    return f'{HEADER}\nsan_dns ends_with ".{target}"\nsan_dns equals "{target}"'
+
+
 def _is_comment(line):
     return line.startswith("#") or line.startswith("//")
 

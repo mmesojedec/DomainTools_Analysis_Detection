@@ -278,6 +278,17 @@ RULE_CATALOG = {
                                                      "(e.g. SoftEther VPN).",
                                                      "Legitimate software that attackers also run for tunnels and "
                                                      "remote access; unexpected on a phishing or brand domain."),
+    "Network Device Default Certificate (JA4X)": ("Medium", "T1584.008 (Compromise Infrastructure: Network Devices)",
+                                                  "The certificate's JA4X is on the built-in list of network devices' "
+                                                  "default certificates (e.g. Cisco RV32x routers).",
+                                                  "The host serves a router's own management certificate; small-office "
+                                                  "routers are often compromised and used as relays."),
+    "Code-Generated Certificate Layout (JA4X)": ("Medium", "T1587.003 (Develop Capabilities: Digital Certificates)",
+                                                 "The certificate's JA4X has an empty issuer part (no issuer "
+                                                 "attributes) and is not on a built-in list.",
+                                                 "No CA issues a certificate without issuer attributes; C2 frameworks "
+                                                 "that generate their own do (Sliver, Havoc). Search CertsQL for the "
+                                                 "JA4X to find the set."),
     "Short-Lived Certificate": ("Low (informational, not scored)", "T1588.004 (Obtain Digital Certificates)",
                                 "Certificate valid at most Short-Lived Certificate Max Validity (Days), e.g. Let's Encrypt's "
                                 "6-day profile.",

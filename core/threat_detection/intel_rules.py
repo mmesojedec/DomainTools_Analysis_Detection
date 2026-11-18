@@ -162,7 +162,7 @@ def rule_multi_network_flux(ctx):
     ip_rows = ip_rows.assign(Network=ip_rows["IP"].map(lambda ip: network_key(ip, ctx.ip_intel)))
     ip_rows = ip_rows.dropna(subset=["Network"])
     min_networks, min_ips = ctx.thresholds["flux_networks"], ctx.thresholds["flux_ips"]
-    for host, rows in by_host(ip_rows, ctx.domain):
+    for host, rows in by_host(ip_rows, ctx.domain, {"IP": min_ips, "Network": min_networks}):
         found = _network_flux_window(rows, min_networks, min_ips)
         if found is None:
             continue

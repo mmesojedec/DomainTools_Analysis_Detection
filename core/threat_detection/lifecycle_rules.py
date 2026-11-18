@@ -80,9 +80,18 @@ def rule_ns_churn(ctx):
     if rows.empty:
         return
     dates, providers = rows["Date"].tolist(), rows["Provider"].tolist()
+    parking = {p: is_parking_ns(p) for p in set(providers)}
+    counts, end = {}, 0   # non-parking providers of rows [i, end): the rows within 30 days of row i (dates sorted)
     for i, start in enumerate(dates):
-        window = {p for d, p in zip(dates[i:], providers[i:]) if d <= start + NS_CHURN_WINDOW}
-        window = {p for p in window if not is_parking_ns(p)}
+        while end < len(dates) and dates[end] <= start + NS_CHURN_WINDOW:
+            if not parking[providers[end]]:
+                counts[providers[end]] = counts.get(providers[end], 0) + 1
+            end += 1
+        if i and not parking[providers[i - 1]]:
+            counts[providers[i - 1]] -= 1
+            if not counts[providers[i - 1]]:
+                del counts[providers[i - 1]]
+        window = set(counts)
         if len(window) >= NS_CHURN_PROVIDERS:
             ctx.add(
                 "Name Server Churn", "Medium", "T1584.002 (Compromise Infrastructure: DNS Server)",

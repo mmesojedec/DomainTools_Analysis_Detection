@@ -21,7 +21,7 @@ from views.alert_tools import (
     render_run_diff,
     render_suppression_manager,
 )
-from views.common import chart, table
+from views.common import chart, metric, table
 
 SANKEY_PALETTE = [DT_BLUE, DT_GREEN, DT_ORANGE, "#E13A3E", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
 SEVERITY_LABEL_COLORS = {"Critical": "red", "High": "orange", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
@@ -54,8 +54,8 @@ def render_kpi_banner(profiles, high_risk_cutoff):
               help=f"Number of domains with a Unified Risk Score >= {high_risk_cutoff}.")
     k3.metric("Unique Infrastructure Profiles", profiles["DIF Fingerprint"].nunique(),
               help="Count of unique DIF Fingerprints. Fewer unique DIFs than domains suggests shared campaign infrastructure.")
-    k4.metric("Primary Threat Driver", top_vector,
-              help="The threat vector contributing the highest average score across the investigated domains.")
+    metric(k4, "Primary Threat Driver", top_vector,
+           help="The threat vector contributing the highest average score across the investigated domains.")
     st.divider()
 
 

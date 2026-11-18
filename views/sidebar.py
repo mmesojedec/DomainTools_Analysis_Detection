@@ -31,7 +31,7 @@ from config import (
     VPNDB_REVERSE_MAX,
 )
 from core.helpers import md_escape
-from core.hostnames import apex_of, candidate_hostnames, focus_from_hostnames
+from core.hostnames import apex_of, candidate_hostnames
 from core.offline import format_size, list_offline_datasets
 from core.persistence import load_settings, save_setting
 from core.use_cases import (
@@ -64,7 +64,7 @@ from integrations.credentials import (
     save_credentials,
     saved_sections,
 )
-from views.idn_display import UNICODE_KEY, display_name
+from views.idn_display import UNICODE_KEY
 
 
 @dataclass
@@ -282,10 +282,11 @@ def render_unicode_toggle(container=None):
 SAVE_OFFLINE_KEY = "save_offline"   # Start page: also save the next run's data as an offline dataset
 
 
-def render_analyst_options(settings_page=None):
+def render_analyst_options(settings_page=None, show_window=True):
     """
     Sidebar *Analyst options*: what the next Analyze collects (use case, collection options, API credentials), then
     the display options (Analyst mode, Unicode names, analysis window, timezone). Returns (WindowChoice, timezone).
+    `show_window` False: a results page draws the window in its toolbar instead (the same setting).
     """
     st.sidebar.header("Analyst options")
     st.sidebar.markdown("##### Selection")
@@ -300,7 +301,9 @@ def render_analyst_options(settings_page=None):
                       help="On: every page, including Hunt and Evidence (hunt map, pivots, hostname inventory, raw "
                            "records, lookup queries). Off: a simpler set of pages for a quick review.")
     render_unicode_toggle()
-    window_choice = render_analysis_window()
+    if show_window:
+        render_analysis_window(st.sidebar)
+    window_choice = window_choice_from_state()
     st.session_state.setdefault("display_timezone", "UTC")
     timezone = st.sidebar.selectbox("Display timezone", pytz.common_timezones, key="display_timezone",
                                     help="Shifts timelines and tempo charts to this timezone. Detection always runs "
@@ -360,7 +363,7 @@ def render_collection_options(prefix=""):
                      "but the result limit holds new records instead of old ones, and the lookup is faster. Without an "
                      "offline copy the lookup is complete, as usual. Save an offline copy of each run (sidebar) so the "
                      "next one builds on it. DNSDB Scout only.")
-    st.markdown("**Domain History**", help="Separate from the analysis window in the sidebar, which only filters "
+    st.markdown("**Domain History**", help="Separate from the analysis window (sidebar, or the results toolbar), which only filters "
                 "what the pages show. These options decide which changes Domain History fetches.")
     mode = st.session_state[prefix + "opt_history_mode"]
     c1, c2, c3 = st.columns([2, 1, 1])
@@ -641,26 +644,33 @@ def render_idn_notice(conversions):
                     f"DomainTools APIs store them:  \n{lines}")
 
 
-def render_analysis_window():
-    """Analysis window selector (sidebar, Analyst options). Defaults to the last 30 days."""
-    options = list(WINDOW_PRESETS)
+WINDOW_HELP = ("Restricts alerts, IOCs, DIF / risk scores, exports, and charts to records active in this window "
+               "(pDNS last seen, Domain History changes, certificates valid, events observed). Dormancy and "
+               "domain-hopping context is still computed from full history. Choose 'All time' to review older "
+               "activity. Changing it needs no new lookups.")
+
+
+def window_choice_from_state():
+    """The analysis window picked (sidebar before a run, the results toolbar after): defaults to the last 30 days."""
     st.session_state.setdefault("analysis_window", DEFAULT_WINDOW)
-    preset = st.sidebar.selectbox(
-        "Show activity from", options, key="analysis_window",
-        help="Restricts alerts, IOCs, DIF / risk scores, exports, and charts to records active in this window "
-             "(pDNS last seen, Domain History changes, certificates valid, events observed). Dormancy and domain-hopping "
-             "context is still computed from full history. Choose 'All time' to review older activity.",
-    )
-    custom_range = None
+    preset = st.session_state["analysis_window"]
+    picked = st.session_state.get("analysis_window_range")
+    custom = (picked[0], picked[1]) if preset == CUSTOM_RANGE and isinstance(picked, (list, tuple)) \
+        and len(picked) == 2 else None
+    return WindowChoice(preset, custom)
+
+
+def render_analysis_window(container, width="stretch"):
+    """The analysis window selector in `container` (the sidebar, or the results toolbar)."""
+    st.session_state.setdefault("analysis_window", DEFAULT_WINDOW)
+    preset = container.selectbox("Show activity from", list(WINDOW_PRESETS), key="analysis_window", help=WINDOW_HELP,
+                                 width=width)
     if preset == CUSTOM_RANGE:
         today = pd.Timestamp.now().date()
         st.session_state.setdefault("analysis_window_range", (today - pd.Timedelta(days=30), today))
-        picked = st.sidebar.date_input("Date range", key="analysis_window_range")
-        if isinstance(picked, (list, tuple)) and len(picked) == 2:
-            custom_range = (picked[0], picked[1])
-        else:
-            st.sidebar.caption("Select both a start and an end date.")
-    return WindowChoice(preset, custom_range)
+        picked = container.date_input("Date range", key="analysis_window_range", width=width)
+        if not (isinstance(picked, (list, tuple)) and len(picked) == 2):
+            container.caption("Select both a start and an end date.")
 
 
 def reset_thresholds():
@@ -686,39 +696,6 @@ def render_threshold_controls():
                     st.slider(spec.label, min_value=spec.min_value, max_value=spec.max_value, step=spec.step,
                               key=spec.state_key, help=spec.help)
     st.button("Reset defaults", on_click=reset_thresholds, icon=":material/restart_alt:")
-
-
-def render_global_filters(collected):
-    st.sidebar.header("View filters")
-    all_domains, dh_fields, pdns_fields = [], [], []
-    for frame in (collected.dh, collected.pdns, collected.ssl):
-        if not frame.empty:
-            all_domains.extend(frame["Domain"].dropna().unique())
-    checked = getattr(collected, "anonymizers", None)
-    if checked is not None and not checked.empty:   # IP targets checked in VPNDB (IP check use case)
-        all_domains.extend(ip for ip in checked["IP"] if ip in collected.targets)
-    ranges = getattr(collected, "prefixes", None)
-    if ranges is not None and not ranges.empty:   # CIDR targets (VPNDB)
-        all_domains.extend(ranges["CIDR"])
-    if not collected.dh.empty:
-        dh_fields = sorted(collected.dh["Field"].dropna().unique())
-    if not collected.pdns.empty:
-        pdns_fields = sorted(collected.pdns["Field"].dropna().unique())
-    all_domains = list(dict.fromkeys(d for d in collected.targets if d in set(all_domains))) + \
-        sorted(set(all_domains) - set(collected.targets))
-
-    selected_domains = st.sidebar.multiselect("Filter by Domain:", all_domains, default=all_domains,
-                                              format_func=display_name,
-                                              help="Filter dashboard views to specific investigated domains.")
-    host_focus = render_hostname_focus(collected, selected_domains)
-    if not is_analyst():   # the simple mode keeps every record type
-        return selected_domains, dh_fields, pdns_fields, host_focus
-    with st.sidebar.expander("Record type filters"):
-        selected_dh = st.multiselect("Domain History records", dh_fields, default=dh_fields,
-                                     help="Select Domain History record types.")
-        selected_pdns = st.multiselect("Passive DNS records", pdns_fields, default=pdns_fields,
-                                       help="Select passive DNS resource record types (e.g., A, AAAA, MX, TXT) to evaluate.")
-    return selected_domains, selected_dh, selected_pdns, host_focus
 
 
 def _hostname_options(collected):
@@ -791,12 +768,12 @@ def start_hunt(lines, via, parent_id=None, direct=False):
 
 
 def focus_on_hostnames(hostnames):
-    """Button callback: adds hostnames to the sidebar hostname focus (the calling view reruns the whole app)."""
+    """Button callback: adds hostnames to the hostname focus (results toolbar) (the calling view reruns the whole app)."""
     key = focus_key()
     st.session_state[key] = list(dict.fromkeys(list(st.session_state.get(key) or []) + list(hostnames)))
     st.session_state[APP_RERUN_KEY] = True
-    st.session_state[TOAST_KEY] = (f"Focused the views on {len(st.session_state[key]):,} hostname(s); clear *Focus on "
-                                   "hostnames* in the sidebar to see everything again.")
+    st.session_state[TOAST_KEY] = (f"Focused the views on {len(st.session_state[key]):,} hostname(s); clear "
+                                   "*Hostnames* in the results toolbar to see everything again.")
 
 
 def show_pending_toast():
@@ -854,31 +831,6 @@ def rerun_app_if_requested():
     """Called inside a fragment after its buttons: a callback that changed sidebar state needs a full app rerun."""
     if st.session_state.pop(APP_RERUN_KEY, False):
         st.rerun()
-
-
-def render_hostname_focus(collected, selected_domains):
-    """
-    Optional hostname focus: views keep only the chosen hostnames' passive DNS, certificates and certificate events
-    for their domains (other domains are unaffected). No new lookups; starts from the certificate preview's picks.
-    """
-    selected = set(selected_domains)
-    options = [h for h, apex in _hostname_options(collected) if apex in selected]
-    if not options:
-        return {}
-    initial = [h for hosts in (getattr(collected, "host_focus", None) or {}).values() for h in hosts if h in options]
-    key = focus_key()
-    if key in st.session_state:   # values set by a view (Subdomain Triage) must be options of the current domains
-        allowed = set(options)
-        st.session_state[key] = [h for h in st.session_state[key] if h in allowed]
-    chosen = st.sidebar.multiselect(
-        "Focus on hostnames:", options, default=None if key in st.session_state else initial, key=key,
-        placeholder="All hostnames",
-        help="Leave empty to analyze every hostname. Choosing hostnames keeps only their passive DNS records (and names "
-             "under them), the certificates covering them and their certificate events, for their domains only. Domain "
-             "History and Iris Investigate (with risk scores) stay domain-wide. No new lookups are made; see Hostname Inventory "
-             "for every hostname.",
-    )
-    return focus_from_hostnames(chosen)
 
 
 def start_analyze(source_key):

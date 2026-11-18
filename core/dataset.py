@@ -13,7 +13,7 @@ from core.threat_detection import analyze_txt_fingerprints
 from core.timezone import apply_tz_shift
 from core.window import AnalysisWindow, filter_cert_events, filter_certificates, filter_pdns, filter_point_events
 
-SSL_SOURCE_PRIORITY = {"DomainTools Cert API": 1, "Iris Investigate API": 2, "Domain History": 3}
+SSL_SOURCE_PRIORITY = {"DomainTools Cert API": 1, "CertsQL search": 1, "Iris Investigate API": 2, "Domain History": 3}
 
 
 @dataclass

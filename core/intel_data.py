@@ -219,7 +219,8 @@ SHARED_PLATFORMS = (
     "eu.cc", "uk.cc", "gu.cc", "us.cc", "eu.org", "my.id",
 )
 
-# JA4X certificate fingerprints of C2 frameworks and malware (FoxIO JA4+ database, as published with JA4+). A JA4X
+# JA4X certificate fingerprints of C2 frameworks and malware (FoxIO JA4+ database, ja4plus-mapping.csv, and the JA4+
+# introduction: blog.apnic.net/2023/11/22/ja4-network-fingerprinting). A JA4X
 # says how a certificate was generated, not what it names, so an unrelated certificate built with the same fields and
 # extensions has the same value: confirm a match with the certificate itself. Editable; verify before acting.
 KNOWN_JA4X = {
@@ -239,6 +240,39 @@ DUAL_USE_JA4X = {
     "d55f458d5a6c_d55f458d5a6c_0fc8c171b6ae": "SoftEther VPN",
 }
 
+# JA4X fingerprints of network devices' built-in (default) certificates (FoxIO ja4plus-mapping.csv): the host serves
+# a device's management interface. Small-office routers are a common target for compromise and for relay networks
+# (operational relay boxes). Editable; verify before acting.
+DEVICE_JA4X = {
+    "fba10053814e_fba10053814e_795797892f9c": "Cisco RV32x router (default certificate)",
+}
+
+# What an analyst needs to judge a JA4X match: what made the certificate, the tool's default names (a certificate with
+# them is the tool's own default, not only the same layout), what to check and why a match can be innocent.
+JA4X_DETAILS = {
+    "2166164053c1_2166164053c1_30d204a01551": {
+        "about": "The certificate a Cobalt Strike team server generates with Java keytool when its Malleable C2 profile "
+                 "sets no https-certificate: self-signed, a six-part subject (C, ST, L, O, OU, CN) repeated as the "
+                 "issuer, and a Subject Key Identifier as the only extension.",
+        "default": {"Common Name": "Major Cobalt Strike", "Subject Org": "cobaltstrike"},
+        "default_text": "C=Earth, ST=Cyberspace, L=Somewhere, O=cobaltstrike, OU=AdvancedPenTesting, "
+                        "CN=Major Cobalt Strike (serial 146473198)",
+        "check": "The subject and issuer names, self-signed, the serial number, and the IPs and ports that serve it "
+                 "(the team server's HTTPS listener, often on 443 or 50050 for the operator port).",
+        "caveat": "Any self-signed certificate made with Java keytool and a full six-part name has the same layout, "
+                  "so Java appliances and test servers match too. Only the default names above make it Cobalt Strike's "
+                  "own certificate; with other names the match says 'keytool-style certificate', not Cobalt Strike.",
+    },
+    "000000000000_4f24da86fad6_bf0f0589fc03": {
+        "about": "Sliver and Havoc generate their own certificates with random names and no issuer attributes, which no "
+                 "certificate authority does.",
+        "check": "Random-looking subject names, self-signed, short or odd validity, and the hosts that serve it.",
+        "caveat": "Other code that builds certificates without an issuer can share the layout.",
+    },
+}
+JA4X_DETAILS["000000000000_7c32fa18c13e_bf0f0589fc03"] = JA4X_DETAILS["000000000000_4f24da86fad6_bf0f0589fc03"]
+JA4X_SOURCE = "FoxIO JA4+ (ja4plus-mapping.csv) and the JA4+ introduction (blog.apnic.net/2023/11/22/ja4-network-fingerprinting)"
+
 # Visual confusables mapped to their ASCII look-alike (subset of Unicode TR39 + common digit swaps)
 HOMOGLYPHS = {
     "0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "9": "g", "@": "a", "$": "s", "!": "i", "|": "l",
@@ -256,6 +290,7 @@ MITRE_TACTICS = {
     "T1008": "Command and Control", "T1071": "Command and Control", "T1090": "Command and Control",
     "T1568": "Command and Control", "T1573": "Command and Control",
     "T1572": "Command and Control", "T1583": "Resource Development", "T1584": "Resource Development", "T1585": "Resource Development",
+    "T1587": "Resource Development",
     "T1588": "Resource Development", "T1608": "Resource Development",
     "T1562": "Defense Evasion", "T1552": "Credential Access", "T1048": "Exfiltration", "T1566": "Initial Access",
 }
@@ -324,6 +359,8 @@ RULE_METADATA = {
     "Self-Signed Certificate Detected": ("Certificates", "High"),
     "Known C2 Certificate Fingerprint (JA4X)": ("Certificates", "Medium"),
     "Dual-Use Tool Certificate Fingerprint (JA4X)": ("Certificates", "Low"),
+    "Network Device Default Certificate (JA4X)": ("Certificates", "Low"),
+    "Code-Generated Certificate Layout (JA4X)": ("Certificates", "Low"),
     "Short-Lived Certificate": ("Certificates", "High"),
     "Mega-SAN Cluster (Bulk Infrastructure)": ("Certificates", "Medium"),
     "Multi-IP Certificate (Shared C2 / Proxy Cluster)": ("Certificates", "Medium"),

@@ -93,7 +93,7 @@ def _render_triage_table(ds, triage):
     c_focus, c_copy = st.columns([1, 3])
     c_focus.button(f"Focus on {len(rows):,} hostname(s)" if rows else "Focus on hostnames", disabled=not rows,
                    on_click=focus_on_hostnames, args=(hostnames,), key="triage_focus", icon=":material/filter_alt:",
-                   help="Adds the selected hostnames to Focus on hostnames in the sidebar: every lens then shows only "
+                   help="Adds the selected hostnames to the toolbar's Hostnames focus: every page then shows only "
                         "their passive DNS, certificates and certificate events. No new lookups.")
     with c_copy.expander(f"Copy {len(hostnames):,} hostname(s)" + (" (selected)" if rows else " (every row shown)")):
         st.code("\n".join(hostnames), language=None)

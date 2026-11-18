@@ -31,7 +31,7 @@ flowchart TD
     C --> D["Step 2: searches run, pick the derived domains / IPs and optional hostname focus"]
     D --> E["Collection: two waves of stages run in parallel"]
     E --> F["Data sources: one row per lookup"]
-    E --> G["Build the views: analysis window, view filters, hostname focus"]
+    E --> G["Build the views: results toolbar (window, domains, hostnames, record types)"]
     G --> H["Score gate: below Min Risk Score only the standalone rules"]
     H --> I["Detection rules per domain / IP, then cross-domain clusters"]
     I --> J["Merge repeated alerts, apply suppressions"]
@@ -272,7 +272,7 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Step | What happens | Changes without new lookups? |
 | --- | --- | --- |
 | Analysis window | Records outside the chosen period are left out of detections and charts | Yes |
-| View filters | Domains, Domain History types, passive DNS record types | Yes |
+| Results toolbar | Window, domains, hostnames, Domain History and passive DNS record types, alert severities and confidences, common detection thresholds | Yes |
 | Hostname focus | Passive DNS, certificates and certificate events of a domain narrowed to chosen hostnames | Yes |
 | Score gate | Domains with a DomainTools risk score below **Min Risk Score** get only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X, Phishing Kit Staging, Mail-Capable Lookalike, Lure Subdomain); domains without a score are fully checked | Yes |
 | Detection | Every rule runs per domain / IP (including the lifecycle and compound rules), then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping, bulk-registration cohorts, campaign waves, links to a domain you marked Malicious). A domain among the 10,000 most popular in Iris, or on the DomainTools zerolist, has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert. Your allowlist and your verdicts on a rule can move the confidence too | Yes |

@@ -149,15 +149,27 @@ def upper_fields(events):
     return events["Field"].astype(str).str.upper().str.replace(r"^(?:PDNS|DH):\s*", "", regex=True)
 
 
-def by_host(rows, domain):
+def host_keys(rows, domain):
+    """The owner name of each row (`RRName`, the domain itself when missing), normalized as by_host groups them."""
+    hosts = rows["RRName"] if "RRName" in rows.columns else pd.Series(pd.NA, index=rows.index)
+    hosts = hosts.astype("string").str.strip().str.rstrip(".").str.lower().fillna(str(domain).lower())
+    return hosts.mask(hosts.isin(("", "<na>", "nan", "none")), str(domain).lower())
+
+
+def by_host(rows, domain, min_distinct=None):
     """
     [(hostname, rows)] of `rows` per owner name (`RRName`, the domain itself when missing), largest first. The pDNS
-    lookups cover every subdomain, so per-host rules must not pool unrelated hosts of one domain.
+    lookups cover every subdomain, so per-host rules must not pool unrelated hosts of one domain. `min_distinct`
+    ({column: n}): only hosts with at least n distinct values in each column (the rest cannot fire a counting rule).
     """
     if rows.empty:
         return []
-    hosts = rows["RRName"] if "RRName" in rows.columns else pd.Series(pd.NA, index=rows.index)
-    hosts = hosts.astype("string").str.strip().str.rstrip(".").str.lower().fillna(str(domain).lower())
-    hosts = hosts.mask(hosts.isin(("", "<na>", "nan", "none")), str(domain).lower())
+    hosts = host_keys(rows, domain)
+    for column, needed in (min_distinct or {}).items():
+        distinct = rows.groupby(hosts, sort=False)[column].nunique()
+        keep = hosts.isin(distinct.index[distinct >= needed])
+        rows, hosts = rows[keep], hosts[keep]
+        if rows.empty:
+            return []
     groups = [(host, group) for host, group in rows.groupby(hosts, sort=False)]
     return sorted(groups, key=lambda pair: -len(pair[1]))

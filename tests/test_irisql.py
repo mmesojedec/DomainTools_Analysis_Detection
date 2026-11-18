@@ -202,3 +202,17 @@ def test_tor_network_is_its_own_infrastructure_page_not_a_vpndb_tab():
     assert [spec.key for spec in navigation.SECTIONS["Infrastructure"]][:3] == ["dns", "vpndb", "tor"]
     assert navigation.title("tor") == "Tor network" and "Tor network" not in vpndb_page.TABS
     assert set(vpndb_page.HOW_TO_READ) == set(vpndb_page.TABS)
+
+
+def test_profile_queries_search_an_ip_as_an_ip_not_as_a_name():
+    from core import certsql
+    assert irisql.similar_query("83.228.209.234") == '# IrisQL-1.0\nip matches "83.228.209.234"'
+    assert irisql.similar_query("login.example.com") == '# IrisQL-1.0\nDOMAIN CONTAINS "login"'
+    cidr = irisql.similar_query("83.228.209.7/24")
+    assert '"83.228.209.0"' in cidr and '"83.228.209.255"' in cidr
+    assert certsql.certificates_query("83.228.209.234") == '# CertsQL-1.0\nsan_ip_v4 equals "83.228.209.234"'
+    assert "san_ip_v6 equals" in certsql.certificates_query("2001:db8::1")
+    assert "san_dns ends_with \".example.com\"" in certsql.certificates_query("example.com")
+    for target in ("83.228.209.234", "83.228.209.7/24", "example.com", "2001:db8::1"):
+        assert not irisql.problems(irisql.similar_query(target))
+        assert not certsql.problems(certsql.certificates_query(target))

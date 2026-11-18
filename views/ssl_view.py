@@ -16,11 +16,11 @@ from core.caa import (
 )
 from core.cert_utils import cert_alt_names, cert_flag, cert_ip_names, cert_is_self_signed, publicly_trusted, weak_key_mask
 from core.helpers import is_ip_address, md_escape
-from core.intel_data import DUAL_USE_JA4X, KNOWN_JA4X
+from core.intel_data import DEVICE_JA4X, DUAL_USE_JA4X, KNOWN_JA4X
 from core.self_signed import SEVERITIES, self_signed_certificates
 from integrations.certificates import fetch_certsql
 from views import navigation
-from views.common import chart, empty_state, explainer, table
+from views.common import chart, empty_state, explainer, metric, table
 from views.hunt_actions import certificate_actions
 from views.query_editor import set_query
 from visualizations.sankey import render_hostname_sankey_flow
@@ -190,13 +190,13 @@ def _render_health(ds, unique_certs, threats):
         for dom in ds.selected_domains
     )
     if has_breach:
-        caa_label, caa_delta, caa_color = "Policy Breach", "Critical", "inverse"
+        caa_label, caa_delta, caa_color = "Policy Breach", "Critical", "red"
     elif has_caa:
-        caa_label, caa_delta, caa_color = "Enforced & Compliant", "Clean", "normal"
+        caa_label, caa_delta, caa_color = "Enforced & Compliant", "Clean", "green"
     elif coverage_incomplete:
-        caa_label, caa_delta, caa_color = "CAA Unknown", "pDNS incomplete", "off"
+        caa_label, caa_delta, caa_color = "CAA Unknown", "pDNS incomplete", "gray"
     else:
-        caa_label, caa_delta, caa_color = "No CAA Policy", "Unprotected", "off"
+        caa_label, caa_delta, caa_color = "No CAA Policy", "Unprotected", "gray"
 
     m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Total Certificates", total)
@@ -204,7 +204,10 @@ def _render_health(ds, unique_certs, threats):
     m3.metric("Self-Signed Certs", self_signed, delta="Warning" if self_signed else "Clean", delta_color="inverse")
     m4.metric("Weak Keys", weak, delta="Critical" if weak else "Clean", delta_color="inverse")
     m5.metric("Missing CT SCTs", missing_scts, delta="Non-Compliant" if missing_scts else "Clean", delta_color="inverse")
-    m6.metric("CAA Compliance", caa_label, delta=caa_delta, delta_color=caa_color)
+    metric(m6, "CAA Compliance", caa_label, note=f":{caa_color}-badge[{caa_delta}]")
+    every = getattr(ds, "ssl_all_utc", None)
+    render_ja4x_notes(every if every is not None and not every.empty else unique_certs, "cert_health_ja4x",
+                      window_ssl=unique_certs)
 
 
 def _render_validity(unique_certs, short_lived_days):
@@ -349,13 +352,106 @@ def _check_rarity(values):
     return errors
 
 
+KIND_BADGES = {"c2": ("red", ":material/dangerous:"), "device": ("orange", ":material/router:"),
+               "dual-use": ("orange", ":material/vpn_key:")}
+
+
+def render_ja4x_card(value, certs=None, key="ja4x_card"):
+    """
+    A JA4X fingerprint card: what it matches (tool, kind, source), the three parts and what each says, what the tool's
+    certificate looks like, what to check, why a match can be innocent, and (with `certs`) whether the run's
+    certificates carry the tool's default names. Draws nothing for a value that is not a JA4X.
+    """
+    card = ja4x.describe(value)
+    if card is None:
+        return
+    with st.container(border=True, key=f"{key}_box"):
+        color, icon = KIND_BADGES.get(card["kind"], ("orange", ":material/build:") if ja4x.generated_layout(value)
+                                      else ("gray", ":material/fingerprint:"))
+        kind = ja4x.KIND_LABELS.get(card["kind"]) or ("code-generated" if ja4x.generated_layout(value) else "not listed")
+        name = card["known"][0] if card["known"] else card["verdict"]
+        st.markdown(f":{color}-badge[{icon} {kind}] **{name}**")
+        st.code(card["value"], language="text", wrap_lines=True)
+        st.markdown("\n".join(f"- **{label}** `{part}`: {meaning}" for label, part, meaning, _ in card["parts"]))
+        details = card["details"]
+        if details.get("about"):
+            st.markdown(f"**What makes it:** {details['about']}")
+        if details.get("default_text"):
+            st.markdown(f"**Default certificate:** `{details['default_text']}`")
+        if certs is not None:
+            total, default = ja4x.default_matches(value, certs)
+            if total and default is not None:
+                if default:
+                    st.error(f"**{default} of {total} certificate(s) in this run carry the default names:** the "
+                             "tool's own certificate, not only its layout.", icon=":material/dangerous:")
+                else:
+                    st.warning(f"**None of the {total} certificate(s) in this run carry the default names:** same "
+                               "layout only. Read it as a certificate made the same way (e.g. keytool), and confirm "
+                               "with the names, issuer and the hosts serving it.", icon=":material/help:")
+            elif total:
+                st.caption(f"{total} certificate(s) in this run have this JA4X.")
+        if details.get("check"):
+            st.markdown(f"**Check:** {details['check']}")
+        if details.get("caveat"):
+            st.caption(f":material/info: {details['caveat']}")
+        elif card["known"] or ja4x.generated_layout(value):
+            st.caption(":material/info: A JA4X says how a certificate was built, not who built it: an unrelated "
+                       "certificate with the same fields and extensions matches too. Confirm with the certificate.")
+        if card["source"]:
+            st.caption(f"Source: {card['source']}")
+
+
+def render_ja4x_notes(ssl, key, title="**JA4X** · how the certificates were generated", empty=None, window_ssl=None):
+    """
+    The run's (or one domain's) JA4X fingerprints worth a look: known tools and devices, code-generated layouts, and
+    values your domains share off public CAs; each known or code-generated one with its fingerprint card, and a link
+    to the JA4X & C2 tab. `ssl`: every certificate of the run; `window_ssl`: those in the analysis window (the In
+    Window column). Draws nothing (or `empty`) without such a value. Returns the notable rows.
+    """
+    frame = ja4x.summary(ssl)
+    in_window = None
+    if window_ssl is not None:
+        in_window = set(window_ssl["JA4X"].map(ja4x.normalize)) if "JA4X" in window_ssl.columns else set()
+    picked = ja4x.notable(frame, in_window)
+    if picked.empty:
+        if empty and not frame.empty:
+            st.caption(empty.format(count=len(frame)))
+        return picked
+    known = int(picked["Why"].str.contains("fingerprint").sum())
+    st.markdown(title, help="JA4X fingerprints how a certificate was generated (issuer and subject attribute types, "
+                            "extensions), not what it names: certificates from the same tool or template share it, "
+                            "even when their names and keys differ.")
+    outside = int((~picked["In Window"].astype(bool)).sum())
+    st.caption(f"{len(frame)} JA4X value(s) in the certificates; {len(picked)} worth a look"
+               + (f", **{known} matching a known tool or device**" if known else "")
+               + (f"; {outside} only on certificates outside the analysis window" if outside else "") + ".")
+    st.dataframe(picked, hide_index=True, width="stretch", key=f"{key}_table",
+                 column_config={"JA4X": st.column_config.TextColumn(width="medium"),
+                                "Why": st.column_config.TextColumn(width="large"),
+                                "In Window": st.column_config.CheckboxColumn(
+                                    "In Window", help="On a certificate valid in the analysis window; unticked: only "
+                                                      "on older certificates of the run (the alerts still use them)")})
+    for value in [v for v in picked["JA4X"] if ja4x.known_ja4x(v) or ja4x.generated_layout(v)][:3]:
+        match = ja4x.known_ja4x(value)
+        with st.expander(f"Fingerprint: {match[0] if match else 'code-generated layout'} · {value}",
+                         icon=":material/fingerprint:", expanded=bool(match and match[1] == "c2")):
+            render_ja4x_card(value, ssl, key=f"{key}_card_{value}")
+    if navigation.page("certs") is not None:
+        st.button("Open the JA4X & C2 tab", key=f"{key}_open", type="tertiary", icon=":material/fingerprint:",
+                  on_click=navigation.open_tab, args=("certs", CERT_TAB_KEY, JA4X_TAB),
+                  help="Every JA4X of the run, how common each is (Certificates API) and a CertsQL search for the rest "
+                       "of its certificates")
+    return picked
+
+
 def _render_ja4x(unique_certs):
     st.markdown("#### JA4X: how the certificates were generated",
                 help="JA4X fingerprints the layout of a certificate (issuer and subject attribute types, extensions), "
                      "not its names or key. The same JA4X means the same tool or template made the certificates.")
     explainer("Reading JA4X", f"""
 * **Three parts `a_b_c`:** a hash of the issuer's attribute types, of the subject's, and of the extensions. `000000000000` means that part is empty.
-* **Known tools:** {len(KNOWN_JA4X)} C2 and malware fingerprints and {len(DUAL_USE_JA4X)} dual-use tool fingerprint(s) are built in (Reference → Built-in lists); a match raises an alert.
+* **Known tools:** {len(KNOWN_JA4X)} C2 and malware fingerprints, {len(DUAL_USE_JA4X)} dual-use tool and {len(DEVICE_JA4X)} network device fingerprint(s) are built in (Reference → Built-in lists, from FoxIO's JA4+ mapping); a match raises an alert.
+* **Code-generated layout:** an empty issuer part (`000000000000_…`) is never issued by a CA; C2 frameworks that build their own certificates make them (Sliver, Havoc). It raises *Code-Generated Certificate Layout (JA4X)*.
 * **Common vs rare:** certificates from public CAs share a few very common values, so a JA4X shared by two domains only links them when it is **rare**. *Check how common* counts each value in the Certificates API ({ja4x.RARE_MAX} certificates or fewer is rare).
 * **Pivot:** *Find certificates with this JA4X* opens CertsQL with `ja4x equals "…"`.
 """)
@@ -400,9 +496,18 @@ def _render_ja4x(unique_certs):
         if c_find.button("Find certificates with this JA4X", icon=":material/badge:", key="ja4x_find",
                          width="stretch", help="Opens CertsQL with `ja4x equals` and this value; search from there."):
             _open_ja4x_search(value)
+        render_ja4x_card(value, unique_certs, key="ja4x_tab_card")
+    with st.expander("Look up any JA4X", icon=":material/fingerprint:"):
+        typed = st.text_input("JA4X", key="ja4x_lookup", placeholder="e.g. 2166164053c1_2166164053c1_30d204a01551",
+                              help="Decodes the three parts and checks the built-in lists; no API query.")
+        if typed and ja4x.normalize(typed):
+            render_ja4x_card(typed, unique_certs, key="ja4x_lookup_card")
+        elif typed:
+            st.error("A JA4X is three 12-character hex parts joined by `_`.")
     with st.expander("Hunt for a known tool's certificates", icon=":material/travel_explore:"):
         st.caption("Opens CertsQL with the tool's JA4X, to find its certificates anywhere, not only in this run.")
-        listed = {**{v: n for v, n in KNOWN_JA4X.items()}, **{v: f"{n} (dual-use)" for v, n in DUAL_USE_JA4X.items()}}
+        listed = {**{v: n for v, n in KNOWN_JA4X.items()}, **{v: f"{n} (dual-use)" for v, n in DUAL_USE_JA4X.items()},
+                  **{v: f"{n} (network device)" for v, n in DEVICE_JA4X.items()}}
         c_tool, c_go = st.columns([3, 1.2], vertical_alignment="bottom")
         tool = c_tool.selectbox("Known fingerprint", list(listed), key="ja4x_known",
                                 format_func=lambda v: f"{listed[v]}: {v}")

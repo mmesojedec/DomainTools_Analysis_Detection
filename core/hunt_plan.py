@@ -310,12 +310,18 @@ def _certificate_target(value):
     return f"sha256:{value}" if len(value) == 64 else f"sha1:{value}" if len(value) == 40 else ""
 
 
+def _shared_with(lead):
+    """The run's domains that have a lead's value (its "Shared With")."""
+    return sorted({d.strip() for d in str(lead.get("Shared With") or "").split(",") if d.strip()})
+
+
 def plan_items(steps, leads, children=(), branches=BRANCHES):
     """
     The suggested hunt as one ordered list of steps to run: the Start here indicators first, then the best branches.
     Each step: {"id", "source" (Start / Branch), "kind", "value", "action" (Analyze: a run on `target`; Iris: the
-    search `search`; CertsQL: a JA4X, searched by hand; None), "target", "search", "score", "why", "done" (a run
-    started from this run already followed it)}. A branch that is also a start indicator is one step.
+    search `search`; CertsQL: a JA4X, searched by hand; None), "target", "search", "score", "why", "of" (the run's
+    targets the step comes from: the domains of its alerts, or that share the lead), "done" (a run started from this
+    run already followed it)}. A branch that is also a start indicator is one step.
     """
     items = {}
     for step in steps:
@@ -330,20 +336,21 @@ def plan_items(steps, leads, children=(), branches=BRANCHES):
                                          "action": action, "target": target, "search": search, "score": None,
                                          "why": step["why"], "iris": None, "alerts": step.get("alerts", 0),
                                          "worst": step.get("worst", ""), "domains": len(step.get("domains") or []),
-                                         "types": step.get("types") or []})
+                                         "types": step.get("types") or [], "of": sorted(step.get("domains") or [])})
     for lead in [lead for lead in leads if not lead["Stop"]][:branches]:
         value = str(lead["Value"])
         target, search = str(lead.get("Analyze As") or ""), str(lead.get("Iris Search") or "")
         if value.lower() in items:   # a start indicator that is also a lead: one step, with the lead's score
             item = items[value.lower()]
-            item.update(score=lead["Score"], search=search or item["search"], iris=lead["Iris Domains"])
+            item.update(score=lead["Score"], search=search or item["search"], iris=lead["Iris Domains"],
+                        of=sorted(set(item["of"]) | set(_shared_with(lead))))
             continue
         items[value.lower()] = {"id": value.lower(), "source": "Branch", "kind": lead["Type"], "value": value,
                                 "action": "Analyze" if target else "Iris" if search else None, "target": target,
                                 "search": search, "score": lead["Score"], "why": "; ".join(lead["Reasons"]),
                                 "iris": lead["Iris Domains"], "alerts": lead.get("Alerts", 0),
                                 "worst": lead.get("Worst", ""), "domains": lead.get("Run Domains") or 0,
-                                "types": lead.get("Types") or []}
+                                "types": lead.get("Types") or [], "of": _shared_with(lead)}
     ordered = list(items.values())
     for number, item in enumerate(ordered, 1):
         item["step"] = number
@@ -377,7 +384,7 @@ def via_text(items, prefix="Suggested hunt"):
 
 
 PLAN_FIELDS = ("step", "source", "kind", "value", "action", "target", "search", "score", "why", "iris", "alerts",
-               "worst", "domains", "types")
+               "worst", "domains", "types", "of")
 
 
 def saved_plan(items):

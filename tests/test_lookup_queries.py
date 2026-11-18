@@ -147,3 +147,24 @@ def test_cached_lookups_count_no_request():
         {"Source": "Domain History", "Target": "a.com", "Status": "OK", "Records": 3, "Detail": "From cache (2 h old)"},
         {"Source": "Domain History", "Target": "b.com", "Status": "OK", "Records": 3, "Detail": ""}]))
     assert list(queries["Cached"]) == [True, False] and list(request_counts(queries)) == [0, 1]
+
+
+def test_lookup_queries_count_cached_lookups_too():
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        import pandas as pd
+
+        from views.query_view import _render_query_tables
+        rows = [{"Source": "Domain History", "Target": d, "Tool": "DomainTools API", "Search": "Domain History",
+                 "Query": d, "Command": f"domaintools domain_history --query {d}", "Status": "OK", "Records": 3,
+                 "Cached": True, "Cached At": pd.Timestamp("2026-11-17"), "Pages": None}
+                for d in ("a.com", "b.com")]
+        _render_query_tables(pd.DataFrame(rows), ["DomainTools API"])
+
+    at = AppTest.from_function(page).run(timeout=30)
+    assert not at.exception
+    assert at.button_group[0].options[0] == "DomainTools API · 2"   # lookups, not API requests (0)
+    labels = [e.label for e in at.expander]
+    assert labels == ["Queries to copy: all 2 lookup(s) shown", "Commands: all 2 lookup(s) shown"]
+    assert any("0 API request(s), 2 reused from the cache" in c.value for c in at.caption)

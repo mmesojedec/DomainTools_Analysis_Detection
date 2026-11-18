@@ -200,7 +200,8 @@ integrations/
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
-  sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options), view filters; Run again
+  sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options); Run again
+  results_toolbar.py           Results toolbar: window, domains, hostnames, record types, alert and threshold filters
   home_view.py                 Start page (Targets box, Save offline copy and Analyze, use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case

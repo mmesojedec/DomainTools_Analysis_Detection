@@ -9,7 +9,7 @@ import streamlit as st
 from config import SEVERITY_WEIGHTS
 from core.export import build_report_html, build_report_markdown, dataset_iocs, to_stix_bundle
 from core.helpers import md_escape
-from core.intel_data import CONFIDENCE_ORDER, MITRE_TACTICS, SEVERITY_COLORS, SEVERITY_ORDER, TACTIC_ORDER
+from core.intel_data import MITRE_TACTICS, SEVERITY_COLORS, SEVERITY_ORDER, TACTIC_ORDER
 from core.persistence import add_suppression, remove_suppression
 from core.triage import STATUS_HELP, STATUSES
 from views.common import chart, table
@@ -127,23 +127,19 @@ THREAT_TYPE_KEY = "flt_threat_type"   # Alerts page threat-type filter; links fr
 
 
 def render_alert_filters(view, selected_cells):
-    """Confidence / severity filters plus heatmap selection. Returns the filtered alerts."""
+    """Status and threat-type filters plus heatmap selection (severity and confidence: results toolbar). Returns the filtered alerts."""
     alerts = view.active
     if alerts.empty:
         return alerts
-    col1, col2, col3, col4 = st.columns([1.2, 1.4, 1.4, 2])
+    col3, col4 = st.columns([1.4, 2])
     types = sorted(alerts["Threat Type"].astype(str).unique())
     if THREAT_TYPE_KEY in st.session_state:   # preset by a link from another page: keep what this run still has
         st.session_state[THREAT_TYPE_KEY] = [t for t in st.session_state[THREAT_TYPE_KEY] if t in types]
-    with col1:
-        confidences = st.multiselect("Confidence", CONFIDENCE_ORDER, default=CONFIDENCE_ORDER, key="flt_confidence")
-    with col2:
-        severities = st.multiselect("Severity", SEVERITY_ORDER, default=SEVERITY_ORDER, key="flt_severity")
     with col3:
         statuses = st.multiselect("Status", STATUSES, default=STATUSES, key="flt_status", help=STATUS_HELP)
     with col4:
         chosen = st.multiselect("Threat type", types, key=THREAT_TYPE_KEY, placeholder="Every threat type")
-    mask = alerts["Confidence"].isin(confidences) & alerts["Severity"].isin(severities)
+    mask = pd.Series(True, index=alerts.index)
     if chosen:
         mask &= alerts["Threat Type"].isin(chosen)
     if "Status" in alerts.columns:

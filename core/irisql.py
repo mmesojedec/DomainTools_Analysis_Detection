@@ -2,6 +2,7 @@
 IrisQL search: an Iris Investigate query written in IrisQL (one condition per line, AND on its own line) finds domains;
 their records become a domain table and an IP table to pick the targets of an analysis run from.
 """
+import ipaddress
 import json
 import re
 import shlex
@@ -9,7 +10,7 @@ import shlex
 import pandas as pd
 
 from config import IRIS_INVESTIGATE_BATCH_SIZE
-from core.helpers import is_ip_address
+from core.helpers import is_ip_address, normalize_cidr
 from integrations.enrichment import extract_iris_profile, unwrap_value
 
 HEADER = "# IrisQL-1.0"
@@ -71,6 +72,21 @@ FIELD_OPERATORS = {
 
 _CIDR = re.compile(r'"\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}"')
 TOO_MANY = "Maximum 10000"
+
+
+def similar_query(target):
+    """
+    Domain profile's IrisQL search for a target: domains on the IP (an IP), on the range's addresses (a CIDR range:
+    Iris takes no ranges, so the first and last address), or whose name contains the domain's first label.
+    """
+    target = str(target).strip()
+    if is_ip_address(target):
+        return f'# IrisQL-1.0\nip matches "{target}"'
+    if cidr := normalize_cidr(target):
+        network = ipaddress.ip_network(cidr)
+        return (f'# IrisQL-1.0\nip greater_than_or_equal "{network[0]}"\nAND\n'
+                f'ip less_than_or_equal_to "{network[-1]}"')
+    return f'# IrisQL-1.0\nDOMAIN CONTAINS "{target.split(".")[0]}"'
 
 
 def error_hint(error):

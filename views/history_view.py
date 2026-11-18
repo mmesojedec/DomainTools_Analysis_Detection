@@ -49,7 +49,7 @@ from core.run_history import (
 )
 from core.use_cases import find_case
 from views import navigation
-from views.common import chart, table
+from views.common import chart, metric, table
 from views.sidebar import (
     HISTORY_TAB_KEY,
     OFFLINE_SELECT_KEY,
@@ -127,7 +127,7 @@ def _render_run_details(key, runs, timezone):
     c1.metric("Alerts", len(alerts))
     c2.metric("Domains with alerts", alerts["Domain"].nunique() if not alerts.empty else 0)
     c3.metric("Max Unified Risk", "—" if profiles.empty else int(profiles["Unified Risk"].max()))
-    c4.metric("Window", snapshot.get("window") or "—")
+    metric(c4, "Window", snapshot.get("window") or "—")
     if snapshot.get("note"):
         st.info(f"**Note:** {snapshot['note']}")
     if snapshot.get("seeds"):

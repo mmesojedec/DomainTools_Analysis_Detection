@@ -186,8 +186,8 @@ def render_use_case_settings(case, overrides):
         else:
             st.markdown(f"{case.icon} **{case.title}** — {case.summary}")
         st.selectbox("Analysis window", PROFILE_WINDOWS, key=prefix + WINDOW_KEY,
-                     help="The window this use case sets in the sidebar. It filters what the pages show; it does not "
-                          "change what is looked up.")
+                     help="The window this use case sets (sidebar before a run, results toolbar after). It filters what the "
+                          "pages show; it changes what is looked up only for Domain History in *Analysis window* mode.")
         render_collection_options(prefix)
 
     edited = _edited(case)

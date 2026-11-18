@@ -8,6 +8,7 @@ from config import CACHE_LIFETIMES
 from core.anonymizers import answer_tables as response_tables
 from core.api_usage import cache_group, failed_lookups
 from core.dataset import expand_multiline_rows
+from core.ja4x import note as ja4x_note
 from core.offline import format_size
 from core.timezone import format_in_tz
 from integrations.cache import cache_ttl, cache_usage, group_ttl
@@ -15,6 +16,7 @@ from views.common import (
     capped_table,
     clean_strings,
     format_datetime_columns,
+    metric,
     metric_slots,
     selected_rows,
     selection_key,
@@ -25,7 +27,7 @@ from views.history_cap import render_history_cap_notice
 CERT_COLUMNS = [
     "Domain", "Source", "Common Name", "Issuer", "Duration", "Validation Level", "Is Self Signed", "Hash",
     "Public Key SHA256", "Subject Key ID", "Authority Key ID", "Is Precertificate", "Signature Algo",
-    "Alt Names List", "Not Before Date", "Not After Date",
+    "Alt Names List", "Not Before Date", "Not After Date", "JA4X",
 ]
 PDNS_COLUMNS = ["First Seen", "Last Seen", "Domain", "RRName", "Source", "Field", "Count", "Bailiwick", "Value", "Lifespan Days"]
 
@@ -52,6 +54,8 @@ def _render_certs(ds):
         return
     st.subheader("Raw Certificate Logs")
     view = ds.ssl[[c for c in CERT_COLUMNS if c in ds.ssl.columns]].copy()
+    if "JA4X" in view.columns:   # what the fingerprint says: a known tool or device, or a code-generated layout
+        view.insert(view.columns.get_loc("JA4X") + 1, "JA4X Note", view["JA4X"].map(ja4x_note))
     if "Alt Names List" in view.columns:
         view["Alt Names List"] = view["Alt Names List"].map(_join_list)
     view = clean_strings(format_datetime_columns(view, ["Not Before Date", "Not After Date"]))
@@ -220,10 +224,11 @@ def render_cache_panel(statuses, timezone, run_time=None, can_rerun=True, expand
             ("Oldest cached data", _ago(oldest), "Age of the oldest cached result this run used"),
             ("First expiry", _until(expires), "When the first result of this run leaves the cache; a later run then "
                                               "queries it again"),
-            ("Cache on disk", f"{files:,} · {format_size(size)}", "Cached lookups in dt_cache/ for every target"),
+            ("Cache on disk", format_size(size), "Cached lookups in dt_cache/ for every target",
+             f"{files:,} cached lookup(s)"),
         ]
-        for col, (name, value, help_text) in zip(metric_slots(len(metrics)), metrics):
-            col.metric(name, value, help=help_text)
+        for col, (name, value, help_text, *note) in zip(metric_slots(len(metrics)), metrics):
+            metric(col, name, value, note=note[0] if note else None, help=help_text)
         created = pd.to_datetime(run_time, errors="coerce", utc=True)
         if pd.notna(created):
             st.caption(f"For the lookups of the run collected {created.tz_convert(timezone):%Y-%m-%d %H:%M} "

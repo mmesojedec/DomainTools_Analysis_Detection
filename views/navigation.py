@@ -73,6 +73,11 @@ def build(functions, analyst=True):
     return st.navigation(sections, position="top")
 
 
+def current_key(nav):
+    """The page key of the StreamlitPage `nav` returned by build() (the default page has an empty url_path)."""
+    return next((key for key, item in _PAGES.items() if item is nav or item.title == nav.title), nav.url_path)
+
+
 def page(key):
     """The StreamlitPage of `key` (or of the page a merged key lives on), or None when this mode leaves it out."""
     return _PAGES.get(ALIASES[key][0] if key in ALIASES else key)

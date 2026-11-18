@@ -308,3 +308,52 @@ def test_reruns_of_the_same_targets_are_one_box_on_the_map():
     dot = hunt_map_dot([("k", r1, 0), ("k", r2, 1), ("k", r3, 2), ("k", r4, 3)], loaded_id="r3")
     assert dot.count('[label=<<TABLE') == 2 and "3 runs of these targets" in dot and "● loaded" in dot
     assert '"run::r1" -> "run::r4"' in dot and "run::r2" not in dot
+
+
+def test_each_step_records_the_start_indicators_it_comes_from():
+    from core.hunt_plan import PLAN_FIELDS, plan_items
+    steps = [{"kind": "IP", "value": "45.1.2.3", "why": "1 alert", "domains": ["b.com"], "alerts": 1, "worst": "High"}]
+    leads = [{"Type": "Name server", "Value": "ns1.evil.ru", "Stop": "", "Score": 60, "Iris Domains": 4,
+              "Shared With": "a.com, c.com", "Analyze As": "", "Iris Search": "ns=ns1.evil.ru", "Reasons": []},
+             {"Type": "IP address", "Value": "45.1.2.3", "Stop": "", "Score": 50, "Iris Domains": 3,
+              "Shared With": "a.com", "Analyze As": "45.1.2.3", "Iris Search": "ip=45.1.2.3", "Reasons": []}]
+    items = {item["value"]: item for item in plan_items(steps, leads)}
+    assert items["45.1.2.3"]["of"] == ["a.com", "b.com"] and items["ns1.evil.ru"]["of"] == ["a.com", "c.com"]
+    assert "of" in PLAN_FIELDS   # kept with the run
+
+
+def test_the_hunt_map_focuses_on_one_start_indicator():
+    from views.hunt_map_view import focus_hunt, hunt_map_dot
+    root = {"id": "r1", "created": "2026-11-17T08:00:00Z", "targets": ["a.com", "b.com"], "alerts": [],
+            "plan": [{"step": 1, "source": "Start", "kind": "IP", "value": "45.1.2.3", "action": "Analyze",
+                      "target": "45.1.2.3", "of": ["a.com"]},
+                     {"step": 2, "source": "Branch", "kind": "Name server", "value": "ns1.evil.ru", "action": "Iris",
+                      "search": "ns=ns1.evil.ru", "target": "", "of": ["b.com"]},
+                     {"step": 3, "source": "Branch", "kind": "Registrant", "value": "old step", "action": "Iris",
+                      "search": "x", "target": ""}]}   # saved before steps recorded their indicator
+    child = {"id": "r2", "created": "2026-11-17T09:00:00Z", "targets": ["45.1.2.3"], "alerts": [],
+             "parent": {"id": "r1", "via": "Analyze now: 45.1.2.3"}}
+    grandchild = {"id": "r3", "created": "2026-11-17T10:00:00Z", "targets": ["x.com"], "alerts": [],
+                  "parent": {"id": "r2", "via": "Analyze now: x.com"}}
+    members = [("k", root, 0), ("k", child, 1), ("k", grandchild, 2)]
+    from views.hunt_map_view import run_items
+    steps = run_items(members)
+    kept, narrowed = focus_hunt(members, steps, "b.com")
+    assert [s["id"] for _, s, _ in kept] == ["r1"]   # the IP step (and its runs) belong to a.com
+    assert [item["value"] for item in narrowed["r1"]] == ["ns1.evil.ru", "old step"]
+    kept, narrowed = focus_hunt(members, steps, "a.com")
+    assert [s["id"] for _, s, _ in kept] == ["r1", "r2", "r3"]
+    assert [item["value"] for item in narrowed["r1"]] == ["45.1.2.3", "old step"]
+    assert focus_hunt(members, steps, None) == (members, steps)
+    dot = hunt_map_dot(members, focus="b.com")
+    assert "run::r2" not in dot and "ns1.evil.ru" in dot and "45.1.2.3" not in dot
+
+
+def test_the_hunt_trail_counts_runs_of_the_same_targets_instead_of_listing_them():
+    from core.hunt_tree import trail_steps, trail_text
+    targets = ["83.228.209.234", "cnn.com"]
+    runs = [{"id": f"r{i}", "targets": targets, **({"parent": {"id": f"r{i - 1}", "via": "Run again"}} if i else {})}
+            for i in range(5)]
+    assert [(s["id"], n) for s, n in trail_steps(runs)] == [("r0", 5)]
+    pivot = {"id": "r5", "targets": ["x.com"], "parent": {"id": "r4", "via": "IP 1.2.3.4"}}
+    assert trail_text(runs + [pivot]) == "**83.228.209.234, cnn.com** (5 runs) *via IP 1.2.3.4* → **x.com**"

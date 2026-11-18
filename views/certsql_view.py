@@ -5,6 +5,7 @@ certificates ticked *Use*) and a use case, and analyzes them as a new run.
 """
 import json
 
+import pandas as pd
 import plotly.express as px
 import streamlit as st
 
@@ -41,6 +42,7 @@ EXAMPLE_KEY = "certsql_example"
 STATE_KEY = "certsql_search"   # {"query", "max_results", "sort", "result", "certs", "domains", "ips", "hosts", ...}
 CASE_KEY = "certsql_use_case"
 ORIGIN_KEY = "certsql_origin"   # the search's Data sources row, attached to the next run (Lookup Queries → CertsQL)
+CERTS_KEY = "certsql_origin_certs"   # the search's used certificates, added to the next run's certificates
 MAX_KEY, SORT_KEY, PRESELECT_KEY = "certsql_max_results", "certsql_sort", "certsql_preselect"   # sticky (sidebar.py)
 ORDER_KEY = "certsql_sort_order"   # sticky (sidebar.py)
 COLOR = "#2e8b57"
@@ -118,6 +120,7 @@ def _analyze(targets, case_key, state):
     if case is not None:
         apply_use_case(case)
     st.session_state[ORIGIN_KEY] = search_status(state)
+    st.session_state[CERTS_KEY] = used_hits(state["result"].data, state["certs"])
     start_hunt(targets, _label(state["query"]), hunt_parent("certsql"))
 
 
@@ -210,6 +213,7 @@ def _render_results(state):
         return
 
     certs, domains, ips, hosts = state["certs"], state["domains"], state["ips"], state["hosts"]
+    _render_fingerprints(result.data)
     used = int(certs["Use"].sum())
     tabs = st.tabs([f"Domains ({len(domains):,})", f"IPs ({len(ips):,})", f"Hostnames ({len(hosts):,})",
                     f"Certificates ({used:,} of {len(certs):,} used)", "Breakdown", "Raw JSON"],
@@ -241,6 +245,24 @@ def _render_results(state):
         if len(result.data) > 20:
             st.caption(f"The first 20 of {len(result.data):,} records; the download has all of them.")
     render_analyze_selection("certsql", selected(domains, "Target"), selected(ips, "Target"), _analyze, state)
+
+
+def _render_fingerprints(hits):
+    """A fingerprint card per known or code-generated JA4X in the results (most certificates first, at most 3)."""
+    from core import ja4x
+    from views.ssl_view import render_ja4x_card  # lazy: the Certificates page is heavy to import
+    values = pd.Series([ja4x.normalize(hit.get("ja4x")) for hit in hits if isinstance(hit, dict)], dtype=str)
+    values = values[values.map(lambda v: bool(v) and bool(ja4x.known_ja4x(v) or ja4x.generated_layout(v)))]
+    if values.empty:
+        return
+    rows = pd.DataFrame([{"JA4X": hit.get("ja4x") or "", "Hash": hit.get("sha256") or "",
+                          "Common Name": hit.get("subject_common_name") or "",
+                          "Subject Org": hit.get("subject_organization") or ""} for hit in hits if isinstance(hit, dict)])
+    for value, count in values.value_counts().head(3).items():
+        match = ja4x.known_ja4x(value)
+        with st.expander(f"Fingerprint: {match[0] if match else 'code-generated layout'} · {count:,} of these "
+                         f"certificates", icon=":material/fingerprint:", expanded=True):
+            render_ja4x_card(value, rows, key=f"certsql_card_{value}")
 
 
 def _render_certificates(state, certs):

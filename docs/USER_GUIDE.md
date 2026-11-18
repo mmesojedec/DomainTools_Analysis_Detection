@@ -74,7 +74,7 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
 
 ## Analysis window
 
-The window (sidebar, default *Last 30 days*) keeps only records **active** in it:
+The window (*Show activity from*: the sidebar before a run, the results toolbar after; default *Last 30 days*) keeps only records **active** in it:
 
 | Data | Kept when |
 | --- | --- |
@@ -221,7 +221,7 @@ The **Alerts** page lists every detection.
 
 | Control | Effect |
 | --- | --- |
-| Confidence / Severity | Show only these levels |
+| Confidence / Severity | In the results toolbar (*Alerts*): show only these levels, here and on Summary, Domain profile, the Hunt map and exports |
 | Status | Show only alerts with these [triage statuses](#triage-status) |
 | Threat type | Show only these rules (empty: every threat type) |
 | Layout | *Grouped* (default) or *Table* (one flat, sortable row per alert) |
@@ -381,6 +381,8 @@ current run.
 | Self-Signed Certificate Detected | Critical to Low (graded: High, Medium) | High | T1573.002 (Encrypted Channel) | Certificate subject equals its issuer. Graded like the Certificates page: a C2 framework's default certificate or one served on the domain now is Critical, an expired one a step lower. | Common on C2 servers and malware panels; untrusted by browsers. |
 | Known C2 Certificate Fingerprint (JA4X) | High | Medium | T1588.002 (Obtain Capabilities: Tool) | The certificate's JA4X is on the built-in list of C2 framework and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, ...). | The certificate was generated the way that tool generates its own. Other certificates built with the same fields match too, so confirm with the certificate (self-signed, default names, the IP's ports). |
 | Dual-Use Tool Certificate Fingerprint (JA4X) | Medium | Low | T1572 (Protocol Tunneling) | The certificate's JA4X is on the built-in list of dual-use tools (e.g. SoftEther VPN). | Legitimate software that attackers also run for tunnels and remote access; unexpected on a phishing or brand domain. |
+| Network Device Default Certificate (JA4X) | Medium | Low | T1584.008 (Compromise Infrastructure: Network Devices) | The certificate's JA4X is on the built-in list of network devices' default certificates (e.g. Cisco RV32x routers). | The host serves a router's own management certificate; small-office routers are often compromised and used as relays. |
+| Code-Generated Certificate Layout (JA4X) | Medium | Low | T1587.003 (Develop Capabilities: Digital Certificates) | The certificate's JA4X has an empty issuer part (no issuer attributes) and is not on a built-in list. | No CA issues a certificate without issuer attributes; C2 frameworks that generate their own do (Sliver, Havoc). Search CertsQL for the JA4X to find the set. |
 | Short-Lived Certificate | Low (informational, not scored) | High | T1588.004 (Obtain Digital Certificates) | Certificate valid at most Short-Lived Certificate Max Validity (Days), e.g. Let's Encrypt's 6-day profile. | Context only: short lifetimes reflect good automation, so this is excluded from risk scores and DIF. |
 | Mega-SAN Cluster (Bulk Infrastructure) | High | Medium | T1583.001 (Acquire Infrastructure) | One certificate covers at least Mega-SAN Min Root Domains registrable domains. Low confidence on CDN / shared-hosting certificates (Cloudflare, cPanel, ...). | Bundling unrelated domains in one certificate links bulk-registered infrastructure. |
 | Multi-IP Certificate (Shared C2 / Proxy Cluster) | High | Medium | T1008 (Fallback Channels) | Certificate for an IP target also lists other raw IPs. | Points to a cluster of C2 or proxy nodes sharing one certificate. |
@@ -573,7 +575,9 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Resource Development | T1583.006 | Acquire Infrastructure: Web Services | 1 |
 | Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 9 |
 | Resource Development | T1584.002 | Compromise Infrastructure: DNS Server | 1 |
+| Resource Development | T1584.008 | Compromise Infrastructure: Network Devices | 1 |
 | Resource Development | T1585.002 | Acquire Email Accounts; Establish Accounts: Email Accounts | 2 |
+| Resource Development | T1587.003 | Develop Capabilities: Digital Certificates | 2 |
 | Resource Development | T1588 | Obtain Capabilities | 2 |
 | Resource Development | T1588.002 | Obtain Capabilities: Tool | 1 |
 | Resource Development | T1588.004 | Obtain Capabilities: Digital Certificates; Obtain Digital Certificates | 14 |
@@ -593,7 +597,6 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Command and Control | T1572 | Protocol Tunneling | 1 |
 | Command and Control | T1573.002 | Encrypted Channel | 1 |
 | Other | T1553.004 | Subvert Trust Controls: Install Root Certificate | 1 |
-| Other | T1587.003 | Develop Capabilities: Digital Certificates | 1 |
 
 Most domain-infrastructure behavior falls under **Resource Development** (the adversary acquiring and preparing
 domains, servers and certificates), with **Command and Control** for resolution, tunneling and proxy behavior.
@@ -757,10 +760,18 @@ part is empty. Certificates made by the same tool or template have the same JA4X
 The Certificates API returns `ja4x` with the latest CertsQL release. Certificates collected before it is live have no
 JA4X, and everything below stays empty for them.
 
+The built-in fingerprints come from FoxIO's JA4+ mapping (`ja4plus-mapping.csv`) and the JA4+ introduction on the
+APNIC blog (*JA4+ network fingerprinting*, 2023): C2 and malware (Cobalt Strike default certificate, Sliver / Havoc
+C2, Metasploit, Qakbot, Pikabot, AsyncRAT / QuasarRAT / BitRAT), a dual-use tool (SoftEther VPN) and a network
+device's default certificate (Cisco RV32x routers). The values are in Reference → Built-in lists.
+
 | Where | What it does |
 | --- | --- |
-| Alerts | **Known C2 Certificate Fingerprint (JA4X)** (High) when a certificate's JA4X is on the built-in list of C2 and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, Pikabot, AsyncRAT / QuasarRAT / BitRAT); confidence is High when the certificate is also self-signed, else Medium. **Dual-Use Tool Certificate Fingerprint (JA4X)** (Medium, Low confidence) for tools such as SoftEther VPN. The lists are in Reference → Built-in lists |
-| **Certificates → JA4X & C2** tab | One row per JA4X in the run: the tool it matches, the domains and certificates with it, issuers, self-signed, and what the layout says (*issuer = subject layout*, *empty issuer*, *no extensions*) |
+| Alerts | **Known C2 Certificate Fingerprint (JA4X)** (High) when a certificate's JA4X is on the built-in list of C2 and malware fingerprints (Cobalt Strike, Sliver / Havoc, Metasploit, Qakbot, Pikabot, AsyncRAT / QuasarRAT / BitRAT); confidence is High when the certificate is also self-signed, else Medium. **Dual-Use Tool Certificate Fingerprint (JA4X)** (Medium, Low confidence) for tools such as SoftEther VPN. **Network Device Default Certificate (JA4X)** (Medium, Low confidence) when the host serves a router's own certificate (Cisco RV32x): small-office routers are often compromised and used as relays. **Code-Generated Certificate Layout (JA4X)** (Medium, Low confidence) when a JA4X not on the lists has an empty issuer part (`000000000000_…`): no CA issues such a certificate, while C2 frameworks that generate their own do (Sliver and Havoc build random ones this way); search CertsQL for the JA4X to find the rest of the set. The lists are in Reference → Built-in lists |
+| **JA4X worth a look** (Summary → Analysis Details, Certificates → Overview, Domain profile) | Only shown when a run has one: each JA4X that matches a known tool or device, has a code-generated layout, or is shared by two or more of your domains off public CAs (one tool or template made them), with why, the domains and *In Window* (unticked: only on certificates older than the analysis window; the alerts still use them), and *Open the JA4X & C2 tab*. Each known or code-generated value has a **fingerprint card** (below). The Domain profile lists its own domain's, and its *Newest certificates* table shows each JA4X with a note |
+| **Fingerprint card** (JA4X worth a look, the JA4X & C2 tab, *Look up any JA4X*, CertsQL results) | What the value matches (tool and kind: C2 / malware, dual-use tool, network device, code-generated, not listed) and the source; the three parts and what each says; for Cobalt Strike, how its certificate is made and its default names. With the run's certificates it says whether they carry the tool's **default names** (the tool's own certificate) or share **only the layout**: Cobalt Strike's default is made with Java keytool, so any keytool certificate with a full six-part name has the same JA4X. Then what to check and why a match can be innocent |
+| **Evidence → Records → Certificates** | The *JA4X* column with a *JA4X Note*: the known tool or device and its kind, or what the layout says (*empty issuer*, *issuer = subject layout*) |
+| **Certificates → JA4X & C2** tab | One row per JA4X in the run: the tool it matches, the domains and certificates with it, issuers, self-signed, and what the layout says (*issuer = subject layout*, *empty issuer*, *no extensions*). The fingerprint card of the value picked under *JA4X to pivot on*, and *Look up any JA4X* decodes any value you paste (no API query) |
 | *Check how common* | Counts each JA4X in the Certificates API: one Certificate Search request per value, at most 10 per click, cached. *Rare* is 50 certificates or fewer, *Uncommon* up to 1,000, else *Common*. A rare or uncommon JA4X shared by two domains is called out: the same tool or template made their certificates |
 | *Find certificates with this JA4X* | Opens CertsQL with `ja4x equals "…"`, to find every certificate with it, not only this run's. *Hunt for a known tool's certificates* does the same for a value from the built-in lists |
 | Runs (Compare & trends, Indicator Sightings) | Each domain's JA4X values are saved with the run, so a changed JA4X between two runs (the operator rebuilt the server) shows up in the diff, and *Runs → Indicator Sightings* finds earlier runs with the same value |
@@ -836,7 +847,7 @@ Self-signed certificate cards (Certificates → Self-Signed) offer the same: *An
 a `sha256:` / `sha1:` input) and *Find in Iris* (by SHA-1).
 
 A run started this way remembers the run it came from and what led to it. The Summary shows the **hunt trail**
-(first run → … → this run), and **Hunt → Hunt map** draws the whole hunt (see [Hunt map](#hunt-map)). Runs join the
+(first run → … → this run; runs of the same targets again are counted, e.g. *(5 runs)*, not repeated), and **Hunt → Hunt map** draws the whole hunt (see [Hunt map](#hunt-map)). Runs join the
 loaded run's hunt in three more ways:
 
 - **IrisQL and CertsQL**: while a run is loaded, *Add the new run to the hunt of the loaded run* (above the Analyze
@@ -916,6 +927,14 @@ shows where it stands and draws it:
 | Open step (dashed) | A step the run suggested that no run of the hunt has followed: its number, type and value, score, Iris count, the open alerts that name it (and the worst), their alert types, how many of your domains have it. Orange: *start here*; grey: a lead |
 | Done step (green ✓) | A step followed, with an arrow on to the run it started. Steps that had already led to this run are one box (*✓ N steps repeated from before*). A run started some other way is linked with what led to it |
 
+**Focus on a start indicator.** When the hunt's first run analyzed several targets (domains, IPs), the pills above
+the map pick one of them, or *All indicators* (default). Each pill names how many of its steps are open. With one
+picked, the map keeps that indicator's steps (from the alerts on it and the leads it shares with other domains) and
+the runs that grew from them, with everything after them; the counts, the hunt status and the *Next steps from the
+loaded run* (alerts, *Check next*, the suggested hunt and its steps) follow the focus. Joins, detaches and *Runs of
+this hunt* still cover the whole hunt. A first run saved before steps recorded their indicator shows every step under
+each focus, with a note; load that run (its offline copy, or run it again) to split them.
+
 **A step is only ever open once in a hunt.** Values any run of the hunt analyzed or started from (targets, and the
 certificates a run came from) are never suggested again, as a *Start here* step or as a lead, so *Run suggested hunt*
 can't go round in circles.
@@ -926,7 +945,7 @@ can't go round in circles.
 | --- | --- |
 | Growing | The newest run still adds domains or new kinds of alerts |
 | Converging | The newest run added 2 new domains or fewer and no new kind of alert: following more steps is unlikely to find much |
-| Done | No open step is left, or a hunt limit is reached (*Hunt limits*: runs deep, default 4; domains in the hunt, default 100) |
+| Done | No open step is left, or a hunt limit is reached (*Hunt limits*: runs deep, default 4; domains in the hunt, default 100). Runs of the same targets again (*Run again*) add no depth |
 | Closed | You closed the hunt with a verdict |
 
 When the hunt is converging or done, the *Hunt result* opens and *Run suggested hunt* says so (you can still run
@@ -1015,10 +1034,10 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | --- | --- |
 | Start | A **Targets** box with **Analyze**, links to *Find targets with IrisQL*, *Find targets with CertsQL* and *Runs & Sightings*; use cases (triage, related infrastructure, C2 hunting, subdomain takeover, phishing & lookalikes, monitoring, reporting, checking IP addresses for VPN, proxy and Tor): each sets the collection options and window and gives a plan; the last run |
 | IrisQL | Examples to start from, an IrisQL query on Iris Investigate (the editor suggests fields, each field's operators and the value, and marks lines with a problem) and the same search as a DomainTools Python SDK command, curl and a Python script; results: matching domains (risk, dates, registrar, hosting, name servers, tags), their hosting IPs and a breakdown; tick domains and IPs, pick a use case and analyze them as a new run; *Watch this query* and *Watched queries* (check a saved query again for new domains only) |
-| CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as a curl command and a Python script; results: matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run |
+| CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as a curl command and a Python script; results: a fingerprint card for each known or code-generated JA4X among them, matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run. The ticked certificates go into the run (Source *CertsQL search*) for the domains they name, so the certificate that found a domain is in its analysis even when the domain's own certificate lookup does not return it |
 | Runs | *Recent runs*: the newest saved runs as a timeline, one card per target list or a table (one row per target list, or every run with *Show all runs*; filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open it in *Compare & trends*. *Compare & trends*: run details, compare any two runs, trends, one domain across runs, watched lists, manage runs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
 | Summary | From the top: hunt trail and KPIs; every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains); analysis details (linked counts, and the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits); linked domains; a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*); top alerts (pick one to open Alerts filtered to it); run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health); what's new since the last analysis with *Watch this list*; the use-case plan with checkboxes; the lookups of the last collection |
-| Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar names in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
+| Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar domains / IPs in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons (with *Your Verdicts*), suppressions, run diff, DomainTools risk evidence; *Export detections, IOCs and reports* opens Export & report |
 | VPNDB | Which VPN or proxy provider operates behind an IP, prefix or ASN (each tab opens with *How to read this*): domain → provider → exit flow, domain × category heatmap, providers, exit countries, exposure timeline against VPNDB's weekly history, Iris cross-check (domain count, pivot value, disagreements), neighbouring ranges and hosting networks, other domains on dedicated exits (DNSDB) with *Analyze*, CIDR address grids and range cards; select any IP for its full card (verdict, whole VPNDB answer, history, where the run saw it, Tor share) |
 | Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when one of the run's hosting networks is among them |

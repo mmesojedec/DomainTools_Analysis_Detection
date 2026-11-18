@@ -45,6 +45,8 @@ THIS_TAB, COMBINED_TAB, ALL_TAB, PIVOTS_TAB = "This hunt", "Combined hunts", "Al
 HUNT_KEY = "hunt_map_hunt"
 RUN_KEY = "hunt_map_run"
 FILTER_KEY = "hunt_map_filter"
+FOCUS_KEY = "hunt_map_focus"   # per hunt: the start indicator the map and next steps focus on
+ALL_INDICATORS = "All indicators"
 DEPTH_KEY, DOMAINS_KEY = "hunt_limit_depth", "hunt_limit_domains"
 VERDICTS = ("Malicious cluster", "Suspicious", "Benign", "Inconclusive")
 OPEN_LOADED, OPEN_OTHER, DONE_SHOWN = 6, 3, 4   # open steps drawn under the loaded run / other runs; done steps
@@ -241,19 +243,60 @@ def run_items(members, live_items=None, loaded_id=None):
     return result
 
 
+def _of(item):
+    """The start indicators a step belongs to (lower case), or None for a step saved before they were recorded."""
+    of = item.get("of")
+    return None if of is None else {str(value).lower() for value in of}
+
+
+def step_in_focus(item, focus):
+    """Whether a step belongs to the start indicator `focus` (every step without a focus, or without a record)."""
+    of = _of(item)
+    return not focus or not of or str(focus).lower() in of
+
+
+def focus_hunt(members, steps, focus):
+    """
+    The hunt narrowed to one start indicator: the first run with only the steps that indicator led to, and the runs
+    that grew from those steps (with everything after them). A run started otherwise from the first run (Run again,
+    a join) stays, as does every step saved before steps recorded their indicator. (members, steps).
+    """
+    if not focus or len(members) < 1:
+        return members, steps
+    root_id = members[0][1]["id"]
+    led_by = {}
+    for item in steps.get(root_id, []):
+        if item["done"] and item.get("child"):
+            led_by.setdefault(item["child"]["id"], []).append(item)
+    keep = {root_id}
+    for _, snapshot, _ in members[1:]:
+        parent = (snapshot.get("parent") or {}).get("id")
+        if parent == root_id:
+            ofs = [_of(item) for item in led_by.get(snapshot["id"], []) if _of(item)]
+            if not ofs or any(str(focus).lower() in of for of in ofs):
+                keep.add(snapshot["id"])
+        elif parent in keep:
+            keep.add(snapshot["id"])
+    kept = [member for member in members if member[1]["id"] in keep]
+    narrowed = {run_id: items for run_id, items in steps.items() if run_id in keep}
+    narrowed[root_id] = [item for item in steps.get(root_id, []) if step_in_focus(item, focus)
+                         and (not item["done"] or item["child"]["id"] in keep)]
+    return kept, narrowed
+
+
 def map_direction(layout, runs):
     """Graphviz rankdir of a map layout (LAYOUTS); Auto turns a hunt of more than AUTO_LR_RUNS runs top to bottom."""
     return LAYOUTS.get(layout) or ("LR" if runs <= AUTO_LR_RUNS else "TB")
 
 
 def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highlight=None, details=DEFAULT_DETAILS,
-                 direction="LR", open_limit=OPEN_LOADED):
+                 direction="LR", open_limit=OPEN_LOADED, focus=None):
     """
     Graphviz DOT of one hunt: its runs (what each added, its alerts, its link to the first run), the steps each run
     left open (dashed) and the ones followed (✓, on to the run they started). `members`: hunt_members();
     `live_items`: the loaded run's current steps (plan_items()); `highlight`: ("type" | "severity", value);
     `details`: what the boxes show (DETAILS keys); `direction`: "LR" or "TB"; `open_limit`: open steps drawn under
-    the loaded run (other runs: at most OPEN_OTHER; 0 draws none).
+    the loaded run (other runs: at most OPEN_OTHER; 0 draws none); `focus`: a start indicator (focus_hunt).
     """
     members, repeats, alias = collapse_repeats(members)   # reruns of the same targets: one box
     loaded_id = alias.get(loaded_id, loaded_id)
@@ -263,6 +306,9 @@ def hunt_map_dot(members, timezone="UTC", loaded_id=None, live_items=None, highl
     gains = run_yield(snapshots)
     links = start_links(snapshots, root)
     steps = run_items(members, live_items, loaded_id)
+    members, steps = focus_hunt(members, steps, focus)
+    snapshots = [snapshot for _, snapshot, _ in members]
+    by_id = {snapshot["id"]: snapshot for snapshot in snapshots}
     children = {}
     for _, snapshot, depth in members:
         if depth:
@@ -552,15 +598,54 @@ def _render_run_picker(members, timezone):
                        prefix="hunt_map")
 
 
-def _render_next(ctx, loaded_label, status, leads, steps, children, items):
+def _render_focus(root_id, root, root_items):
+    """
+    The start indicator to focus the hunt on, when the first run analyzed several: All indicators, or one of its
+    targets, each with the steps it led to. Returns the target, or None for all of them.
+    """
+    targets = list(dict.fromkeys(root.get("seeds") or root.get("targets") or []))
+    if len(targets) < 2:
+        return None
+    key = f"{FOCUS_KEY}::{root_id}"
+    if st.session_state.get(key) not in [ALL_INDICATORS, *targets]:
+        st.session_state[key] = ALL_INDICATORS
+
+    recorded = any(_of(item) is not None for item in root_items)
+
+    def label(option):
+        if option == ALL_INDICATORS or not recorded:
+            return option
+        own = [item for item in root_items if _of(item) and option.lower() in _of(item)]
+        left = sum(1 for item in own if not item["done"])
+        return f"{option} · {left} open" if own else f"{option} · no steps"
+    picked = st.pills("Focus on a start indicator", [ALL_INDICATORS, *targets], key=key, format_func=label,
+                      help="The hunt of one indicator the first run analyzed: its own suggested steps (from its "
+                           "alerts and the leads it shares) and the runs that grew from them. All indicators draws "
+                           "the whole hunt.")
+    if not recorded and root_items:
+        st.caption("The first run of this hunt was saved before its steps recorded which indicator they came from, so "
+                   "a focus shows every step. Load that run (*Runs of this hunt* → *Load offline copy*, or run it "
+                   "again) to split them.")
+    return None if picked in (None, ALL_INDICATORS) else picked
+
+
+def _render_next(ctx, loaded_label, status, leads, steps, children, items, focus=None):
     """
     The loaded run's hunting work: alert decisions, what to check next, the suggested hunt (run it all, pick steps,
-    or read each one's reasons) and the other strong leads.
+    or read each one's reasons) and the other strong leads. `focus`: only what one start indicator led to.
     """
     from core.triage import domain_verdicts, load_triage
     from views.hunt_next_view import render_alert_decisions, render_check_next, render_more_leads
     from views.hunt_plan_view import render_suggested_hunt  # loaded on use
     alerts = ctx.view.active
+    if focus:
+        alerts = alerts[alerts["Domain"].astype(str).str.lower() == focus.lower()] if not alerts.empty else alerts
+        items = [item for item in items if step_in_focus(item, focus)]
+        leads = [lead for lead in leads if focus.lower() in {d.strip().lower() for d in
+                                                              str(lead.get("Shared With") or "").split(",")}]
+        steps = [step for step in steps if focus.lower() in {str(d).lower() for d in step.get("domains") or []}
+                 or (step["kind"] == "Lead" and step.get("lead") in leads)]
+        loaded_label = focus
     st.markdown(f"#### Next steps from the loaded run · {md_escape(loaded_label)}")
     if not alerts.empty:
         render_alert_decisions(alerts, domain_verdicts(load_triage(), ctx.ds.selected_domains))
@@ -620,9 +705,15 @@ def _render_this_hunt(timezone, ctx):
     root_key, root, _ = members[0]
     snapshots = [snapshot for _, snapshot, _ in members]
     steps_by_run = run_items(members, live, loaded_id if in_hunt else None)
+    focus = _render_focus(root_id, root, steps_by_run.get(root["id"], []))
+    whole = members   # the hunt's every run: joins, detaches and the runs list work on the whole hunt
+    if focus:
+        members, steps_by_run = focus_hunt(members, steps_by_run, focus)
+        snapshots = [snapshot for _, snapshot, _ in members]
     newest = max(snapshots, key=lambda snapshot: str(snapshot.get("created")))
     open_steps = _open_steps(members, steps_by_run, newest)
-    status = hunt_status(snapshots, [depth for _, _, depth in members], open_steps,
+    distinct = collapse_repeats(members)[0]   # runs of the same targets again add no depth and no domains
+    status = hunt_status([snapshot for _, snapshot, _ in distinct], [depth for _, _, depth in distinct], open_steps,
                          int(st.session_state[DEPTH_KEY]), int(st.session_state[DOMAINS_KEY]), root.get("hunt_result"))
     trail = _trail(runs, loaded_id) if in_hunt else []
     if len(trail) > 1:
@@ -643,18 +734,21 @@ def _render_this_hunt(timezone, ctx):
     with c_options:
         _render_map_options()
     details, layout, size, open_limit = _map_options()
-    st.graphviz_chart(hunt_map_dot(members, timezone, loaded_id if in_hunt else None, live, highlight, details,
-                                   map_direction(layout, len(members)), open_limit),
+    st.graphviz_chart(hunt_map_dot(whole, timezone, loaded_id if in_hunt else None, live,
+                                   highlight, details, map_direction(layout, len(members)), open_limit, focus),
                       width="stretch" if size == "Fill width" else "content")   # Fit: its own size, shrunk to the page
     st.caption(LEGEND)
     from views.hunt_combine_view import render_join_controls  # it imports this module
-    render_join_controls(runs, members)
+    render_join_controls(runs, whole)
     label = _targets(root, 3)
     _render_result(members, root_key, root, status, timezone, label)
     with st.expander("Runs of this hunt", icon=":material/list:"):
-        _render_run_picker(members, timezone)
-    if in_hunt:
-        _render_next(ctx, _targets(next(s for s in snapshots if s["id"] == loaded_id), 3), status, *plan_parts)
+        _render_run_picker(whole, timezone)
+    if in_hunt and any(s["id"] == loaded_id for s in snapshots):
+        _render_next(ctx, _targets(next(s for s in snapshots if s["id"] == loaded_id), 3), status, *plan_parts,
+                     focus=focus if loaded_id == root["id"] else None)
+    elif in_hunt:
+        st.info(f"The loaded run did not grow from {focus}: pick *{ALL_INDICATORS}* above for its next steps.")
     else:
         st.info("The loaded run is not part of this hunt. Pick one of its runs under *Runs of this hunt* and load "
                 "its offline copy (or run it again) to get its next steps with buttons here."

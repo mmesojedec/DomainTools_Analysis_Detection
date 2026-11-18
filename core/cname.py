@@ -81,8 +81,12 @@ def latest_values(rows):
         return {}
     newest = rows.groupby("RRName")["Last Seen"].transform("max")
     recent = rows[rows["Last Seen"] >= newest - CURRENT_SLACK]
-    return {name: (group["Last Seen"].max(), list(dict.fromkeys(group.sort_values("Last Seen", ascending=False)["Value"])))
-            for name, group in recent.groupby("RRName")}
+    if recent.empty:
+        return {}
+    latest = recent.groupby("RRName")["Last Seen"].max()
+    ordered = recent.sort_values("Last Seen", ascending=False, kind="stable").drop_duplicates(["RRName", "Value"])
+    values = ordered.groupby("RRName", sort=False)["Value"].agg(list)
+    return {name: (latest[name], values[name]) for name in latest.index}
 
 
 def walk_chain(hostname, target, cnames, addresses, chases, max_steps=CNAME_CHASE_MAX_STEPS):

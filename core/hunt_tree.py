@@ -58,12 +58,28 @@ def hunt_tree(runs):
     return rows
 
 
-def trail_text(trail):
-    """'a.com → (via IP 1.2.3.4) b.com, c.com' for a hunt trail."""
-    parts = []
-    for i, snapshot in enumerate(trail):
+def trail_steps(trail):
+    """
+    The hunt trail with runs that only repeat the previous step's targets (Run again, the same list again) folded into
+    it: [(snapshot, runs)], `runs` counting the step and its repeats.
+    """
+    steps = []
+    for snapshot in trail:
         via = (snapshot.get("parent") or {}).get("via")
-        parts.append((f"*via {via}* → " if i and via else "→ " if i else "") + f"**{_targets(snapshot)}**")
+        if steps and via in RERUN_VIAS and _target_set(snapshot) == _target_set(steps[-1][0]):
+            steps[-1] = (steps[-1][0], steps[-1][1] + 1)
+        else:
+            steps.append((snapshot, 1))
+    return steps
+
+
+def trail_text(trail):
+    """'a.com (3 runs) → via IP 1.2.3.4 → b.com, c.com' for a hunt trail; repeated runs of a step are counted, not listed."""
+    parts = []
+    for i, (snapshot, runs) in enumerate(trail_steps(trail)):
+        via = (snapshot.get("parent") or {}).get("via")
+        parts.append((f"*via {via}* → " if i and via else "→ " if i else "") + f"**{_targets(snapshot)}**"
+                     + (f" ({runs} runs)" if runs > 1 else ""))
     return " ".join(parts)
 
 

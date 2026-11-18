@@ -54,10 +54,11 @@ def _render_query_tables(queries, tools):
     st.subheader("Lookups by tool", help="IrisQL, CertsQL, DomainTools Iris, API, Certificates, DNSDB Scout and VPNDB. Pick a "
                                          "tool, then select rows to copy only their queries and commands.")
     queries = queries.assign(Requests=request_counts(queries))
-    counts = queries.groupby("Tool")["Requests"].sum()
+    counts = queries.groupby("Tool").size()
     tool = st.segmented_control("Tool", tools, default=tools[0], key="queries_tool", label_visibility="collapsed",
                                 format_func=lambda t: f"{t} · {counts[t]:,}",
-                                help="Each tool with the number of requests the run made to it") or tools[0]
+                                help="Each tool with the number of lookups the run made with it (a lookup reused from "
+                                     "the cache counts too; it made no API request)") or tools[0]
     st.caption(TOOL_HELP[tool])
     of_tool = queries[queries["Tool"] == tool]
     c_source, c_search = st.columns(2)
@@ -85,13 +86,14 @@ def _render_query_tables(queries, tools):
                          selection_mode="multi-row", key=selection_key(f"queries_table::{tool}", shown["Command"]))
     rows = selected_rows(event, shown)
     picked = shown.iloc[rows] if rows else shown
-    total = int(picked["Requests"].sum())
-    scope = f"from {len(rows):,} selected row(s)" if rows else "every row shown"
-    st.caption(f"{len(shown):,} of {len(of_tool):,} lookup(s), {int(shown['Requests'].sum()):,} request(s). Select rows "
-               "to copy only those.")
-    with st.expander(f"Queries to copy: {total:,} ({scope})", expanded=bool(rows)):
+    scope = f"{len(picked):,} selected lookup(s)" if rows else f"all {len(picked):,} lookup(s) shown"
+    requests, cached = int(shown["Requests"].sum()), int(shown["Cached"].fillna(False).astype(bool).sum())
+    st.caption(f"{len(shown):,} of {len(of_tool):,} lookup(s): {requests:,} API request(s)"
+               + (f", {cached:,} reused from the cache (no request)" if cached else "")
+               + ". Select rows to copy only those.")
+    with st.expander(f"Queries to copy: {scope}", expanded=bool(rows)):
         st.code(tool_bundle(picked, tool), language=LANGUAGE.get(tool))
-    with st.expander(f"Commands: {total:,} ({scope})", expanded=bool(rows)):
+    with st.expander(f"Commands: {scope}", expanded=bool(rows)):
         st.code("\n".join(dict.fromkeys(picked["Command"])), language="bash")
 
     st.download_button("Download all lookups (CSV)", queries.drop(columns=["Requests", "Pages"]).to_csv(index=False), file_name="lookup_queries.csv",

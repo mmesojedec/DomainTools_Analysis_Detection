@@ -3,9 +3,12 @@ import pandas as pd
 import streamlit as st
 
 from core.anonymizers import ANONYMIZER_CATEGORIES, for_domains, shared_exit
+from core.certsql import certificates_query
 from core.cname import dataset_cname_map
 from core.helpers import md_escape
 from core.idn import unicode_label
+from core.irisql import similar_query
+from core.ja4x import note as ja4x_note
 from core.network_intel import explode_ip_events
 from core.next_steps import SEVERITY_RANK
 from core.risk_profile import drivers_text, score_drivers
@@ -13,7 +16,7 @@ from core.triage import DOMAIN, STATUS_HELP, STATUSES, load_triage, set_status, 
 from integrations.enrichment import extract_iris_profile
 from views import navigation
 from views.anonymizer_view import CATEGORY_BADGES, alerts_button, selectable_table
-from views.common import metric_slots
+from views.common import metric, metric_slots
 from views.history_cap import render_history_cap_notice
 from views.query_editor import set_query
 
@@ -111,15 +114,16 @@ def _render_actions(domain):
         if st.button("Where else seen", key="profile_seen", icon=":material/visibility:", type="tertiary",
                      help="Runs → Indicator Sightings for this domain (local files, no API query)"):
             open_sightings(domain)
-        if st.button("Similar names in IrisQL", key="profile_irisql", icon=":material/manage_search:", type="tertiary",
-                     help="Opens IrisQL with a query for domains whose name contains this domain's name; edit it, then "
-                          "Search (one Iris Investigate query)"):
-            set_query(IRISQL_KEY, f'# IrisQL-1.0\nDOMAIN CONTAINS "{domain.split(".")[0]}"')
+        if st.button("Similar domains / IPs in IrisQL", key="profile_irisql", icon=":material/manage_search:",
+                     type="tertiary",
+                     help="Opens IrisQL with a query for domains hosted on this IP (or range), or for a domain, domains "
+                          "whose name contains its name; edit it, then Search (one Iris Investigate query)"):
+            set_query(IRISQL_KEY, similar_query(domain))
             navigation.go("irisql")
         if st.button("Its certificates in CertsQL", key="profile_certsql", icon=":material/badge:", type="tertiary",
-                     help="Opens CertsQL with a query for certificates naming this domain or its subdomains; Search "
-                          "there runs it"):
-            set_query(CERTSQL_KEY, f'# CertsQL-1.0\nsan_dns ends_with ".{domain}"\nsan_dns equals "{domain}"')
+                     help="Opens CertsQL with a query for certificates naming this IP (or an address in the range), "
+                          "or this domain or its subdomains; Search there runs it"):
+            set_query(CERTSQL_KEY, certificates_query(domain))
             navigation.go("certsql")
         with st.popover("Copy", icon=":material/content_copy:"):
             st.code(domain, language="text")
@@ -131,7 +135,7 @@ def render_profile(ctx):
     st.header("Domain profile", help="One domain: risk, registration, hosting, DNS, CNAMEs, certificates, history and "
                                      "alerts. Each section links to the page with the full detail.")
     if not domains:
-        st.info("No domain is selected in the sidebar's view filters.")
+        st.info("No domain is selected in the toolbar's *Domains* filter.")
         return
     if st.session_state.get("profile_domain") not in domains:
         st.session_state["profile_domain"] = domains[0]
@@ -148,13 +152,13 @@ def render_profile(ctx):
          "DomainTools risk score plus the telemetry penalty vectors"),
         ("DomainTools risk", f"{profile['Domain Risk Score']:.0f}" if profile is not None else "–",
          "Risk score from DomainTools"),
-        ("Alerts", f"{len(alerts):,}" + (f" · worst {ranked.iloc[0]['Severity']}" if not ranked.empty else ""),
-         "Active alerts in the analysis window"),
+        ("Alerts", f"{len(alerts):,}", "Active alerts in the analysis window; below, the highest severity among them",
+         f"Highest severity: {ranked.iloc[0]['Severity']}" if not ranked.empty else None),
         ("Hostnames with a CNAME", f"{mine['Hostname'].nunique():,}" if not mine.empty else "0", "In the analysis window"),
         ("Certificates", f"{certs['Hash'].nunique() if 'Hash' in certs else len(certs):,}", "In the analysis window"),
     ]
-    for col, (label, value, help_text) in zip(metric_slots(len(metrics)), metrics):
-        col.metric(label, value, help=help_text)
+    for col, (label, value, help_text, *delta) in zip(metric_slots(len(metrics)), metrics):
+        metric(col, label, value, note=delta[0] if delta else None, help=help_text)
     if profile is not None and profile.get("DIF Breakdown"):
         st.caption(f"**DIF** `{profile['DIF Fingerprint']}` — {profile['DIF Breakdown']}")
     if profile is not None:
@@ -232,12 +236,20 @@ def render_profile(ctx):
         if certs.empty:
             st.caption("No certificates in the analysis window.")
         else:
-            cols = [c for c in ("Common Name", "Issuer", "Not Before", "Not After", "Source") if c in certs]
+            cols = [c for c in ("Common Name", "Issuer", "Not Before", "Not After", "JA4X", "Source") if c in certs]
             newest = certs.assign(_nb=pd.to_datetime(certs.get("Not Before"), errors="coerce", utc=True)) \
                 .sort_values("_nb", ascending=False, na_position="last")
-            st.dataframe(newest.drop_duplicates("Hash" if "Hash" in certs else cols).head(8)[cols].astype(str),
-                         hide_index=True, width="stretch")
+            shown = newest.drop_duplicates("Hash" if "Hash" in certs else cols).head(8)[cols].astype(str)
+            if "JA4X" in shown:
+                shown = shown.assign(JA4X=[f"{value} · {note}" if note else value for value, note in
+                                           zip(shown["JA4X"].replace("nan", ""), shown["JA4X"].map(ja4x_note))])
+            st.dataframe(shown, hide_index=True, width="stretch")
             navigation.link("certs", label="Every certificate")
+        every = ds.ssl_all_utc[ds.ssl_all_utc["Domain"] == domain] if not ds.ssl_all_utc.empty else certs
+        if not every.empty:
+            from views.ssl_view import render_ja4x_notes  # the Certificates page imports this page's helpers
+            render_ja4x_notes(every, f"profile_ja4x_{domain}", title="**JA4X of this domain's certificates**",
+                              empty="{count} JA4X value(s), none on a built-in list or unusual.", window_ssl=certs)
     with c_hist:
         st.subheader("Latest Domain History changes")
         history = ds.dh[ds.dh["Domain"] == domain] if not ds.dh.empty else ds.dh

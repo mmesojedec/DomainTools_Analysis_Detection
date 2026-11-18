@@ -20,7 +20,7 @@ from core.hunt_stats import (
     shared_infrastructure,
     weekly_activity,
 )
-from core.hunt_tree import hunt_trail, trail_text
+from core.hunt_tree import hunt_trail, trail_steps, trail_text
 from core.idn import has_ace, to_unicode
 from core.intel_data import SEVERITY_ICONS
 from core.next_steps import SEVERITY_RANK
@@ -39,7 +39,7 @@ from views.hunt_actions import current_run_id
 from views.hunt_plan_view import KIND_LABELS, plan
 from views.idn_display import display_name, enabled
 from views.risk_view import render_kpi_banner
-from views.ssl_view import CERT_TAB_KEY, SELF_SIGNED_TAB
+from views.ssl_view import CERT_TAB_KEY, SELF_SIGNED_TAB, render_ja4x_notes
 
 SIGNAL_BADGES = {"Strong": "green", "Useful": "blue"}
 DIFF_KINDS = ["IP", "Name Server", "MX", "Certificate", "Web Tracker", "Hostname"]
@@ -102,7 +102,7 @@ def _render_hunt_trail():
     if not run_id:
         return
     trail = hunt_trail(load_all_runs(), run_id)
-    if len(trail) > 1:
+    if len(trail_steps(trail)) > 1:   # runs of the same targets again are no trail
         c_text, c_link = st.columns([5, 1], vertical_alignment="center")
         c_text.markdown(":material/account_tree: **Hunt trail:** " + trail_text(trail))
         navigation.link("hunt_tree", label="Hunt map", container=c_link, icon=":material/account_tree:")
@@ -146,6 +146,7 @@ def _render_glance(ds, alerts):
             "Distinct names in passive DNS")
     _metric(row2[3], "Passive DNS records", f"{stats['Passive DNS records']:,}", "raw", "Records")
     _render_vpndb_glance(ds)
+    render_ja4x_notes(ds.ssl_all_utc if not ds.ssl_all_utc.empty else ds.ssl, "summary_ja4x", window_ssl=ds.ssl)
 
 
 def _render_vpndb_glance(ds):

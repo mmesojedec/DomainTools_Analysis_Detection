@@ -213,6 +213,35 @@ def build_hostname_certificates(ssl, hostnames):
         .reset_index(drop=True)
 
 
+def _dns_by_name(pdns):
+    """
+    {hostname: first, last, records, types, resolves, current} from passive DNS, in one pass per column (grouped,
+    not one sub-table per hostname). `current`: the resolving values seen within a day of the newest one.
+    """
+    if pdns is None or pdns.empty or "RRName" not in pdns.columns:
+        return {}
+    dns = pd.DataFrame({"name": pdns["RRName"].astype(str).str.lower().str.rstrip("."),
+                        "field": pdns["Field"].astype(str).str.upper(),
+                        "first": pd.to_datetime(pdns["First Seen"], errors="coerce"),
+                        "last": pd.to_datetime(pdns["Last Seen"], errors="coerce"),
+                        "value": pdns["Value"].astype(str)})
+    grouped = dns.groupby("name", sort=False)
+    stats = pd.DataFrame({"first": grouped["first"].min(), "last": grouped["last"].max(), "records": grouped.size()})
+    kinds = dns[["name", "field"]].drop_duplicates().sort_values(["name", "field"])
+    stats["types"] = kinds.groupby("name")["field"].agg(", ".join)
+    resolving = dns[dns["field"].isin(RESOLVING_TYPES)]
+    stats["resolves"] = stats.index.isin(resolving["name"].unique())
+    stats["current"] = ""
+    if not resolving.empty:
+        newest = resolving.groupby("name", sort=False)["last"].transform("max")
+        recent = resolving[newest.isna() | (resolving["last"] >= newest - pd.Timedelta(days=1))]
+        values = recent.assign(value=recent["value"].str.split("\n")).explode("value")
+        values = values[values["value"].fillna("") != ""].drop_duplicates(["name", "value"])
+        current = values.groupby("name", sort=False)["value"].agg(", ".join)
+        stats.loc[current.index, "current"] = current
+    return stats.to_dict("index")
+
+
 def build_hostname_inventory(pdns, ssl, cert_events, domains, focus=None, coverage=None, now=None, new_days=30):
     """
     One row per hostname (INVENTORY_COLUMNS) from full-history passive DNS, certificates and certificate events.
@@ -230,12 +259,7 @@ def build_hostname_inventory(pdns, ssl, cert_events, domains, focus=None, covera
         for cert_name in dict.fromkeys(cert["names"]):
             by_cert_name.setdefault(cert_name, []).append(cert)
     cert_names, cert_parents = _covered_names(certs)
-    dns = pd.DataFrame()
-    if pdns is not None and not pdns.empty and "RRName" in pdns.columns:
-        dns = pdns.assign(_name=pdns["RRName"].astype(str).str.lower().str.rstrip("."),
-                          _first=pd.to_datetime(pdns["First Seen"], errors="coerce"),
-                          _last=pd.to_datetime(pdns["Last Seen"], errors="coerce"))
-    by_name = dict(tuple(dns.groupby("_name"))) if not dns.empty else {}
+    per_name = _dns_by_name(pdns)
     events = {}
     if cert_events is not None and not cert_events.empty and "Hostname" in cert_events.columns:
         events = cert_events["Hostname"].astype(str).str.lower().str.rstrip(".").value_counts().to_dict()
@@ -245,21 +269,16 @@ def build_hostname_inventory(pdns, ssl, cert_events, domains, focus=None, covera
         apex = apex_of(name)
         exact = by_cert_name.get(name, [])
         covering = bool(exact) or _is_covered(name, cert_names, cert_parents)
-        records = by_name.get(name, pd.DataFrame())
-        resolving = records[records["Field"].astype(str).str.upper().isin(RESOLVING_TYPES)] if not records.empty else records
-        current = ""
-        if not resolving.empty:
-            latest = resolving["_last"].max()
-            recent = resolving[resolving["_last"] >= latest - pd.Timedelta(days=1)] if pd.notna(latest) else resolving
-            current = ", ".join(dict.fromkeys(v for value in recent["Value"].astype(str) for v in value.split("\n") if v))
+        dns = per_name.get(name)
+        resolves = bool(dns and dns["resolves"])
         first_cert = min((c["not_before"] for c in exact if pd.notna(c["not_before"])), default=pd.NaT)
         newest_cert = max((c for c in exact if pd.notna(c["not_before"])), key=lambda c: c["not_before"], default=None)
-        first_dns = records["_first"].min() if not records.empty else pd.NaT
+        first_dns = dns["first"] if dns else pd.NaT
         first_seen = min((t for t in (first_cert, first_dns) if pd.notna(t)), default=pd.NaT)
         flags = []
-        if exact and records.empty and not coverage.get(apex, {}).get("truncated"):
+        if exact and not dns and not coverage.get(apex, {}).get("truncated"):
             flags.append("Certificate, never resolved")
-        if not resolving.empty and not covering:
+        if resolves and not covering:
             flags.append("Resolves, no certificate")
         if pd.notna(first_seen) and first_seen >= now - pd.Timedelta(days=new_days):
             flags.append("New")
@@ -273,10 +292,9 @@ def build_hostname_inventory(pdns, ssl, cert_events, domains, focus=None, covera
             "Latest Certificate": newest_cert["not_before"] if newest_cert else pd.NaT,
             "Latest Certificate Hash": newest_cert["hash"] if newest_cert else "",
             "Certificate Expires": max((c["not_after"] for c in exact if pd.notna(c["not_after"])), default=pd.NaT),
-            "pDNS First Seen": first_dns, "pDNS Last Seen": records["_last"].max() if not records.empty else pd.NaT,
-            "pDNS Records": len(records),
-            "Record Types": ", ".join(sorted(records["Field"].astype(str).str.upper().unique())) if not records.empty else "",
-            "Current Values": current, "Cert Events": int(events.get(name, 0)),
+            "pDNS First Seen": first_dns, "pDNS Last Seen": dns["last"] if dns else pd.NaT,
+            "pDNS Records": dns["records"] if dns else 0, "Record Types": dns["types"] if dns else "",
+            "Current Values": dns["current"] if dns else "", "Cert Events": int(events.get(name, 0)),
         })
     frame = pd.DataFrame(rows, columns=INVENTORY_COLUMNS)
     return frame.sort_values(["Apex", "Hostname"], kind="stable").reset_index(drop=True)

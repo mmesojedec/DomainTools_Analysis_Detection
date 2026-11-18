@@ -34,6 +34,7 @@ from core.triage import attach_status, calibrate_alerts, domain_verdicts, load_t
 from core.window import resolve_window
 from integrations.account import account_products
 from integrations.cache import clear_all_caches, prune_cache, refreshing
+from integrations.certificates import merge_search_certs
 from integrations.collector import collect_all, resolve_seeds, restore_cached_chases
 from integrations.credentials import clear_credential_cache
 from integrations.http import StatusLog
@@ -44,12 +45,13 @@ from views.alert_tools import AlertView
 from views.anonymizer_view import render_anonymizer_summary
 from views.api_usage_view import skipped_products_note
 from views.campaign_view import render_campaign_lens
+from views.certsql_view import CERTS_KEY as CERTSQL_CERTS_KEY
 from views.certsql_view import ORIGIN_KEY as CERTSQL_ORIGIN_KEY
 from views.certsql_view import render_certsql_page
 from views.cname_view import render_cname_lens
 from views.collection_progress import PROGRESS_KEY, live_progress
 from views.collection_progress import summary as collection_summary
-from views.common import empty_state, install_copy_fallback, render_window_banner
+from views.common import empty_state, install_copy_fallback, render_outside_window, render_window_banner
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
 from views.history_view import render_offline_datasets, render_run_history
@@ -64,6 +66,7 @@ from views.query_view import render_query_lens
 from views.quota_banner import render_quota_banners
 from views.raw_view import render_cache_panel, render_raw_lens, render_status_panel
 from views.recent_view import render_recent_page, render_recent_teaser
+from views.results_toolbar import filter_alerts, filter_state, render_results_toolbar, render_window_coverage
 from views.risk_view import render_risk_lens
 from views.seed_view import render_seed_preview, render_seed_provenance, render_seed_query_step
 from views.settings_view import brand_watchlist, render_settings
@@ -76,7 +79,6 @@ from views.sidebar import (
     pending_lookup,
     render_analyst_options,
     render_apex_notice,
-    render_global_filters,
     render_idn_notice,
     render_logo,
     run_options,
@@ -285,6 +287,9 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
         origin = st.session_state.pop(origin_key, None)
         if origin:
             collected.statuses = [origin] + list(collected.statuses)
+    search_hits = st.session_state.pop(CERTSQL_CERTS_KEY, None)
+    if search_hits:   # the certificates that picked the targets, even when the per-domain lookups do not return them
+        collected.ssl = merge_search_certs(collected.ssl, search_hits, collected.targets)
     created = pd.Timestamp.now(tz="UTC").isoformat()
     key = run_key(collected)
     st.session_state.offline_pending_id = None
@@ -460,6 +465,7 @@ class Context:
     view: object = None
     profiles: pd.DataFrame = None
     outside: tuple = (0, None)
+    filters: object = None   # the results toolbar's choices (views.results_toolbar.ViewFilters)
 
 
 CTX = Context()
@@ -467,12 +473,18 @@ CTX = Context()
 
 def build_context(collected, timezone, window, thresholds, step=lambda label: None):
     """
-    Dataset, detections, alert view and risk profiles of the loaded run, for the selected filters and window.
-    `step(label)` is told what runs next.
+    Dataset, detections, alert view and risk profiles of the loaded run, for the results toolbar's filters and the
+    window; the alert view keeps only the severities and confidences picked. `step(label)` is told what runs next.
     """
-    selected_domains, selected_dh, selected_pdns, host_focus = render_global_filters(collected)
+    filters = filter_state(collected)
+    context = _build_context(collected, timezone, window, thresholds, filters, step)
+    return dataclasses.replace(context, view=filter_alerts(context.view, filters), filters=filters)
+
+
+def _build_context(collected, timezone, window, thresholds, filters, step):
     step("Building the timelines, passive DNS and certificate tables...")
-    ds = reuse_dataset(collected, selected_domains, selected_dh, selected_pdns, timezone, window, host_focus)
+    ds = reuse_dataset(collected, filters.domains, filters.dh_types, filters.pdns_types, timezone, window,
+                       filters.host_focus)
     # Detections, alert view and risk profiles depend only on the dataset, the thresholds and the analyst's files
     # (settings: brand watchlist; suppressions; triage): reused across reruns and pages until one of them changes
     key = (id(ds), repr(sorted(thresholds.items())), _mtimes(), id(st.session_state.get("previous_snapshot")),
@@ -490,8 +502,7 @@ def build_context(collected, timezone, window, thresholds, step=lambda label: No
     profiles = build_risk_profiles(ds.selected_domains, view.active.drop(columns=["Evidence"], errors="ignore"), ds.risk,
                                    ds.ssl, ds.pdns, ds.enrichment)
     save_pending_snapshot(view, profiles, ds.host_focus)
-    outside = count_alerts_outside_window(ds, thresholds, view.active, view.suppressions)
-    context = Context(timezone, window, thresholds, collected, ds, threats, view, profiles, outside)
+    context = Context(timezone, window, thresholds, collected, ds, threats, view, profiles)
     st.session_state[CONTEXT_MEMO_KEY] = (key, ds, context)   # holding `ds` keeps its id from being reused
     return context
 
@@ -552,11 +563,42 @@ def render_status_chip():
         st.info("**Hostname focus:** " + md_escape("; ".join(f"{apex}: {', '.join(hosts)}"
                                                            for apex, hosts in CTX.ds.host_focus.items()))
                 + ". Passive DNS, certificates and certificate events of these domains are limited to these hostnames; "
-                  "clear *Focus on hostnames* in the sidebar to see everything.")
+                  "clear *Hostnames* in the toolbar to see everything.")
+
+
+DEFERRED = []   # parts of the page drawn last, into a slot higher up (slow, and not needed to read the rest)
+
+
+def outside_window():
+    """
+    The detections only full history has (hidden by the window): the detection rules run again on every record, so it
+    is computed when a page shows it, once per dataset, thresholds and analyst files, not on every filter change.
+    """
+    key = (id(CTX.ds), repr(sorted(CTX.thresholds.items())), _mtimes(), len(CTX.view.active))
+    memo = st.session_state.get("outside_memo")
+    if memo and memo[0] == key and memo[1] is CTX.ds:
+        return memo[2]
+    outside = count_alerts_outside_window(CTX.ds, CTX.thresholds, CTX.view.active, CTX.view.suppressions)
+    st.session_state["outside_memo"] = (key, CTX.ds, outside)
+    return outside
 
 
 def _window_banner():
-    render_window_banner(CTX.ds, *CTX.outside)
+    """The window banner now; the count of detections outside the window fills in after the rest of the page."""
+    render_window_banner(CTX.ds)
+    if CTX.ds.window.is_all_time:
+        return
+    slot = st.empty()
+    slot.caption(":material/hourglass_top: Checking full history for detections outside the window...")
+
+    def fill():
+        count, alerts = outside_window()
+        if not count:
+            slot.empty()
+            return
+        with slot.container():
+            render_outside_window(count, alerts)
+    DEFERRED.append(fill)
 
 
 def data_page(render):
@@ -573,8 +615,20 @@ def data_page(render):
                 navigation.link("offline", label="Saved datasets")
             return
         render_status_chip()
+        render_toolbar()
+        DEFERRED.clear()
         render()
+        while DEFERRED:
+            DEFERRED.pop(0)()
     return page
+
+
+def render_toolbar():
+    """The results toolbar under the status line, and a note when the window reaches past the fetched history."""
+    render_results_toolbar(CTX.collected, CTX.filters)
+    if (st.session_state.get("data_origin") or {}).get("mode") == "live":   # the options are this run's own
+        render_window_coverage(CTX.collected, CTX.window, st.session_state.get(RUN_OPTIONS_KEY),
+                               st.session_state.get("run_created"))
 
 
 def page_home():
@@ -654,7 +708,8 @@ PAGE_FUNCTIONS = {
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
-    "hunt_tree": lambda: (render_status_chip() if CTX.ds is not None else None, render_hunt_map(CTX.timezone, CTX)),
+    "hunt_tree": lambda: ((render_status_chip(), render_toolbar()) if CTX.ds is not None else None,
+                          render_hunt_map(CTX.timezone, CTX)),
     "sources": data_page(page_sources),
     "evidence": data_page(page_evidence),
     "export": data_page(lambda: render_export_lens(CTX.ds, CTX.collected, CTX.view.active.reset_index(drop=True),
@@ -665,6 +720,10 @@ PAGE_FUNCTIONS = {
     "account": render_account_page,
     "docs": lambda: render_doc_page(st.query_params.get("doc"), st.query_params.get("topic", "")),
 }
+
+
+TOOLBAR_PAGES = {"summary", "profile", "alerts", "dns", "vpndb", "tor", "cname", "certs", "hostnames", "triage",
+                 "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
 
 
 def main():
@@ -688,7 +747,9 @@ def main():
         st.session_state[HUNT_PARENT_KEY] = {"id": hunt.get("id"), "via": hunt.get("via")}
     elif settings.run:
         st.session_state.pop(HUNT_PARENT_KEY, None)
-    window_choice, timezone = render_analyst_options(navigation.page("settings"))
+    loaded = st.session_state.get("collected")
+    toolbar_page = navigation.current_key(nav) in TOOLBAR_PAGES and loaded is not None and loaded.has_data
+    window_choice, timezone = render_analyst_options(navigation.page("settings"), show_window=not toolbar_page)
     window = resolve_window(window_choice.preset, window_choice.custom_range, timezone)
     st.session_state.window_label = window.label
     thresholds = current_thresholds()

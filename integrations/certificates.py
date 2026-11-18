@@ -357,3 +357,21 @@ def parse_domaintools_certs(hits, target_inputs):
         df["Not Before Date"] = pd.to_datetime(df["Not Before"], errors="coerce", utc=True).dt.tz_localize(None)
         df["Not After Date"] = pd.to_datetime(df["Not After"], errors="coerce", utc=True).dt.tz_localize(None)
     return df
+
+
+SEARCH_SOURCE = "CertsQL search"
+
+
+def merge_search_certs(ssl, hits, targets):
+    """
+    The run's certificates plus the CertsQL search's certificates that name its targets (Source: CertsQL search). The
+    search finds certificates by what they are (a JA4X, a key, an issuer); the per-domain lookups of the run may not
+    return them, so the certificates that picked the targets would otherwise be missing from the analysis.
+    """
+    found = parse_domaintools_certs(hits, list(targets))
+    if found.empty:
+        return ssl
+    found["Source"] = SEARCH_SOURCE
+    frames = [frame for frame in (ssl, found) if frame is not None and not frame.empty]
+    merged = pd.concat(frames, ignore_index=True)
+    return merged.drop_duplicates(subset=["Domain", "Hash"], keep="first").reset_index(drop=True)
