@@ -395,8 +395,18 @@ def render_ja4x_card(value, certs=None, key="ja4x_card"):
         if details.get("caveat"):
             st.caption(f":material/info: {details['caveat']}")
         elif card["known"] or ja4x.generated_layout(value):
-            st.caption(":material/info: A JA4X says how a certificate was built, not who built it: an unrelated "
-                       "certificate with the same fields and extensions matches too. Confirm with the certificate.")
+            st.caption(":material/info: **A match is a lead, not proof.** JA4X describes how a certificate is put "
+                       "together, not who made it, so any certificate built with the same fields and extensions gets "
+                       "the same value. Check the certificate itself (names, issuer, self-signed, the hosts that serve "
+                       "it) before calling it malicious.")
+        else:
+            st.caption(":material/info: **Not on the built-in lists.** On its own this value says nothing good or bad "
+                       "about the certificate. It becomes a lead when it is rare (*Check how common*) or when several "
+                       "of your domains share it on certificates not issued by a public CA.")
+        st.caption("**About JA4X:** it fingerprints a certificate's structure: which attributes the issuer and "
+                   "subject use and in what order, and which extensions it carries. Certificates made by the same "
+                   "tool or template share a value whatever their names or keys; certificates from public CAs share "
+                   "a few very common values.")
         if card["source"]:
             st.caption(f"Source: {card['source']}")
 

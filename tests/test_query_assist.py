@@ -42,7 +42,7 @@ def test_every_suggested_field_operator_and_value_passes_the_page_check(language
 
 def test_catalogs_follow_the_rule_tables():
     iris = {f["name"]: f for f in query_assist.catalog("irisql")["fields"]}
-    assert set(iris) == set(irisql.FIELD_OPERATORS)
+    assert set(iris) == set(irisql.FIELD_OPERATORS) | set(irisql.UNCHECKED_FIELDS)
     assert [op["name"] for op in iris["NAMESERVER_DOMAIN"]["operators"]] == list(irisql.FIELD_OPERATORS["NAMESERVER_DOMAIN"])
     assert "EXACTLY_MATCH" not in {op["name"] for op in iris["NAMESERVER_DOMAIN"]["operators"]}
     certs = {f["name"]: f for f in query_assist.catalog("certsql")["fields"]}
@@ -62,7 +62,7 @@ def test_catalogs_follow_the_rule_tables():
 def test_nothing_is_inserted_that_has_to_be_deleted():
     t = query_assist
     assert t.iris_template("RISK_SCORE", "GREATER_THAN_OR_EQUAL") == {"text": "", "cursor": 0}   # just type the number
-    assert t.iris_template("SSL_DURATION", "DOES_NOT_MATCH") == {"text": "", "cursor": 0}
+    assert t.iris_template("SSL_DURATION", "DOES_NOT_MATCH") == {"text": '""', "cursor": 1}   # a string value
     assert t.iris_template("CREATE_DATE", "GREATER_THAN") == {"text": '""', "cursor": 1}
     assert t.iris_template("TLD", "IN") == {"text": '[""]', "cursor": 2}
     assert t.iris_template("FIRST_SEEN", "WITHIN")["text"] == "" and t.iris_choices("FIRST_SEEN", "WITHIN") == \

@@ -10,7 +10,7 @@ LANGUAGES = ("irisql", "certsql")
 
 # --- IrisQL value kinds (Iris search reference) -------------------------------------------------------------------
 _IRIS_DATES = {"CREATE_DATE", "EXPIRATION_DATE", "FIRST_SEEN", "SSL_NOT_AFTER", "SSL_NOT_BEFORE"}
-_IRIS_NUMBERS = {"RANK", "RISK_SCORE", "ASN", "SSL_DURATION"}
+_IRIS_NUMBERS = {"RANK", "RISK_SCORE", "ASN"}   # SSL_DURATION takes its value as a string ("365")
 _IRIS_ADDRESSES = {"IP", "NAMESERVER_IP", "MAILSERVER_IP"}
 _IRIS_LISTS = {"IN", "NOT_IN", "EXACTLY_IN", "NOT_EXACTLY_IN", "CONTAINS_ALL", "DOES_NOT_CONTAIN_ALL"}
 IRIS_WITHIN = ("The last 7 days", "The last 30 days")   # phrases confirmed against the live API
@@ -62,7 +62,7 @@ def iris_template(field, operator):
 def _iris_catalog():
     fields = [{"name": field, "kind": _iris_kind(field), "operators": [
         {"name": op, "template": iris_template(field, op), "values": iris_choices(field, op)} for op in operators]}
-        for field, operators in irisql.FIELD_OPERATORS.items()]
+        for field, operators in {**irisql.FIELD_OPERATORS, **irisql.UNCHECKED_FIELDS}.items()]
     return {"language": "irisql", "header": irisql.HEADER, "ignoreCase": True, "fields": fields,
             "operators": sorted({op for ops in irisql.FIELD_OPERATORS.values() for op in ops}),
             "fieldPrefix": ":"}   # `parsed_whois:REGISTRANT`: the field is the part after the last colon

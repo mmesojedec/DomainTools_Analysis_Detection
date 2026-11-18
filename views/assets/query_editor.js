@@ -182,6 +182,38 @@ function applyTheme(box) {
   box.classList.toggle("dtq-dark", 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 128);
 }
 
+// The version line stays first: deleting the whole query (or the line) puts it back; a damaged one is restored.
+function keepHeader(cm) {
+  const header = cm.state.dtqIndex && cm.state.dtqIndex.header;
+  if (!header) return;
+  const first = cm.getLine(0);
+  if (first === header) return;
+  const lower = first.trim().toLowerCase();
+  if (cm.lineCount() === 1 && lower === "") {   // everything deleted
+    cm.replaceRange(header + "\n", CM.Pos(0, 0), CM.Pos(0, first.length), "dtqHeader");
+    cm.setCursor(1, 0);
+  } else if (lower === "" || header.toLowerCase().startsWith(lower) || /^#\s*(irisql|certsql)/i.test(lower)) {
+    cm.replaceRange(header, CM.Pos(0, 0), CM.Pos(0, first.length), "dtqHeader");   // an emptied or edited version line
+  } else {
+    cm.replaceRange(header + "\n", CM.Pos(0, 0), CM.Pos(0, 0), "dtqHeader");   // the query lost its version line
+  }
+}
+
+// A comma in a list starts the next value: `["a",|]` or `["a,|"]` becomes `["a", "|"]`. Only at the end of the list,
+// so the next pair of quotes appears when you ask for it, not before.
+function nextListValue(cm) {
+  const cur = cm.getCursor();
+  const line = cm.getLine(cur.line);
+  const before = line.slice(0, cur.ch), after = line.slice(cur.ch);
+  if (/\[\s*(?:"[^"]*"\s*,\s*)*"[^"]*"\s*,$/.test(before) && /^\s*\]/.test(after)) {   // after a closed value
+    cm.replaceRange(' ""', cur, cur, "+dtqList");
+    cm.setCursor(cur.line, cur.ch + 2);
+  } else if (/\[\s*(?:"[^"]*"\s*,\s*)*"[^"]+,$/.test(before) && /^"\s*\]/.test(after)) {   // still inside the quotes
+    cm.replaceRange('", "', CM.Pos(cur.line, cur.ch - 1), cur, "+dtqList");
+    cm.setCursor(cur.line, cur.ch + 3);   // the typed comma became `", "`: inside the new quotes
+  }
+}
+
 export default function (component) {
   const { data, parentElement, setTriggerValue } = component;
   let box = parentElement.querySelector(".dtq-editor");
@@ -216,10 +248,15 @@ export default function (component) {
     };
     box.dtqCommit = commit;
     cm.on("blur", (c) => { if (!c.state.completionActive) commit(c); });
-    cm.on("change", (c, change) => { if (change.origin !== "setValue") setMarks(c, {}); });
+    cm.on("change", (c, change) => {
+      if (change.origin === "setValue" || change.origin === "dtqHeader") return;
+      setMarks(c, {});
+      setTimeout(() => keepHeader(c), 0);
+    });
     cm.on("inputRead", (c, change) => {
       if (c.state.completionActive || change.origin === "paste") return;
       const typed = change.text.join("");
+      if (typed === ",") { nextListValue(c); return; }
       if (/^[\w.: ]+$/.test(typed) && context(c)) c.showHint({ completeSingle: false });
     });
     cm.on("keyup", (c, event) => {

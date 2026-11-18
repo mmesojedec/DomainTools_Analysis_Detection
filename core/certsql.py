@@ -141,7 +141,7 @@ ELEMENT_FIELDS = tuple(field for field, (_, operators) in FIELDS.items() if "mat
 
 
 # Certificate Search sorts every match by one certificate field before paging (multi-value and nested fields are not
-# sortable; the API also sorts on locality and state): field -> (label, (wording of descending, of ascending)).
+# sortable): field -> (label, (wording of descending, of ascending)).
 # sha256 ascending is the API default; any other field is answered with invalid_sort_field.
 SORT_FIELDS = {
     "validity_not_before": ("Issue date", ("Newest first", "Oldest first")),
@@ -152,6 +152,10 @@ SORT_FIELDS = {
     "issuer_common_name": ("Issuer common name", ("Z → A", "A → Z")),
     "subject_organization": ("Subject organization", ("Z → A", "A → Z")),
     "subject_common_name": ("Subject common name", ("Z → A", "A → Z")),
+    "issuer_locality": ("Issuer locality", ("Z → A", "A → Z")),
+    "subject_locality": ("Subject locality", ("Z → A", "A → Z")),
+    "issuer_state_or_province": ("Issuer state or province", ("Z → A", "A → Z")),
+    "subject_state_or_province": ("Subject state or province", ("Z → A", "A → Z")),
     "sha256": ("SHA-256", ("f → 0", "0 → f (API default)")),
 }
 SORT_ORDERS = ("desc", "asc")

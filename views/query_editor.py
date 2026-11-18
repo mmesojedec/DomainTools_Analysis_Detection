@@ -21,8 +21,9 @@ _CSS = (_ASSETS / "codemirror" / "codemirror.css").read_text(encoding="utf-8") +
 _EDITOR = st.components.v2.component("dt_query_editor", css=_CSS, js=_JS, isolate_styles=False)
 KEYS_HELP = ("Suggestions appear as you type (or with Ctrl+Space): fields at the start of a line, then the operators "
              "that field accepts, then the quotes or brackets the value goes in (or a short list to pick from, e.g. "
-             "true / false). Tab jumps past the closing quote or bracket, Enter picks a suggestion, Esc closes the "
-             "list. The query is taken when you click outside the editor or press Ctrl+Enter (⌘+Enter).")
+             "true / false). In a list, type a comma after the last value to add the next one. Tab jumps past the "
+             "closing quote or bracket, Enter picks a suggestion, Esc closes the list. The version line "
+             "(`# IrisQL-1.0` / `# CertsQL-1.0`) stays first: deleting it puts it back. The query is taken when you click outside the editor or press Ctrl+Enter (⌘+Enter).")
 
 
 def _revision_key(key):

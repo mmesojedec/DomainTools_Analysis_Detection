@@ -216,3 +216,32 @@ def test_profile_queries_search_an_ip_as_an_ip_not_as_a_name():
     for target in ("83.228.209.234", "83.228.209.7/24", "example.com", "2001:db8::1"):
         assert not irisql.problems(irisql.similar_query(target))
         assert not certsql.problems(certsql.certificates_query(target))
+
+
+def test_reference_alignment():
+    from core import irisql
+    from core.query_assist import catalog
+    # comment lines are not sent; the version line stays first
+    assert irisql.normalize("# IrisQL-1.0\n# note\n// note\ndomain contains \"abc\"") == \
+        '# IrisQL-1.0\ndomain contains "abc"'
+    # host fields take MATCHES / DOES_NOT_MATCH / EXISTS only
+    assert irisql.problems(irisql.normalize('MAILSERVER_HOST BEGINS_WITH "mx"'))
+    assert not irisql.problems(irisql.normalize('MAILSERVER_HOST MATCHES "mx.example.com"'))
+    # WITHIN takes "The last N unit"
+    assert not irisql.problems(irisql.normalize('FIRST_SEEN WITHIN "The last 7 months"'))
+    assert irisql.problems(irisql.normalize('FIRST_SEEN WITHIN "30 days"'))
+    # fields listed without operators: suggested, not checked
+    assert not irisql.problems(irisql.normalize('HISTORICAL_FREE_TEXT CONTAINS "acme"'))
+    fields = {f["name"]: f for f in catalog("irisql")["fields"]}
+    assert {"MISC_EMAIL", "HISTORICAL_EMAIL", "HISTORICAL_FREE_TEXT"} <= set(fields)
+    # SSL_DURATION values are strings: the editor inserts quotes
+    duration = {op["name"]: op for op in fields["SSL_DURATION"]["operators"]}
+    assert duration["GREATER_THAN"]["template"]["text"] == '""'
+
+
+def test_certsql_sorts_on_every_documented_field():
+    from core.certsql import SORT_FIELDS
+    assert set(SORT_FIELDS) == {
+        "sha256", "validity_not_before", "validity_not_after", "validity_duration_days", "public_key_bits",
+        "issuer_common_name", "subject_common_name", "issuer_organization", "subject_organization", "issuer_locality",
+        "subject_locality", "issuer_state_or_province", "subject_state_or_province"}

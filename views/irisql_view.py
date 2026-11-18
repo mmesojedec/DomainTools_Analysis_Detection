@@ -170,11 +170,11 @@ def render_irisql_page():
                "dates, registrar and hosting. **Step 2:** tick the domains and IPs to look into, choose whether to analyze "
                "the domains, the IPs or both, pick a use case and click Analyze: they are analyzed as a new run, like "
                "targets entered on the Start page.")
-    st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n{EXAMPLES['Domain name contains a word']}")
+    st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n")   # empty until an example is picked or typed
     st.session_state.setdefault(MAX_KEY, IRISQL_DEFAULT_RESULTS)
     st.session_state.setdefault(PRESELECT_KEY, SEED_DEFAULT_TARGETS)
     st.selectbox("Start from an example", [""] + list(EXAMPLES), key=EXAMPLE_KEY, on_change=_load_example,
-                 format_func=lambda name: name or "Choose an example to replace the query…")
+                 format_func=lambda name: name or "Choose an example to load it into the query…")
     text = query_editor("irisql", QUERY_KEY, "IrisQL query", help=QUERY_HELP)
     query = normalize(text)
     issues = problems(query)
@@ -189,8 +189,12 @@ def render_irisql_page():
     preselect = c3.number_input("Pre-select the riskiest", min_value=0, max_value=SEED_MAX_TARGETS, step=5,
                                 key=PRESELECT_KEY,
                                 help="Domains ticked for analysis right after the search (highest risk score first).")
-    for issue in issues:
-        st.warning(issue, icon=":material/edit_note:")
+    if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
+        st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: suggestions "
+                   "appear as you type.")
+    else:
+        for issue in issues:
+            st.warning(issue, icon=":material/edit_note:")
     cost = query_cost(max_results, IRISQL_PAGE_SIZE)
     if st.button("Search", type="primary", icon=":material/manage_search:", disabled=bool(issues),
                  help=f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}; the same search again within "

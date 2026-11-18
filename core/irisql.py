@@ -59,15 +59,22 @@ FIELD_OPERATORS = {
     **dict.fromkeys(("CONTACT_NAME", "CONTACT_STREET"), _CONTACT),
     "ISP_NAME": tuple(op for op in _CONTACT if op != "BEGINS_WITH"),
     **dict.fromkeys(("IP", "NAMESERVER_IP", "MAILSERVER_IP"), _ADDRESS),
-    **dict.fromkeys(("REDIRECT_DOMAIN", "CONTACT_PHONE", "IP_COUNTRY_CODE", "NAMESERVER_DOMAIN", "MAILSERVER_HOST",
+    **dict.fromkeys(("REDIRECT_DOMAIN", "CONTACT_PHONE", "IP_COUNTRY_CODE", "NAMESERVER_DOMAIN",
                      "MAILSERVER_DOMAIN", "ADMIN_CONTACT_EMAIL", "BILLING_CONTACT_EMAIL", "EMAIL_DNS_SOA",
                      "REGISTRANT_CONTACT_EMAIL", "TECHNICAL_CONTACT_EMAIL", "SSL_EMAIL", "SSL_HASH", "SSL_SUBJECT"),
                     _KEYWORD),
     "SSL_ALT_NAMES": ("BEGINS_WITH", "CONTAINS", "DOES_NOT_CONTAIN", "DOES_NOT_MATCH", "EXISTS", "MATCHES"),
     "SSL_ISSUER_COMMON_NAME": ("BEGINS_WITH", "CONTAINS", "DOES_NOT_CONTAIN", "DOES_NOT_MATCH", "ENDS_WITH", "MATCHES"),
-    **dict.fromkeys(("NAMESERVER_HOST",) + _TRACKERS, _PRESENCE),
+    # name server and mail server hosts (FQDNs): MATCHES, DOES_NOT_MATCH and EXISTS only (no BEGINS_WITH / CONTAINS)
+    **dict.fromkeys(("NAMESERVER_HOST", "MAILSERVER_HOST") + _TRACKERS, _PRESENCE),
     "HISTORICAL_REGISTRANT": ("MATCHES",),
 }
+# Fields the IrisQL reference lists without their operators: the editor suggests them (with the operator its examples
+# use), but a query with them is not checked here; Iris decides.
+UNCHECKED_FIELDS = {"MISC_EMAIL": _KEYWORD, "HISTORICAL_EMAIL": ("MATCHES",), "HISTORICAL_FREE_TEXT": ("MATCHES",)}
+# WITHIN takes a relative date: "The last N day(s) / week(s) / month(s) / year(s)"
+_WITHIN = re.compile(r'^\s*\S+\s+WITHIN\s+(.*?)\s*$', re.IGNORECASE)
+_WINDOW = re.compile(r'^"the last [1-9][0-9]* (day|week|month|year)s?"$', re.IGNORECASE)
 
 
 _CIDR = re.compile(r'"\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}"')
@@ -115,13 +122,15 @@ def operator_problem(line):
 
 
 def normalize(text):
-    """The query as sent: trimmed, blank lines dropped, the `# IrisQL-1.0` version line added when missing."""
+    """
+    The query as sent: trimmed, blank lines dropped, the `# IrisQL-1.0` version line added when missing. Comment lines
+    (`#` / `//`) are dropped: the IrisQL reference documents no comments besides the version line.
+    """
     lines = [line.rstrip() for line in str(text or "").strip().splitlines() if line.strip()]
-    if not lines or lines[0].strip().lower() != HEADER.lower():
-        lines.insert(0, HEADER)
-    else:
-        lines[0] = HEADER
-    return "\n".join(lines)
+    if lines and lines[0].strip().lower() == HEADER.lower():
+        lines = lines[1:]
+    lines = [line for line in lines if not line.strip().startswith(("#", "//"))]
+    return "\n".join([HEADER] + lines)
 
 
 def problems(query):
@@ -139,6 +148,9 @@ def problems(query):
             found.append(f"`{line}`: put each condition and each `AND` on its own line.")
         elif issue := operator_problem(line):
             found.append(issue)
+        elif (within := _WITHIN.match(line)) and not _WINDOW.match(within.group(1)):
+            found.append(f"`{line}`: `WITHIN` takes a relative date such as `\"The last 30 days\"` (days, weeks, "
+                         "months or years).")
         elif _CIDR.search(line) and _CONDITION.match(line).group(1).split(":")[-1].upper().endswith("IP"):
             found.append(f"`{line}`: Iris does not take CIDR ranges; list the IPs (`IP IN [\"1.2.3.4\", \"1.2.3.5\"]`) or "
                          "use `IP GREATER_THAN_OR_EQUAL \"1.2.3.0\"` AND `IP LESS_THAN_OR_EQUAL_TO \"1.2.3.255\"`.")

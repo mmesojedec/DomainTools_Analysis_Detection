@@ -883,6 +883,11 @@ The query box suggests what can come next as you type (or press Ctrl+Space):
 | After a field | Only the operators that field accepts (e.g. `NAMESERVER_DOMAIN` offers `MATCHES`, not `EXACTLY_MATCH`) |
 | After an operator | What the value goes in, with the cursor inside and nothing to delete: `""` for text and dates, `[""]` for lists, nothing for a number. Where there are only a few values it opens a list to pick from instead: `true` / `false`, or `"The last 7 days"` / `"The last 30 days"` for `WITHIN`. CertsQL `exists` / `does_not_exist` take only `true`, so that one is written for you |
 
+The box starts empty, with only the version line (`# IrisQL-1.0` / `# CertsQL-1.0`); *Start from an example* loads an
+example into it. The version line stays first: if you delete it, or the whole query, it is put back. In a list
+(`[""]`), type a comma after the last value to get the quotes for the next one: `["a",` or `["a,` inside the quotes
+becomes `["a", ""]` with the cursor in the new quotes.
+
 Enter or a click picks a suggestion, Esc closes the list, and Tab jumps past the closing quote or bracket. Fields, operators,
 values, `AND` and comments are colour-coded; an operator the field doesn't accept is underlined in red. A line that a
 warning below the box is about gets a marker in the margin (hover it for the warning). The query is taken when you
@@ -926,8 +931,11 @@ without internet access.
    A query that matches more than 10,000 domains returns nothing (*Limit Exceeded Maximum 10000*), so narrow it, for
    example with `CREATE_DATE WITHIN "The last 30 days"` or `RISK_SCORE GREATER_THAN 75`.
 
-   Common mistakes are flagged before anything is sent: no condition, `AND` at the start or end, or two conditions
-   on one line (Iris answers those with an error).
+   Common mistakes are flagged before anything is sent: no condition, `AND` at the start or end, two conditions
+   on one line, or a `WITHIN` value that isn't `"The last N days"` (or weeks, months, years); Iris answers those with
+   an error. Comment lines (`#`, `//`) stay in the box but aren't sent: the IrisQL reference has no comments besides
+   the version line. `SSL_DURATION` takes its value in quotes (`SSL_DURATION GREATER_THAN "365"`). `MISC_EMAIL`,
+   `HISTORICAL_EMAIL` and `HISTORICAL_FREE_TEXT` are suggested, but their operators aren't checked: Iris decides.
 2. Set **Domains to fetch** (default 500, at most 5,000). Pages of 500 are requested until that many, one Iris
    Investigate query each. Set **Sort by** (Iris sorts before paging, so it decides which domains you get when more
    match), and **Pre-select the riskiest** (default 10).
@@ -1054,7 +1062,7 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
    ```
 
    *Sort by* offers only fields the API accepts for sorting (issue date, expiry date, validity length, key size,
-   issuer and subject organization and common name, SHA-256): the API rejects a sort on any other field
+   issuer and subject organization, common name, locality and state or province, SHA-256): the API rejects a sort on any other field
    (`invalid_sort_field`). When the API rejects a query, the error shows its code (`unknown_field`,
    `operator_not_supported`, `invalid_value`, `ored_inner_clause`, …) and a hint on what to change.
 

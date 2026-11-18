@@ -132,13 +132,13 @@ def render_certsql_page():
                "domains and IPs to look into, choose whether to analyze the domains, the IPs or both, pick a use case "
                "and click Analyze.")
     sample = examples()
-    st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n{next(iter(sample.values()))}")
+    st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n")   # empty until an example is picked or typed
     st.session_state.setdefault(MAX_KEY, CERTSQL_DEFAULT_RESULTS)
     st.session_state.setdefault(PRESELECT_KEY, SEED_DEFAULT_TARGETS)
     if st.session_state.get(SORT_KEY) not in SORT_FIELDS or st.session_state.get(ORDER_KEY) not in SORT_ORDERS:
         st.session_state[SORT_KEY], st.session_state[ORDER_KEY] = DEFAULT_SORT   # also replaces an old one-box choice
     st.selectbox("Start from an example", [""] + list(sample), key=EXAMPLE_KEY, on_change=_load_example,
-                 format_func=lambda name: name or "Choose an example to replace the query…",
+                 format_func=lambda name: name or "Choose an example to load it into the query…",
                  help="Dates in the examples are counted from today and written out, so they work before the "
                       "API accepts `within` (\"the last 30 days\").")
     text = query_editor("certsql", QUERY_KEY, "CertsQL query", help=QUERY_HELP)
@@ -164,8 +164,12 @@ def render_certsql_page():
                                 key=PRESELECT_KEY,
                                 help="Domains and IPs ticked for analysis right after the search (named by the most "
                                      "certificates first).")
-    for issue in issues:
-        st.warning(issue, icon=":material/edit_note:")
+    if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
+        st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: suggestions "
+                   "appear as you type.")
+    else:
+        for issue in issues:
+            st.warning(issue, icon=":material/edit_note:")
     cost = query_cost(max_results, CERTSQL_PAGE_SIZE)
     if st.button("Search", type="primary", icon=":material/manage_search:", disabled=bool(issues),
                  help=f"Up to {cost} Certificate Search request{'' if cost == 1 else 's'}; the same search again "
