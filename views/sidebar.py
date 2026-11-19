@@ -441,8 +441,23 @@ def render_collection_options(prefix=""):
                "Storage & cache, or *Re-run with fresh lookups* on the Data sources page for the current targets.")
 
 
+CHIP_DISMISSED_SETTING = "credential_notice_dismissed"   # dt_settings.json: the notice closed for this state
+
+
+def _chip_state(missing, warnings):
+    """What the notice is about: it comes back when a service or a warning changes."""
+    return "|".join(sorted(missing)) + "||" + "|".join(sorted(warnings))
+
+
+def _dismiss_chip(state):
+    save_setting(CHIP_DISMISSED_SETTING, state)
+
+
 def render_credential_chip(settings_page=None):
-    """Sidebar: one line on API credentials; the matrix is on the Settings page."""
+    """
+    Sidebar: one line on API credentials (the matrix is on the Settings page). A warning while a service has no key or
+    a warning; it can be closed, and stays closed until the services without a key (or the warnings) change.
+    """
     overview = credential_overview()
     services, warnings = overview["services"], _credential_warnings(overview)
     found = sum(row["Found"] for row in services)
@@ -450,8 +465,14 @@ def render_credential_chip(settings_page=None):
     missing = [SERVICE_SHORT_NAMES.get(row["Service"], row["Service"]) for row in services if not row["Found"]]
     if missing:
         text += f". No key, not queried: {', '.join(missing)}"
-    if found < len(services) or warnings:
-        st.sidebar.warning(text, icon=":material/key:")
+    state = _chip_state(missing, warnings)
+    if (found < len(services) or warnings) and load_settings().get(CHIP_DISMISSED_SETTING) != state:
+        with st.sidebar.container(horizontal=True, vertical_alignment="top", gap="small", wrap=False):
+            st.warning(text, icon=":material/key:", width="stretch")
+            st.button("", key="credential_chip_close", icon=":material/close:", type="tertiary", width="content",
+                      on_click=_dismiss_chip, args=(state,),
+                      help="Close this notice. It comes back when a service without a key or a warning changes; "
+                           "Settings → API credentials always shows the state.")
         if settings_page is not None and found < len(services):
             st.sidebar.page_link(settings_page, label="Enter API keys (Settings → API credentials)",
                                  icon=":material/edit:")

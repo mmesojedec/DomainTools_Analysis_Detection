@@ -120,6 +120,8 @@ is in [Pages](USER_GUIDE.md#pages).
 
 ### A typical session
 
+0. **First start only**: accept the disclaimer and enter your API keys in the dialog (or *Skip for now*). A service
+   without a key is not queried until you add one under *Settings → API credentials*.
 1. **Start**: pick the use case that matches your question (optional), e.g. *Subdomain takeover check*.
 2. **Targets**: enter the targets (domains, IPs or certificates) in the Targets box on the Start page, check the
    options line in the sidebar (change them under *Settings* if needed) and click **Analyze**. Or load a saved dataset on **Data →
@@ -132,7 +134,9 @@ is in [Pages](USER_GUIDE.md#pages).
 5. Mark what you reviewed: a status per alert group on **Alerts**, a verdict per domain on its profile. Follow a lead
    with *Analyze* to start the next run of the hunt.
 6. **Export & report** (and **Evidence → Lookup queries**) to hand the findings over, including the *Confirmed
-   indicators* of what you marked Malicious; **Runs → Compare & trends** next time, to see what changed.
+   indicators* of what you marked Malicious. For a hunt, **Download hunt report (HTML)** on the Hunt map (or on
+   *Data → Saved datasets*, without loading anything) gives the whole hunt in one page for other teams.
+   **Runs → Compare & trends** next time, to see what changed.
 
 ### Use cases and profiles
 
@@ -1286,6 +1290,8 @@ Credentials are not stored in the project folder: keys entered in the app go to
 | A data source returns nothing | Open the **Data sources** page. Each lookup shows OK / Partial / No data / Error with the reason: authentication failure, rate limit, timeout or truncated results. *Skipped: the DomainTools account has no … product* means the account lacks it (see the Account page). Once the cause is fixed, **Retry N failed lookup(s)** under *Cached details* on the Data sources page queries only those again. |
 | A red or yellow quota banner at the top of the page | A product this app uses has used up (red) or 95% of (yellow) its monthly quota, or expires within 30 days or has expired. Open the **Account** page for the numbers. To use less: fewer targets, a shorter *Domain History period* or lower *Max changes*, fewer CT certificates or VPNDB verdicts, or turning a source off; lookups still in the lookup cache cost nothing. |
 | "Credentials not found" errors | Open *Settings → API credentials* and **All options**: every option shows whether it is set and used, and why not. Missing keys can be entered there under **Enter API keys**. |
+| A source shows *Skipped: no … key* | That service has no API key, so the run made no query to it (on purpose). Add the key under *Settings → API credentials → Enter API keys*; the next run uses it. |
+| A known JA4X (e.g. Cobalt Strike) found with CertsQL is missing from the run | Runs analyzed from CertsQL now carry the matching certificates. A run made before this change doesn't: search again on CertsQL and analyze the domains again. Older certificates appear on the JA4X blocks with *In Window* unticked. |
 | Environment variable changes are ignored | Restart the app; variables are read at start. |
 | A domain has few alerts and an info box says it was skipped | Its known DomainTools risk score is below **Min Risk Score**, so it gets only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X, Phishing Kit Staging, Mail-Capable Lookalike, Lure Subdomain). Lower the threshold to evaluate it fully. |
 | An alert's confidence is lower or higher than the rule's default | Read its *Threat Logic*: a popular or zerolisted domain, an [allowlisted](USER_GUIDE.md#allowlist) value in the evidence, or your own verdicts on the rule ([Your verdicts](USER_GUIDE.md#your-verdicts-move-the-confidence)) move it. |

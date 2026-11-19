@@ -363,3 +363,21 @@ def test_stages_without_keys_are_skipped(monkeypatch):
     details = " ".join(row["Detail"] for row in data.statuses)
     assert "no DNSDB key" in details and "no DomainTools API key" in details and "no Certificate API key" in details
     assert data.pdns.empty and data.ssl.empty
+
+
+def test_rows_without_keys_are_skipped_in_the_checklist(monkeypatch):
+    """A service without a key shows as skipped from the start, never as up next."""
+    from integrations import collector
+    from integrations.progress import SKIPPED, CollectionProgress
+    from views.collection_progress import up_next
+    monkeypatch.setattr(collector, "stages_without_keys", lambda: {"pdns"})
+    monkeypatch.setattr(collector, "load_vpndb_key", lambda: None)
+    notes = collector.rows_without_keys()
+    assert set(notes) == {"pdns", "TXT", "CAA", "CNAME", "pivot", "vpndb"} and "no VPNDB key" in notes["vpndb"]
+    plan = [{"Key": key, "Source": "s", "Lookup": key} for key in ("iris", "pdns", "vpndb")]
+    tracker = CollectionProgress(plan)
+    for key, note in notes.items():
+        tracker.skip(key, note)
+    rows = {row.key: row for row in tracker.snapshot()}
+    assert rows["vpndb"].state == SKIPPED and rows["pdns"].state == SKIPPED
+    assert "vpndb" not in up_next(tracker.snapshot()).lower()

@@ -1050,6 +1050,23 @@ def stages_without_keys():
     return missing
 
 
+def rows_without_keys():
+    """
+    {lookup row (core.use_cases.query_plan Key): why it is skipped} for the services without an API key, so the
+    checklist shows them as skipped from the start instead of up next.
+    """
+    missing, notes = stages_without_keys(), {}
+    if "iris" in missing:
+        notes.update(dict.fromkeys(("iris", "history"), _no_key_text("iris")))
+    if "certs" in missing:
+        notes.update(dict.fromkeys(("certs", "ct"), _no_key_text("certs")))
+    if "pdns" in missing:
+        notes.update(dict.fromkeys(("pdns", "TXT", "CAA", "CNAME", "pivot"), _no_key_text("pdns")))
+    if not load_vpndb_key():
+        notes["vpndb"] = "Skipped: no VPNDB key (Settings → API credentials)"
+    return notes
+
+
 def _skip_rows(rows, note):
     """Marks lookup rows skipped (collect_all's `progress` argument hides the progress module there)."""
     for row in rows:

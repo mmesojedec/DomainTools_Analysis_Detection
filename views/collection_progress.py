@@ -10,6 +10,7 @@ import streamlit as st
 
 from core.use_cases import query_plan
 from integrations.cache import age_text, cache_ttl
+from integrations.collector import rows_without_keys
 from integrations.progress import DONE, RUNNING, SKIPPED, WAITING, CollectionProgress
 
 PROGRESS_KEY = "collection_progress"   # session state: the last run's checklist rows
@@ -162,6 +163,8 @@ def live_progress(settings):
             if up_next(rows):
                 st.caption(up_next(rows))
     tracker = CollectionProgress(query_plan(plan_settings(settings)), render)
+    for key, note in rows_without_keys().items():   # services without a key: skipped from the start, not up next
+        tracker.skip(key, note)
     tracker.tick(force=True)   # the whole list, waiting, before the first lookup
     return tracker
 

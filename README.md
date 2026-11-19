@@ -96,8 +96,10 @@ Then start the app:
 streamlit run app.py
 ```
 
-**Add your API credentials in the app.** Open *Settings → API credentials → Enter API keys* (the sidebar links there
-while a key is missing; the form opens by itself), enter the keys and click **Save to credentials.toml**:
+**First start.** A dialog shows the disclaimer (not an official DomainTools application); accept it. The dialog
+then asks for your API credentials (below). Enter them and click **Save keys and start**, or **Skip for now** and
+add them later under *Settings → API credentials → Enter API keys*. **A service without a key is not queried**:
+its lookups are skipped, and the sidebar names it (close that notice with its ×).
 
 | Key | Needed for |
 | --- | --- |
@@ -144,10 +146,13 @@ core/
   hunt_plan.py                 Suggested hunt: leads scored, stop rules, look-ahead and the start order from alerts
   hunt_stats.py                Summary statistics: analysis details, alerts by category, shared infrastructure, weekly activity, lifecycle, data health, cluster callouts
   hunt_result.py               Hunt status and result: what each run added, link to the start, cluster, core indicators
+  hunt_report.py               Hunt report: one self-contained HTML page (hunt map as SVG, every run and value followed,
+                               indicators by domain, every alert with its evidence, open next steps)
   hunt_combine.py              Combined hunts: what hunts share, links between their runs, where a joined hunt attaches
   hunt_tree.py                 Hunts: which run a run was started from, the trail to any run, a hunt's runs
   run_views.py                 Runs page and All investigations data: change since the previous run, risk trend, shared artifacts, links
-  ja4x.py                      JA4X: known C2 fingerprints, layout notes, rarity, per-run summary
+  ja4x.py                      JA4X: known C2 / device fingerprints, layout notes, rarity, per-run summary, values worth a
+                               look, fingerprint card (the three parts, default names of a tool)
   triage.py                    Triage status of alerts and domain verdicts (New, Investigating, Benign, Malicious), kept in dt_triage.json; rule confidence tuned by your verdicts
   allowlist.py                 Infrastructure allowlist (IPs, ranges, ASNs, name servers, certificate organizations, trackers, registrars)
   query_watch.py               Watched IrisQL queries: a query saved with the domains it returned, so a check shows only new ones
@@ -206,7 +211,9 @@ integrations/
 
 views/                         One module per page + sidebar, alert tools, certificate-input preview, data export, shared helpers:
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
-  sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options); Run again
+  sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options); Run again;
+                               API credential notice and the Enter API keys form
+  welcome_view.py              First start: the disclaimer, then the API credentials (Settings can show it again)
   results_toolbar.py           Results toolbar: window, domains, hostnames, record types, alert and threshold filters
   home_view.py                 Start page (Targets box, Save offline copy and Analyze, use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze

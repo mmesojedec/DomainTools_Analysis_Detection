@@ -47,8 +47,10 @@ They are saved to `credentials.toml` outside the project folder (see
 changed any time under *Settings → API credentials → Enter API keys*. The acceptance is kept in `dt_settings.json`;
 *Settings → API credentials → Show the welcome screen and disclaimer again* opens the dialog again.
 
-**A service without a key is not queried.** A run skips its lookups and says so on *Data sources* (*Skipped: no
-DNSDB key*), and the sidebar names the services that have no key:
+**A service without a key is not queried.** A run skips its lookups: the collection checklist shows them as
+*skipped* from the start (never *up next*) and *Data sources* says why (*Skipped: no DNSDB key*). The sidebar
+names the services that have no key. Close that notice with its **×**: it stays closed until a service without a
+key (or a credential warning) changes, and a grey line keeps the state in view. Skipped lookups by service:
 - no DomainTools API key: Iris Investigate and Domain History;
 - no Certificate API key: certificates, certificate events and CT logs. The Certificate API uses the DomainTools key
   when it has none of its own;

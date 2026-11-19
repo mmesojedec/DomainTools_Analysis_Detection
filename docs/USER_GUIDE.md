@@ -47,8 +47,10 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
    lookups fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside
    the collected data are [chased](#cname-chains) to their final addresses. Every lookup's outcome is recorded in
    the [Data sources](#data-sources) page, with the API queries it made. Independent sources run at the same
-   time (see [Workflows](WORKFLOWS.md#collection-order)), and sources missing from the DomainTools account are
-   skipped.
+   time (see [Workflows](WORKFLOWS.md#collection-order)). Sources missing from the DomainTools account are
+   skipped, and so are services without an API key (*Skipped: no DNSDB key*): they make no query until a key is
+   entered. When the targets came from a CertsQL search, the certificates that matched are added to the run (Source
+   *CertsQL search*), so the certificate that found a domain is analyzed with it.
 2. **Window.** Records are limited to the [analysis window](#analysis-window).
 3. **Score gate.** Domains whose known DomainTools risk score is below **Min Risk Score** get only the rules whose
    evidence stands on its own: the lookalike rules, subdomain takeover (*Dangling CNAME*, *Unverified CNAME to
@@ -1061,10 +1063,10 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
 | Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
-| Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), rename and delete |
+| Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), *Download hunt report (HTML)* of the hunt its run belongs to (no loading, no API query), rename and delete |
 | Export & report | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
-| Settings | Tabs: *Collection options* (the next Analyze, or any use case or profile; create a custom profile), *Detection thresholds*, *Brands & allowlist* (brand watchlist, *Hunt lookalikes in IrisQL*, infrastructure allowlist), *Storage & cache* (cache lifetime, clear cache, retention of runs and offline datasets), *API credentials* |
+| Settings | Tabs: *Collection options* (the next Analyze, or any use case or profile; create a custom profile), *Detection thresholds*, *Brands & allowlist* (brand watchlist, *Hunt lookalikes in IrisQL*, infrastructure allowlist), *Storage & cache* (cache lifetime, clear cache, retention of runs and offline datasets), *API credentials* (which source each key comes from, *Enter API keys*, *Show the welcome screen and disclaimer again*) |
 | Account | Your DomainTools products with their quota, usage and expiry, and the API queries this app made |
 | Documentation | These guides inside the app |
 

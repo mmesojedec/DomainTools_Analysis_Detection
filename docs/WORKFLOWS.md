@@ -13,6 +13,7 @@ alerts, scores and detections see the [User Guide](USER_GUIDE.md).
 - [Step 0: reading the target box](#step-0-reading-the-target-box)
 - [Certificate inputs: the two review steps](#certificate-inputs-the-two-review-steps)
 - [IrisQL: finding the targets first](#irisql-finding-the-targets-first)
+- [CertsQL: finding the targets by certificate](#certsql-finding-the-targets-by-certificate)
 - [Collection order](#collection-order)
 - [Passive DNS logic](#passive-dns-logic)
 - [CNAME chasing](#cname-chasing)
@@ -95,6 +96,25 @@ flowchart TD
 A query can also be watched (*Watch this query*): *Watched queries → Check now* runs it again later and ticks only
 the domains that are new since the last check.
 
+## CertsQL: finding the targets by certificate
+
+Used when what you know is a certificate property rather than a domain (**CertsQL** in the menu, or *Find targets
+with CertsQL* on the Start page): a JA4X, a public key, an issuer, a SAN pattern, a serial number.
+
+```mermaid
+flowchart TD
+    A["CertsQL page: query (example or your own; the box starts with the version line only)"] --> B["Checked before sending: fields, operators, values, limits"]
+    B --> C["Certificate Search, 500 certificates per page, until 'Certificates to fetch'"]
+    C --> D["Fingerprint card for each known or code-generated JA4X among the results"]
+    D --> E["Certificates (untick to leave out), the domains, IPs and hostnames they name"]
+    E --> F["Tick domains and IPs, pick a use case"]
+    F --> G["Analyze: a normal run on them; the ticked certificates naming them are added to it (Source: CertsQL search)"]
+```
+
+The certificates carried into the run matter when the search found them by what they are (e.g. `ja4x equals` the
+Cobalt Strike fingerprint): a domain's own certificate lookup may not return them, so without this the JA4X that
+picked the domain would be missing from its analysis.
+
 ## Collection order
 
 Stages that do not need each other run at the same time. In the first wave, Domain History, Iris Investigate and
@@ -108,6 +128,16 @@ Before the first wave, the app checks the DomainTools account's products (the Ac
 query an hour). A stage whose product the account does not have is skipped with a status row saying so, instead of
 failing lookup by lookup. The same answer drives the quota banners on every page: yellow when a product the app uses
 has used 95% of its monthly quota or expires within 30 days, red when it is used up or expired.
+
+A service **without an API key is not queried**: its stages are skipped before anything is asked. The checklist
+shows them as *skipped* from the start, and *Data sources* says *Skipped: no … key (Settings → API credentials)*.
+
+| No key for | Skipped |
+| --- | --- |
+| DomainTools API | 1 Domain History, 3 Iris Investigate |
+| Certificate API (uses the DomainTools key unless it has its own) | 2 Certificate Search, 7 Certificate Events, 8 CT / co-occurrence |
+| DNSDB | 4 Passive DNS (with TXT / CAA / CNAME), 5 IP pivots, and the DNSDB lookups of 6b |
+| VPNDB | 6, 6b, 6c |
 
 ```mermaid
 flowchart TD
