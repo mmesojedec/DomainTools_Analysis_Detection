@@ -67,9 +67,24 @@ _TYPES = {
     "nested": ("basic_constraints", "certificate_policy", "name_constraints", "signed_certificate_timestamp"),
 }
 FIELD_TYPES = {field: kind for kind, fields in _TYPES.items() for field in fields}
+# The values each enum field accepts (the API lowercases the operand before it compares, so case does not matter).
+ENUM_VALUES = {
+    "public_key_algorithm": ("rsa", "rsa_pss", "dsa", "ecdsa", "ed25519", "ed448", "x25519", "x448", "unknown"),
+    "public_key_curve": ("p256", "p384", "p521", "secp256k1", "brainpoolp256r1", "brainpoolp384r1", "brainpoolp512r1",
+                         "unknown"),
+    "signature_algorithm": ("sha256_with_rsa", "sha384_with_rsa", "sha512_with_rsa", "sha1_with_rsa", "md5_with_rsa",
+                            "rsa_pss", "ecdsa_with_sha256", "ecdsa_with_sha384", "ecdsa_with_sha512", "ecdsa_with_sha1",
+                            "ed25519", "ed448", "dsa_with_sha256", "dsa_with_sha1", "unknown"),
+    "validation_level": ("dv", "ov", "ev", "iv"),
+    "key_usage": ("digital_signature", "content_commitment", "key_encipherment", "data_encipherment", "key_agreement",
+                  "key_cert_sign", "crl_sign", "encipher_only", "decipher_only"),
+    "extended_key_usage": ("server_auth", "client_auth", "code_signing", "email_protection", "time_stamping",
+                           "ocsp_signing", "any_extended_key_usage"),
+}
 _FULL_TEXT = {"issuer_common_name", "subject_common_name", "issuer_organization", "subject_organization",
               "issuer_organizational_unit", "subject_organizational_unit", "san_dns", "san_krb5_principal",
-              "san_permanent_identifier", "san_xmpp_jid"}
+              "san_permanent_identifier", "san_xmpp_jid", "subject_email_address", "san_upn", "san_smtp_utf8_mailbox",
+              "san_uri"}
 _AFFIX_TEXT = {"issuer_locality", "subject_locality", "issuer_state_or_province", "subject_state_or_province",
                "issuer_dc", "subject_dc"}
 _RANGED = {"validity_not_before", "validity_not_after", "validity_duration_days", "public_key_bits", "san_count",
@@ -109,13 +124,13 @@ SUBFIELDS = {   # nested-object subfield -> (value type, operators)
     "basic_constraints.max_path_len": ("integer", _INT_RANGE),
     "basic_constraints.critical": ("boolean", EQUALITY + PRESENCE),
     "certificate_policy.policy_oid": ("oid", ("equals", "in", "exists") + OID_PREFIX),
-    "certificate_policy.cps_uris": ("uri", ("equals", "exists")),
+    "certificate_policy.cps_uris": ("uri", ("equals", "begins_with", "ends_with", "contains", "exists")),
     "certificate_policy.user_notices": ("text", ("equals", "contains", "exists")),
     **dict.fromkeys(("name_constraints.permitted_dns", "name_constraints.excluded_dns"), ("dns", _LIST + TEXT)),
     **dict.fromkeys(("name_constraints.permitted_ip_ranges", "name_constraints.excluded_ip_ranges"),
                     ("ip_range", IP_RANGE + PRESENCE)),
-    **dict.fromkeys(("name_constraints.permitted_email", "name_constraints.excluded_email"), ("email", _LIST)),
-    **dict.fromkeys(("name_constraints.permitted_uri", "name_constraints.excluded_uri"), ("uri", _LIST)),
+    **dict.fromkeys(("name_constraints.permitted_email", "name_constraints.excluded_email"), ("email", _LIST + TEXT)),
+    **dict.fromkeys(("name_constraints.permitted_uri", "name_constraints.excluded_uri"), ("uri", _LIST + TEXT)),
     **dict.fromkeys(("name_constraints.permitted_directory", "name_constraints.excluded_directory"),
                     ("dn", EQUALITY + PRESENCE)),
     "name_constraints.critical": ("boolean", EQUALITY + PRESENCE),
@@ -326,6 +341,12 @@ def _operand_problem(field, kind, operator, value, line):
             return f"`{line}`: {field} values are quoted strings."
     if operator in ("contains", "does_not_contain") and not CONTAINS_MIN <= len(str(value).strip()) <= CONTAINS_MAX:
         return f"`{line}`: `{operator}` takes {CONTAINS_MIN} to {CONTAINS_MAX} characters."
+    allowed = ENUM_VALUES.get(field)
+    if allowed and operator not in (*TEXT, *RANGE) and any(item.lower() not in allowed for item in values):
+        wrong = next(item for item in values if item.lower() not in allowed)
+        close = difflib.get_close_matches(wrong.lower().replace("-", "_").replace(" ", "_"), allowed, n=1)
+        return (f"`{line}`: `{wrong}` is not a {field} value" + (f" (did you mean `\"{close[0]}\"`?)" if close else "")
+                + f". Values: {', '.join(allowed)}.")
     if kind == "country" and any(len(str(item)) != 2 for item in values):
         return f"`{line}`: country codes are two letters (ISO 3166-1 alpha-2), e.g. \"US\"."
     if kind == "ja4x" and any(not JA4X.match(item) for item in values):

@@ -70,7 +70,9 @@ def _iris_catalog():
 
 def certs_choices(field, operator):
     kind = certsql.FIELDS[field][0]
-    return ["true", "false"] if kind == "boolean" and operator in certsql.EQUALITY else []
+    if operator not in certsql.EQUALITY:
+        return []
+    return ["true", "false"] if kind == "boolean" else list(certsql.ENUM_VALUES.get(field, ()))
 
 
 def certs_template(field, operator):

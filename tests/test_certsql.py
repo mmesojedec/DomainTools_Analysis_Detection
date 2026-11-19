@@ -52,7 +52,7 @@ def test_problems_catch_what_the_certificates_api_rejects():
         'validity_not_after within "next 30 days"': "the next N unit",
         'public_key_bits within "the last 3 days"': "`within` is for dates",
         'name_constraints.permitted_ip_ranges within "10.0.0.0/8"': "does not support `within`",
-        'certificate_policy.cps_uris ends_with "/cps.pdf"': "does not support `ends_with`",
+        'certificate_policy.cps_uris in ["https://a.example/cps"]': "does not support `in`",
         'name_constraints.permitted_ip_ranges equals "10.0.0.0/8"': "IP range fields take",
         'name_constraints.permitted_ip_ranges in ["10.0.0.0/8"]': "does not support `in`",
         'name_constraints.permitted_ip_ranges contains_ip "10.0.0.0/8"': "one IP address",
@@ -219,3 +219,20 @@ def test_sort_is_a_field_and_an_order():
     for field, (_label, words) in certsql.SORT_FIELDS.items():
         assert field in certsql.FIELD_TYPES and len(words) == 2, field   # a real top-level field, both directions worded
         assert certsql.FIELD_TYPES[field] in ("date", "integer", "keyword", "text"), field   # the guide's sortable fields
+
+
+def test_email_and_uri_fields_take_the_text_operators():
+    for line in ('san_uri contains "evil"', 'subject_email_address ends_with "@example.com"',
+                 'san_upn begins_with "admin"', 'name_constraints.permitted_uri contains "corp"'):
+        assert certsql.problems(f"{certsql.HEADER}\n{line}") == [], line
+    block = 'certificate_policy matches_element (\n  cps_uris begins_with "http://"\n)'
+    assert certsql.problems(f"{certsql.HEADER}\n{block}") == []
+    assert certsql.problems(f'{certsql.HEADER}\nsan_uri.host contains "evil"')   # parts stay equals-only
+
+
+def test_enum_values_are_checked_in_any_case():
+    assert certsql.problems(f'{certsql.HEADER}\nsignature_algorithm equals "SHA256_WITH_RSA"') == []
+    assert certsql.problems(f'{certsql.HEADER}\nvalidation_level in ["dv", "ov"]') == []
+    found = certsql.problems(f'{certsql.HEADER}\nsignature_algorithm equals "sha256WithRSA"')
+    assert found and "sha256_with_rsa" in found[0]
+    assert certsql.problems(f'{certsql.HEADER}\nkey_usage in ["digital_signature", "cert_sign"]')

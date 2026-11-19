@@ -18,7 +18,8 @@ def _fill(template, operator, field=""):
     if text.startswith("("):   # a matches_element block: one predicate on a subfield of `field`, or on `value`
         sub = next((name for name in certsql.SUBFIELDS if name.startswith(field + ".")), field + ".value")[len(field) + 1:]
         return text.replace("\n  \n", f"\n  {sub} exists true\n")
-    value = _JA4X if field == "ja4x" else _VALUES.get(operator, "abc")
+    enum = certsql.ENUM_VALUES.get(field)
+    value = _JA4X if field == "ja4x" else enum[0] if enum else _VALUES.get(operator, "abc")
     return text.replace('""', f'"{value}"')
 
 
@@ -97,3 +98,10 @@ def test_the_editor_component_bundles_codemirror_and_the_page_rules():
     from views import query_editor
     assert "CodeMirror" in query_editor._JS and "export default function" in query_editor._JS
     assert ".dtq-editor" in query_editor._CSS and ".CodeMirror-hints" in query_editor._CSS
+
+
+def test_certsql_enum_fields_offer_their_values_after_equals():
+    assert query_assist.certs_choices("validation_level", "equals") == ["dv", "ov", "ev", "iv"]
+    assert query_assist.certs_choices("validation_level", "in") == []
+    assert query_assist.certs_choices("is_self_signed", "equals") == ["true", "false"]
+    assert query_assist.certs_choices("sha256", "equals") == []
