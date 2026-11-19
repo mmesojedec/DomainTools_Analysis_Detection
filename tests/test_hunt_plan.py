@@ -173,8 +173,13 @@ def test_hunt_status_yield_links_and_result():
     assert [row["Domain"] for row in result["cluster"]] == ["a.com", "b.com", "c.com"] and result["drifted"] == ["r3"]
     assert {(row["Kind"], row["Domains"]) for row in result["core"]} == {("IP", 2), ("Certificate", 2)}
     assert result["alerts"][0] == {"Threat Type": "C2", "Domains": 2, "Worst": "High"}
-    page = hr.hunt_report_html("Hunt: a.com", result, [], ("converging", "x"), "Malicious cluster", "note <b>")
+    from core.hunt_report import hunt_report_html
+    members = [(None, snapshot, 0 if snapshot["id"] == "r1" else 1) for snapshot in runs]
+    page = hunt_report_html("Hunt: a.com", members, result, ("converging", "x"), verdict="Malicious cluster",
+                            note="note <b>")
     assert "Malicious cluster" in page and "note &lt;b&gt;" in page and "c.com" in page
+    assert "<svg" in page and "Indicators by domain" in page and "Alert details" in page
+    assert "+3" not in page
 
 
 def test_indicator_kinds_and_certificate_records():

@@ -972,7 +972,20 @@ with what links it), the **core indicators** (values two or more cluster domains
 
 - **Close hunt**: a verdict (Malicious cluster, Suspicious, Benign, Inconclusive) and a note, kept with the hunt's
   first run; *Reopen* removes it.
-- **Download hunt report (HTML)**: the result as one page (print it to PDF).
+- **Download hunt report (HTML)**: everything the hunt found, in full, as one page with no scripts and no network
+  use (print it to PDF to share). It has:
+  - the status, verdict, note and summary figures (runs, domains, cluster, core indicators, alerts per severity);
+  - the **hunt map**, drawn into the page: one box per run with all its targets up to five (the rest under *Runs*),
+    alerts and link to the start, and arrows labelled with what was followed. Left to right, or top to bottom from
+    three runs deep;
+  - **Runs**: each run's origin (the IrisQL or CertsQL query, or the hunt step) with every value it followed and
+    every target, no "+N";
+  - the **cluster** with risk scores and alerts, and the **core indicators** with the domains that share each;
+  - **indicators by domain**: every IP, name server, MX, email, certificate, JA4X and hostname the runs recorded,
+    core indicators in bold;
+  - **alerts by type** (with the domains and ATT&CK technique) and **alert details**: every alert with its
+    confidence, category and evidence;
+  - the **open next steps** of the newest run.
 - **Use in the case report**: opens Export & report with the result as the case report's summary.
 - **Watch these domains**: adds the cluster as a watched target list (Runs → Compare & trends → Watched Lists).
 

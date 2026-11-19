@@ -60,7 +60,7 @@ from integrations.certificates import (
     parse_domaintools_certs,
     search_certificates,
 )
-from integrations.credentials import load_dnsdb_key
+from integrations.credentials import load_cert_api_key, load_dnsdb_key, load_dtapi_credentials
 from integrations.dnsdb import (
     CHASE_SOURCE,
     QueryBudget,
@@ -1034,10 +1034,42 @@ def _wait_drawing(futures):
     return [future.result() for future in futures]
 
 
+KEY_SERVICES = {"iris": "DomainTools API", "history": "DomainTools API", "certs": "Certificate API",
+                "events": "Certificate API", "pdns": "DNSDB"}   # stage -> the key it needs
+
+
+def stages_without_keys():
+    """The stages whose service has no API key: they are skipped (no query) until a key is entered."""
+    missing = set()
+    if not load_dtapi_credentials():
+        missing |= {"iris", "history"}
+    if not load_cert_api_key():
+        missing |= {"certs", "events"}
+    if not load_dnsdb_key():
+        missing.add("pdns")
+    return missing
+
+
+def _skip_rows(rows, note):
+    """Marks lookup rows skipped (collect_all's `progress` argument hides the progress module there)."""
+    for row in rows:
+        progress.skip(row, note)
+
+
+def _no_key_text(stage):
+    return f"Skipped: no {KEY_SERVICES[stage]} key (Settings → API credentials)"
+
+
 def _skip_stage(stage, targets, log, row=None):
-    """Logs that `stage` was skipped because the account does not have its product."""
+    """Logs that `stage` was skipped: no API key for its service, or the account does not have its product."""
+    where = ", ".join(targets[:3]) + (" ..." if len(targets) > 3 else "")
+    if stage in stages_without_keys():
+        log.add(STAGE_NAMES[stage], where, "No data", _no_key_text(stage))
+        if row:
+            progress.skip(row, _no_key_text(stage))
+        return
     products = " or ".join(STAGE_PRODUCTS[stage])
-    log.add(STAGE_NAMES[stage], ", ".join(targets[:3]) + (" ..." if len(targets) > 3 else ""), "No data",
+    log.add(STAGE_NAMES[stage], where, "No data",
             f"Skipped: the DomainTools account has no {products} product (see the Account page)")
     if row:
         progress.skip(row, "Skipped: not in this DomainTools account")
@@ -1058,7 +1090,8 @@ def _certificate_stage(lookup_inputs, domains, ip_targets, seed_hits, host_focus
     else:
         events = collect_cert_events(domains, ip_targets, log, host_focus)
     if "certs" in unavailable and "events" in unavailable:
-        progress.skip("certs", "Skipped: not in this DomainTools account")
+        progress.skip("certs", _no_key_text("certs") if "certs" in stages_without_keys()
+                      else "Skipped: not in this DomainTools account")
     return ssl, events, log
 
 
@@ -1100,7 +1133,8 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
             progress(label)
 
     log = StatusLog()
-    unavailable = set(unavailable or ())
+    no_key = stages_without_keys()   # services without an API key are not queried
+    unavailable = set(unavailable or ()) | no_key
     classified = classify_targets(target_inputs)
     domains, cidrs = classified["domains"], classified["cidrs"]
     lookup_inputs = [t for t in target_inputs if not is_cidr(t)]   # CIDR ranges go to VPNDB only
@@ -1136,9 +1170,15 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
         certs = _background(executor, _certificate_stage, lookup_inputs, domains, ip_targets, seed_hits, host_focus,
                             unavailable)
         pdns_log = StatusLog()
-        data.pdns, data.pdns_coverage = collect_pdns(lookup_inputs, dnsdb_limit, pdns_log, txt_records, caa_lookup,
-                                                     cname_lookup, pdns_base)
-        if host_focus:
+        if "pdns" in no_key:
+            pdns_log.add("DNSDB Scout", ", ".join(lookup_inputs[:3]) + (" ..." if len(lookup_inputs) > 3 else ""),
+                         "No data", _no_key_text("pdns"))
+            _skip_rows(("pdns", "TXT", "CAA", "CNAME", "pivot"), _no_key_text("pdns"))
+            data.pdns, data.pdns_coverage = pd.DataFrame(), {}
+        else:
+            data.pdns, data.pdns_coverage = collect_pdns(lookup_inputs, dnsdb_limit, pdns_log, txt_records,
+                                                         caa_lookup, cname_lookup, pdns_base)
+        if host_focus and "pdns" not in no_key:
             data.pdns = fill_pdns_gaps(data.pdns, data.pdns_coverage, host_focus, dnsdb_limit, pdns_log)
         step("Waiting for Domain History, Iris Investigate and certificates...")
         (dh, dh_ssl, history_log), (data.enrichment, iris_log), (cert_ssl, cert_events, cert_log) = _wait_drawing(
@@ -1155,7 +1195,7 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
         ct_log = StatusLog()
         ct = _background(executor, collect_ct_telemetry, data.ssl, ct_max_hashes, ct_log) \
             if include_ct and "events" not in unavailable else None
-        if pivot_ips:
+        if pivot_ips and "pdns" not in no_key:
             step("Pivoting on hosting IPs (DNSDB reverse lookups)...")
             data.ip_pivots = collect_ip_pivots(domains, data.pdns, data.enrichment, pivot_max_ips, log)
         if vpndb_check:

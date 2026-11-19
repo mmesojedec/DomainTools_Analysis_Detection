@@ -4,7 +4,6 @@ hunt (new domains, new alerts), whether the hunt is still growing, which runs st
 through shared infrastructure, and the result: the cluster of domains linked to the start, the indicators most of them
 share, and the alerts by type. No API calls.
 """
-import html
 from collections import Counter, defaultdict
 
 from core.run_history import SEVERITY_ORDER
@@ -160,7 +159,7 @@ def hunt_result(snapshots, root):
     for domain in members:
         for item in values.get(domain, ()):
             holders[item].add(domain)
-    core = [{"Kind": kind, "Value": value, "Domains": len(domains)}
+    core = [{"Kind": kind, "Value": value, "Domains": len(domains), "Shared by": sorted(domains)}
             for (kind, value), domains in holders.items() if len(domains) >= CORE_MIN]
     core.sort(key=lambda row: (-row["Domains"], row["Kind"], row["Value"]))
     alerts = {}
@@ -183,32 +182,3 @@ def top_types(snapshot, limit=2):
     """[(threat type, domain count)] of a run's most common alerts."""
     counts = Counter(kind for _, kind in _alert_keys(snapshot))
     return counts.most_common(limit)
-
-
-def hunt_report_html(title, result, runs, status, verdict=None, note=""):
-    """The hunt result as one self-contained HTML page (print it to PDF from the browser)."""
-    from core.case_report import CSS
-
-    def e(text):
-        return html.escape(str(text))
-
-    def table(rows, columns):
-        if not rows:
-            return '<p class="muted">None.</p>'
-        head = "".join(f"<th>{e(c)}</th>" for c in columns)
-        body = "".join("<tr>" + "".join(f"<td>{e(row.get(c, ''))}</td>" for c in columns) + "</tr>" for row in rows)
-        return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
-
-    parts = [f"<h1>{e(title)}</h1>",
-             f'<p class="meta">Status: {e(STATUS_LABELS.get(status[0], status[0]))} ({e(status[1])})'
-             + (f" · Verdict: {e(verdict)}" if verdict else "") + "</p>"]
-    if note:
-        parts.append(f'<h2>Summary</h2><div class="notes">{e(note)}</div>')
-    parts += ["<h2>Runs</h2>", table(runs, ["Run", "Targets", "Domains", "New domains", "Alerts", "Linked to start",
-                                             "Started from"]),
-              f"<h2>Cluster: {len(result['cluster'])} domain(s) linked to the starting point</h2>",
-              table(result["cluster"], ["Domain", "Linked by", "First run"]),
-              "<h2>Core indicators</h2>", table(result["core"][:50], ["Kind", "Value", "Domains"]),
-              "<h2>Alerts by type</h2>", table(result["alerts"], ["Threat Type", "Domains", "Worst"])]
-    return (f"<!doctype html><html><head><meta charset='utf-8'><title>{e(title)}</title><style>{CSS}</style></head>"
-            f"<body><main>{''.join(parts)}</main></body></html>")

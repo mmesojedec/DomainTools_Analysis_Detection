@@ -34,8 +34,26 @@ pip install -r requirements.txt
 
 ## Credentials
 
-The quickest way is to start the app and enter the keys under *Settings → API credentials → Enter API keys*; they are
-saved to `credentials.toml` outside the project folder (see [Entering keys in the app](#entering-keys-in-the-app)).
+The quickest way is to start the app. On the **first start** a dialog shows the disclaimer (this is not an official
+DomainTools application, but an example of a custom-built one). After you accept it, the dialog asks for the API
+credentials:
+- the DomainTools API username and key;
+- the DNSDB key;
+- the VPNDB key;
+- optionally, a Certificate API key.
+
+They are saved to `credentials.toml` outside the project folder (see
+[Entering keys in the app](#entering-keys-in-the-app)). **Skip for now** starts without them. Keys can be added or
+changed any time under *Settings → API credentials → Enter API keys*. The acceptance is kept in `dt_settings.json`;
+*Settings → API credentials → Show the welcome screen and disclaimer again* opens the dialog again.
+
+**A service without a key is not queried.** A run skips its lookups and says so on *Data sources* (*Skipped: no
+DNSDB key*), and the sidebar names the services that have no key:
+- no DomainTools API key: Iris Investigate and Domain History;
+- no Certificate API key: certificates, certificate events and CT logs. The Certificate API uses the DomainTools key
+  when it has none of its own;
+- no DNSDB key: passive DNS and the IP pivots;
+- no VPNDB key: the VPN, proxy and Tor check.
 
 Credentials can come from three sources. Each credential is taken from the **first** source that has it:
 

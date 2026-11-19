@@ -90,6 +90,7 @@ from views.summary_view import render_summary
 from views.tor_page import render_tor_page
 from views.triage_view import render_triage_lens
 from views.vpndb_page import render_vpndb_page
+from views.welcome_view import render_welcome
 
 st.set_page_config(layout="wide", page_title="DomainTools Analytics and Detection")
 idn_display.install()   # "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
@@ -733,6 +734,7 @@ def main():
     render_logo()
     install_copy_fallback()
     show_pending_toast()
+    render_welcome()   # first start: the disclaimer, then the API keys
     if nav.url_path == DOCS_PATH:   # the documentation draws its own sidebar (topic tree and search)
         with idn_display.paused():
             nav.run()

@@ -5,6 +5,12 @@ Domain History, passive DNS from DNSDB Scout, and the Certificate API with searc
 SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
 threat engine over the combined telemetry.
 
+> **Disclaimer:** this is not an official DomainTools application. It is an example of a custom-built application
+> that shows how the DomainTools Python SDK and the other DomainTools APIs can be used to get DomainTools data and
+> use it for analysis and basic detection. It is provided as an example, without support; its alerts, scores and
+> verdicts are heuristics, so check the evidence before acting on them. Lookups use your own API keys and quotas.
+> The app shows this disclaimer on its first start, before it asks for API credentials.
+
 ![Start page: pick a use case, enter targets in the Targets box and click Analyze](docs/images/start-page.png)
 
 *The Start page: enter domains, IPs or certificates in the Targets box and click **Analyze**, or first pick a use

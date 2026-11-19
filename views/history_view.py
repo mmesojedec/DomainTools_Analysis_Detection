@@ -438,6 +438,7 @@ def render_offline_datasets():
                   ":material/upload_file:", on_click=request_offline_load, args=(dataset_id,),
                   help="Re-analyzes the saved data with the current window, thresholds and filters; no API calls. "
                        "Opens on the Summary.")
+        _render_hunt_report_button(manifest)
         if st.session_state.get(OFFLINE_SAVED_KEY) == dataset_id:
             st.success(f"Offline copy saved as “{manifest.get('name', '')}” ({format_size(manifest.get('size_bytes'))})."
                        " Rename it below if you like, e.g. after the case or the question it answers.",
@@ -457,6 +458,31 @@ def render_offline_datasets():
             delete_offline_dataset(dataset_id)
             st.rerun()
     st.caption(f"Datasets kept: {offline_retention()} newest (Settings → Storage & cache).")
+
+
+def _render_hunt_report_button(manifest):
+    """*Download hunt report*: the report of the hunt the dataset's run belongs to, without loading the dataset."""
+    run_id = manifest.get("run_id")
+    timezone = st.session_state.get("display_timezone") or "UTC"
+    if not run_id:
+        st.button("Download hunt report (HTML)", key=f"offline_report_{manifest['id']}", disabled=True,
+                  icon=":material/download:", help="This dataset is not linked to a saved run, so it has no hunt to "
+                                                    "report on. Load it and save a run first.")
+        return
+    from views.hunt_map_view import hunt_report_for_run  # it imports this module
+
+    def build():
+        built = hunt_report_for_run(run_id, timezone)
+        return built[1].encode("utf-8") if built else b""
+
+    exists = any(snapshot["id"] == run_id for _, snapshot in load_all_runs())
+    st.download_button("Download hunt report (HTML)", build, f"hunt_report_{manifest['id']}.html", "text/html",
+                       key=f"offline_report_{manifest['id']}", icon=":material/download:", on_click="ignore",
+                       disabled=not exists,
+                       help="The report of the hunt this dataset's run belongs to (the whole hunt, from its starting "
+                            "run): hunt map, every run and the values it followed, indicators by domain, every alert "
+                            "with its evidence. From the saved runs; nothing is loaded and no API query is made."
+                       if exists else "The run this dataset was saved from is no longer kept (Runs retention).")
 
 
 def render_retention_settings():

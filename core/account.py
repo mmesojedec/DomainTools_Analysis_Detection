@@ -31,7 +31,7 @@ STAGE_PRODUCTS = {
     "events": ("certificate-events",),
 }
 STAGE_NAMES = {"iris": "Iris Investigate", "history": "Domain History", "certs": "Certificate Search",
-               "events": "Certificate events"}
+               "events": "Certificate events", "pdns": "DNSDB Scout"}
 PRODUCT_COLUMNS = ["Product", "Used by this app", "Today", "This month", "Monthly limit", "Left this month",
                    "Used %", "Per hour", "Per minute", "Expires", "ID"]
 _WORDS = {"api": "API", "s3": "S3", "ip": "IP", "rdap": "RDAP", "rpz": "RPZ", "mcp": "MCP", "whois": "Whois"}

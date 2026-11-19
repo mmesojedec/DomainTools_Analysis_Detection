@@ -346,3 +346,20 @@ def test_data_sources_stats_per_run_source_and_target():
     assert targets.loc["b.com", "Needs attention"] == "" and targets.loc["b.com", "Sources"] == 2
     assert attention_rows(statuses)["Status"].tolist() == ["Error", "Partial"]
     assert run_overview([])["Lookups"] == 0 and source_stats([]).empty
+
+
+def test_stages_without_keys_are_skipped(monkeypatch):
+    """No DomainTools, Certificate API or DNSDB key: those stages make no query and say why."""
+    from integrations import collector
+
+    def called(*args, **kwargs):
+        raise AssertionError("a service without a key was queried")
+
+    monkeypatch.setattr(collector, "stages_without_keys", lambda: {"iris", "history", "certs", "events", "pdns"})
+    for name in ("collect_pdns", "collect_enrichment", "collect_domain_history", "collect_certificates",
+                 "collect_cert_events", "collect_ct_telemetry", "collect_ip_pivots"):
+        monkeypatch.setattr(collector, name, called)
+    data = collector.collect_all(["example.com"], 100, pivot_ips=True)
+    details = " ".join(row["Detail"] for row in data.statuses)
+    assert "no DNSDB key" in details and "no DomainTools API key" in details and "no Certificate API key" in details
+    assert data.pdns.empty and data.ssl.empty

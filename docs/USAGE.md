@@ -1248,6 +1248,11 @@ Under the selected dataset, **What's in this dataset** lists every part with:
 | Size | Compressed size on disk; the largest parts come first |
 | Limit applied | The limit its lookups ran with, from the run's collection options, e.g. *Up to 5,000 records per domain; TXT lookup: latest 10 per domain*; *Off* when that lookup was not on |
 
+**Download hunt report (HTML)** builds the report of the hunt the dataset's run belongs to (its whole hunt, from the
+starting run) straight from the saved runs, without loading the dataset and with no API query. It is the same report
+as on the Hunt map: hunt map, every run and the values it followed, indicators by domain, every alert with its
+evidence, open next steps. It is greyed out for a dataset not linked to a saved run.
+
 **Lookups that stopped at a limit** lists the lookups that returned as many records as their limit allows, so there
 may be more: raise the limit under *Settings → Collection options* and analyze again to fetch them.
 

@@ -447,6 +447,9 @@ def render_credential_chip(settings_page=None):
     services, warnings = overview["services"], _credential_warnings(overview)
     found = sum(row["Found"] for row in services)
     text = f"API credentials: {found}/{len(services)} services ready" + (f", {len(warnings)} warning(s)" if warnings else "")
+    missing = [SERVICE_SHORT_NAMES.get(row["Service"], row["Service"]) for row in services if not row["Found"]]
+    if missing:
+        text += f". No key, not queried: {', '.join(missing)}"
     if found < len(services) or warnings:
         st.sidebar.warning(text, icon=":material/key:")
         if settings_page is not None and found < len(services):
@@ -526,32 +529,36 @@ KEY_HELP = {
 }
 
 
-def _save_entered_keys():
-    """Form callback: saves the filled fields to credentials.toml; empty fields keep what is saved."""
-    entered = {service: {key: st.session_state.get(f"cred::{service}::{key}", "").strip() for key, _, _ in fields}
+def _save_entered_keys(prefix="cred"):
+    """
+    Form callback: saves the filled fields (widget keys `prefix::service::key`) to credentials.toml; empty fields keep
+    what is saved. Returns the services saved (empty when nothing was).
+    """
+    entered = {service: {key: (st.session_state.get(f"{prefix}::{service}::{key}") or "").strip() for key, _, _ in fields}
                for service, fields in KEY_FIELDS.items()}
     for service, fields in KEY_FIELDS.items():   # never keep keys in the session longer than this callback
         for key, _, _ in fields:
-            st.session_state[f"cred::{service}::{key}"] = ""
+            st.session_state[f"{prefix}::{service}::{key}"] = ""
     updates = {service: {k: v for k, v in values.items() if v} for service, values in entered.items()}
     updates = {service: values for service, values in updates.items() if values}
     if not updates:
         st.session_state[TOAST_KEY] = "Nothing to save: every field was empty."
-        return
+        return []
     domaintools = updates.get(DOMAINTOOLS, {})
     if len(domaintools) == 1 and DOMAINTOOLS not in saved_sections():
         st.session_state[TOAST_KEY] = "Enter both the DomainTools username and API key; nothing was saved."
-        return
+        return []
     try:
         path = save_credentials(updates)
     except (CredentialFileError, OSError) as exc:
         st.session_state[TOAST_KEY] = f"Not saved: {exc}"
-        return
+        return []
     resolved = {row["Service"]: row for row in credential_overview()["services"]}
     overridden = [service for service in updates if resolved[service]["Kind"] == ENVIRONMENT]
     st.session_state[TOAST_KEY] = (f"Saved {', '.join(updates)} to {path}."
                                    + (f" {', '.join(overridden)} still uses environment variables, which win."
                                       if overridden else ""))
+    return list(updates)
 
 
 def _remove_saved_keys(service):

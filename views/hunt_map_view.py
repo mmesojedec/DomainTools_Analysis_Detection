@@ -11,13 +11,13 @@ import streamlit as st
 
 from core.helpers import md_escape
 from core.hunt_plan import mark_done, plan_items, runnable
+from core.hunt_report import hunt_report_html
 from core.hunt_result import (
     CONVERGE_DOMAINS,
     MAX_DEPTH,
     MAX_DOMAINS,
     STATUS_LABELS,
     followed_values,
-    hunt_report_html,
     hunt_result,
     hunt_status,
     link_text,
@@ -512,7 +512,7 @@ def _runs_table(members, timezone, gains, links):
     return rows
 
 
-def _render_result(members, root_key, root, status, timezone, label):
+def _render_result(members, root_key, root, status, timezone, label, steps_by_run=None, open_steps=None):
     """The hunt's result: the cluster linked to the start, core indicators, alerts by type; close, report, watch."""
     snapshots = [snapshot for _, snapshot, _ in members]
     result = hunt_result(snapshots, root)
@@ -554,9 +554,13 @@ def _render_result(members, root_key, root, status, timezone, label):
                 save_hunt_result(root_key, root["id"], None)
                 st.rerun()
             st.download_button("Download hunt report (HTML)",
-                               lambda: hunt_report_html(f"Hunt: {label}", result, runs, status,
-                                                        verdict if closed else None, note).encode("utf-8"),
-                               "hunt_report.html", "text/html", icon=":material/download:", on_click="ignore")
+                               lambda: hunt_report_html(f"Hunt: {label}", members, result, status, steps_by_run,
+                                                        open_steps, verdict if closed else None, note,
+                                                        timezone).encode("utf-8"),
+                               "hunt_report.html", "text/html", icon=":material/download:", on_click="ignore",
+                               help="Everything the hunt found in full (the hunt map, every run and the values it "
+                                    "followed, indicators by domain, every alert with its evidence, open next "
+                                    "steps), as one page that also prints to PDF")
             if st.button("Use in the case report", key="hunt_case", icon=":material/description:",
                          help="Opens Data Export with this result as the case report's summary"):
                 st.session_state["report_notes"] = case_summary(label, result, status, verdict, note)
@@ -567,6 +571,32 @@ def _render_result(members, root_key, root, status, timezone, label):
                                      help="Adds the cluster as a watched target list (Runs → Compare & trends → Watched Lists)"):
                 save_watch(f"Hunt: {label}", domains)
                 st.toast(f"Watching {len(domains)} domains: Runs → Compare & trends → Watched Lists")
+
+
+def hunt_report_for_run(run_id, timezone="UTC"):
+    """
+    (file name, HTML) of the hunt report of the hunt that saved run `run_id` belongs to (its whole hunt, from the
+    starting run), or None when the run is not saved. Built from the saved runs only, like the Hunt map's download.
+    """
+    runs = load_all_runs()
+    if run_id not in {snapshot["id"] for _, snapshot in runs}:
+        return None
+    members = hunt_members(runs, hunt_root(runs, run_id))
+    snapshots = [snapshot for _, snapshot, _ in members]
+    root = snapshots[0]
+    steps = run_items(members, None, None)
+    newest = max(snapshots, key=lambda snapshot: str(snapshot.get("created")))
+    open_steps = _open_steps(members, steps, newest)
+    distinct = collapse_repeats(members)[0]
+    closed = root.get("hunt_result") or {}
+    status = hunt_status([snapshot for _, snapshot, _ in distinct], [depth for _, _, depth in distinct], open_steps,
+                         int(st.session_state.get(DEPTH_KEY, MAX_DEPTH)),
+                         int(st.session_state.get(DOMAINS_KEY, MAX_DOMAINS)), closed or None)
+    label = _targets(root, 3)
+    page = hunt_report_html(f"Hunt: {label}", members, hunt_result(snapshots, root), status, steps, open_steps,
+                            closed.get("verdict"), closed.get("note", ""), timezone)
+    name = "".join(c if c.isalnum() or c in "-." else "_" for c in (root.get("targets") or ["hunt"])[0])
+    return f"hunt_report_{name}.html", page
 
 
 def case_summary(label, result, status, verdict, note):
@@ -741,7 +771,7 @@ def _render_this_hunt(timezone, ctx):
     from views.hunt_combine_view import render_join_controls  # it imports this module
     render_join_controls(runs, whole)
     label = _targets(root, 3)
-    _render_result(members, root_key, root, status, timezone, label)
+    _render_result(members, root_key, root, status, timezone, label, steps_by_run, open_steps)
     with st.expander("Runs of this hunt", icon=":material/list:"):
         _render_run_picker(whole, timezone)
     if in_hunt and any(s["id"] == loaded_id for s in snapshots):
