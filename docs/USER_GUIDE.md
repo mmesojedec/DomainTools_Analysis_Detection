@@ -148,10 +148,11 @@ Informational alerts (*Short-Lived Certificate*) are left out: short certificate
 | Email/Phish Posture | Max severity of T1566 / T1583.002 / T1585.002 / phishing / SPF / mail / lure alerts. TXT, SPF and MX record counts add nothing: SaaS verification records grow with legitimate use |
 | App & C2 Footprint | Max severity of T1071 / T1008 / T1048 / T1090.003 / T1572 / T1583.003 / proxy or anonymizer exit / bare-IP / payload / JA4X alerts |
 | Infra Sprawl | Max severity of T1584.001 / sprawl / nested / wildcard / cohort / wave alerts. SAN counts add nothing: the *Mega-SAN* rule covers them |
-| BGP Routing | Max severity of the [BGP routing alerts](#bgp-routing-rules) (origin conflict, unauthorized origin, new prefix, young network, thin route, anonymizer exit on unstable routing). Only for domains whose hosting IPs BGPDB answered for; for the others it is empty and left out of the average |
+| BGP Routing | Max severity of the [BGP routing alerts](#bgp-routing-rules) (origin conflict, unauthorized origin, new prefix, young network, thin route, anonymizer exit on unstable routing). Only for domains whose hosting IPs BGPDB answered for (for the others it is empty). It joins the Unified Risk average only when it is above the other vectors' mean, so clean routing never lowers the score |
 
 **Unified Risk** = `min(100, max(base, 0.4 × base + 1.5 × average of the behavioral vectors))`, where *base*
-is the DomainTools risk score and the behavioral vectors are the five above plus BGP Routing when it applies. It never falls below the DomainTools score, and rises when the domain's own
+is the DomainTools risk score and the behavioral vectors are the five above, plus BGP Routing when it is above
+their mean. It never falls below the DomainTools score, and rises when the domain's own
 telemetry and alerts are worse than the score suggests.
 
 ## DIF: Domain Infrastructure Fingerprint
@@ -383,13 +384,14 @@ current run.
 
 | Detection | Severity | Confidence | MITRE ATT&CK | Fires when | Why it matters |
 | --- | --- | --- | --- | --- | --- |
-| BGP Origin Conflict (Possible Hijack) | High (unauthorized origin seen in the last 7 days) / Medium | Medium | T1557 (Adversary-in-the-Middle) | A prefix covering one of the domain's hosting IPs has its authorized origin (RPKI or IRR valid) and also another origin that RPKI or IRR names as invalid (BGPDB, last ~30 days). | Two networks claiming the same addresses, one of them without authorization, is how BGP hijacks and route leaks look: traffic to the domain may have gone to the wrong network while it lasted. |
-| Unauthorized BGP Origin | Medium-High | Medium | T1583 (Acquire Infrastructure) | The network that usually announces the prefix of a hosting IP is RPKI- or IRR-invalid for it, and no authorized origin is seen (BGPDB). | Hosting on space the registries do not tie to its announcer: squatted, informally leased or hijacked prefixes are favoured by bulletproof hosters. |
+| BGP Origin Conflict (Possible Hijack) | High (unauthorized origin seen in the last 7 days) / Medium / Low (BYOIP or DDoS-protection network) | Medium | T1557 (Adversary-in-the-Middle) | A prefix covering one of the domain's hosting IPs has its authorized origin (RPKI or IRR valid) and also another origin that RPKI or IRR names as invalid (BGPDB, last ~30 days). | Two networks claiming the same addresses, one of them without authorization, is how BGP hijacks and route leaks look: traffic to the domain may have gone to the wrong network while it lasted. |
+| Unauthorized BGP Origin | Medium-High / Medium (BYOIP or DDoS-protection network) / Low (... with an authorized more-specific inside) | Medium | T1583 (Acquire Infrastructure) | The network that usually announces the prefix of a hosting IP is RPKI- or IRR-invalid for it, and no authorized origin is seen (BGPDB). A cloud or DDoS-protection network that announces customers' space (Cloudflare, AWS, Google, Akamai, Fastly, Imperva, ...) counts lower. | Hosting on space the registries do not tie to its announcer: squatted, informally leased or hijacked prefixes are favoured by bulletproof hosters. |
 | Newly Announced Prefix | Medium | Medium | T1583 (Acquire Infrastructure) | The prefix of a hosting IP was first announced by its origin in the last 14 days, and after the first days of BGPDB's ~30-day window (an older announcement can't be told apart there). | Fresh address space comes and goes with short-lived campaign infrastructure. |
 | Recently Registered Origin Network | Medium-High (under 90 days) / Medium (under a year) | Medium | T1583 (Acquire Infrastructure) | The origin AS of a hosting IP was registered at its RIR within the last year (BGPDB's RIR record). | Young networks host a large share of malicious infrastructure; established hosters rarely are. |
-| Low-Visibility or Single-Upstream Route | Low | Low | T1583 (Acquire Infrastructure) | The prefix of a hosting IP is seen by fewer than 10 route collectors, or its origin network has a single upstream and no downstream networks (BGPDB). | Context: small and bulletproof hosters often look like this, so do many legitimate small networks. |
+| Low-Visibility or Single-Upstream Route | Low | Low | T1583 (Acquire Infrastructure) | The prefix of a hosting IP is seen by fewer than 10 route collectors, or its origin network has a single upstream and no downstream networks (BGPDB); not when that upstream is the same company's network. | Context: small and bulletproof hosters often look like this, so do many legitimate small networks. |
 | Anonymizer Exit on Unstable Routing | High | High | T1090 (Proxy) | A hosting IP VPNDB names as a VPN, proxy or Tor exit sits on a prefix with an origin conflict, an unauthorized origin or a new announcement (BGPDB). | An anonymizer on unstable or unregistered space is rarely a mainstream service: likely the actor's own or a fly-by-night provider. |
 | Unauthorized Origin Is a Tor Exit Network | Medium-High | Medium | T1557 (Adversary-in-the-Middle) | A network that announced a hosting prefix without authorization (origin conflict or unauthorized origin, BGPDB) also carries Tor exit traffic: at least 0.5 % of it or 10+ exit addresses (VPNDB Tor overview). | The hijacking or squatting network welcomes Tor exits: privacy or bulletproof-style hosting, where traffic drawn by the announcement is hard to trace. |
+| Hosting Moved to a New Network | Medium (none of the earlier networks left) / Low (a network added) | Medium | T1583 (Acquire Infrastructure) | The usual origin network of the domain's hosting IPs (BGPDB) is not one the domain's latest earlier saved run recorded (any target list). | Re-hosting after a takedown or a block, or a campaign moving to fresh infrastructure; routine CDN or provider changes look the same, so check the new network. |
 
 #### Certificates
 
@@ -597,16 +599,28 @@ history of about the last 30 days. The [BGP page](#pages) shows the result; the 
   (common, not a finding on its own). A record can carry both an IRR match and an IRR mismatch: a match wins.
 - **Private AS at one collector.** A private or reserved origin AS (0, 23456, 64496–65535, 4200000000+) seen by at
   most 2 route collectors is a collector peer leaking its internal AS number, not something the internet routed. It is
-  shown (orange, *Private AS (collector-local)*) but never counts as unauthorized or as a conflict.
+  shown (orange, *Private AS (collector-local)*) but never counts as unauthorized or as a conflict, is never the
+  usual origin when another network announces the IP, and a prefix only such a leak announced raises no finding.
 - **Origin conflict.** A prefix with its authorized origin and, at some point, another origin the registries name as
   invalid: a hijack or a route leak. High when the unauthorized announcement was seen in the last 7 days of the data.
   BGPDB writes announcements of more-specific prefixes inside a block as `1.2.3.0/24+`: they count as a conflict with
   the block's authorized origin.
+- **Bring-your-own-IP and DDoS protection.** Clouds and DDoS-protection services announce their customers' address
+  space (Cloudflare incl. Spectrum, AWS, Google, Microsoft, Akamai incl. Prolexic, Fastly, Imperva, Oracle), while the
+  customer's registry objects often still name the customer's own network. When such a network is the unauthorized
+  origin, an origin conflict is Low and an unauthorized usual origin Medium, or Low when an authorized network is seen
+  announcing the prefix or a more-specific inside it (the customer). The detail says *likely bring-your-own-IP or DDoS
+  protection*.
 - **New prefix.** The usual origin started announcing the prefix in the last 14 days. A prefix first seen on the first
   days of BGPDB's window only means *at least that old* and never counts as new.
 - **Young network.** The origin AS was registered at its RIR in the last year (Medium-High under 90 days).
 - **Thin route.** Fewer than 10 route collectors see the prefix, or the origin network has a single upstream and no
-  downstream networks. Low: many legitimate small networks look like this.
+  downstream networks. Low: many legitimate small networks look like this. A single upstream of the same company (AS
+  names sharing a distinctive word, e.g. Cloudflare Spectrum behind Cloudflare) does not count.
+- **Hosting moved.** The usual origin network of the domain's hosting is compared with the domain's latest earlier
+  saved run that recorded routing (any target list): *Hosting Moved to a New Network* is Medium when none of the
+  earlier networks is left, Low when a new one joined them. Re-hosting after a takedown or a campaign moving on looks
+  like this; so does a routine CDN or provider change.
 - **With VPNDB.** A VPN, proxy or Tor exit (VPNDB) on a prefix with a conflict, an unauthorized origin or a new
   announcement raises *Anonymizer Exit on Unstable Routing*: mainstream VPN providers announce stable, registered
   space. The BGP page's *VPNDB match* tab lists the exits with their routing and the origin networks that carry exits.
@@ -628,7 +642,7 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 
 | Tactic | Technique | Name(s) used by rules | Rules |
 | --- | --- | --- | --- |
-| Resource Development | T1583 | Acquire Infrastructure | 4 |
+| Resource Development | T1583 | Acquire Infrastructure | 5 |
 | Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 27 |
 | Resource Development | T1583.003 | Acquire Infrastructure: Virtual Private Server | 3 |
 | Resource Development | T1583.006 | Acquire Infrastructure: Web Services | 1 |
@@ -852,7 +866,7 @@ own; other certificates built with the same fields match too, so confirm with th
   | Export | Contents |
   | --- | --- |
   | Detections (CSV) | Every alert column except the structured evidence |
-  | IOCs (CSV / JSON) | Target domains, resolved IPs (with CDN notes), name servers and certificate hashes, with source and first / last seen |
+  | IOCs (CSV / JSON) | Target domains, resolved IPs (with CDN notes), name servers, certificate hashes and, with BGPDB, origin networks and announced prefixes (context, with the routing findings naming them), with source and first / last seen |
   | STIX 2.1 Bundle | The indicators and detections as STIX 2.1 objects (below) |
   | Evidence Report (HTML / Markdown) | Risk overview with DIF, detections by severity, infrastructure clusters, indicators, and each detection's evidence |
 
@@ -860,7 +874,9 @@ own; other certificates built with the same fields match too, so confirm with th
   when an alert of Medium or High confidence, and not of Low severity, backs it; otherwise it is
   `anomalous-activity`. Each ATT&CK technique of those alerts is an `attack-pattern` object, linked to the indicator
   by an `indicates` relationship. Each infrastructure cluster is an `infrastructure` object. In a MISP event,
-  attributes carry a `mitre-attack-pattern` galaxy tag for their technique.
+  attributes carry a `mitre-attack-pattern` galaxy tag for their technique. Origin networks and prefixes are context:
+  in MISP `AS` / `ip-dst` attributes with `to_ids: false`, in STIX only when a routing finding names them, and then
+  never `malicious-activity`.
 
   For a manager or a takedown request, the **Case report** at the top of *Export & report* is the short version: one
   printable HTML page (print it to PDF) with your summary, the run at a glance, the most severe alerts with their

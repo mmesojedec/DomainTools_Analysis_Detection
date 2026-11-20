@@ -352,6 +352,7 @@ RULE_METADATA = {
     "Low-Visibility or Single-Upstream Route": ("BGP Routing", "Low"),
     "Anonymizer Exit on Unstable Routing": ("BGP Routing", "High"),
     "Unauthorized Origin Is a Tor Exit Network": ("BGP Routing", "Medium"),
+    "Hosting Moved to a New Network": ("BGP Routing", "Medium"),
     # Lookalikes
     "Homoglyph / IDN Brand Impersonation": ("Lookalike / Brand", "High"),
     "Typosquatting Lookalike": ("Lookalike / Brand", "Medium"),

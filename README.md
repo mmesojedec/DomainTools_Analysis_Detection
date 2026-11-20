@@ -210,6 +210,9 @@ core/
 
 integrations/
   collector.py                 Runs all collection stages (parallel where safe), pDNS record-type lookups, on-demand CNAME chases (per-domain query budget), and records per-source status
+  fetch_runner.py              Shared stage helpers: fetcher calls that never raise, ordered parallel map counted on the progress
+  vpndb_stage.py               VPNDB stage: bulk verdicts, full verdicts, history, ranges and networks, Tor overview, IP and CIDR targets
+  bgp_stage.py                 BGPDB stage: ip, route, asn and prefix lookups of the hosting IPs; stops early when the host is down
   http.py                      Shared requests session with retry/backoff, DomainTools SDK retries, per-lookup query count, FetchResult, StatusLog
   cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime and each source's own
   credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
@@ -217,7 +220,7 @@ integrations/
   dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming, incremental lookups), Scout-style CNAME chasing, the key's quota
   vpndb.py                     VPNDB API: VPN / residential proxy / Tor attribution of IPs, prefixes, ASNs; every operation, paging, bulk, quota
   bgpdb.py                     BGPDB (internal): ip / prefix / asn / route lookups as the bgpdbq tool makes them, NDJSON
-                               answers, result limits, curl commands
+                               answers, result limits, curl commands, the breaker that stops a run's lookups off the VPN
   domain_history.py            Domain History (SDK) parsing and lifespans
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared

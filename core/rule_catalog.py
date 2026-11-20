@@ -177,15 +177,18 @@ RULE_CATALOG = {
                                                   "May reveal the real origin server hidden behind the proxy."),
     # BGPDB (a BGPDB host and the BGP routing lookup)
     "BGP Origin Conflict (Possible Hijack)": (
-        "High (unauthorized origin seen in the last 7 days) / Medium", "T1557 (Adversary-in-the-Middle)",
+        "High (unauthorized origin seen in the last 7 days) / Medium / Low (BYOIP or DDoS-protection network)",
+        "T1557 (Adversary-in-the-Middle)",
         "A prefix covering one of the domain's hosting IPs has its authorized origin (RPKI or IRR valid) and also "
         "another origin that RPKI or IRR names as invalid (BGPDB, last ~30 days).",
         "Two networks claiming the same addresses, one of them without authorization, is how BGP hijacks and route "
         "leaks look: traffic to the domain may have gone to the wrong network while it lasted."),
     "Unauthorized BGP Origin": (
-        "Medium-High", "T1583 (Acquire Infrastructure)",
+        "Medium-High / Medium (BYOIP or DDoS-protection network) / Low (... with an authorized more-specific inside)",
+        "T1583 (Acquire Infrastructure)",
         "The network that usually announces the prefix of a hosting IP is RPKI- or IRR-invalid for it, and no "
-        "authorized origin is seen (BGPDB).",
+        "authorized origin is seen (BGPDB). A cloud or DDoS-protection network that announces customers' space "
+        "(Cloudflare, AWS, Google, Akamai, Fastly, Imperva, ...) counts lower.",
         "Hosting on space the registries do not tie to its announcer: squatted, informally leased or hijacked "
         "prefixes are favoured by bulletproof hosters."),
     "Newly Announced Prefix": (
@@ -200,7 +203,7 @@ RULE_CATALOG = {
     "Low-Visibility or Single-Upstream Route": (
         "Low", "T1583 (Acquire Infrastructure)",
         "The prefix of a hosting IP is seen by fewer than 10 route collectors, or its origin network has a single "
-        "upstream and no downstream networks (BGPDB).",
+        "upstream and no downstream networks (BGPDB); not when that upstream is the same company's network.",
         "Context: small and bulletproof hosters often look like this, so do many legitimate small networks."),
     "Anonymizer Exit on Unstable Routing": (
         "High", "T1090 (Proxy)",
@@ -214,6 +217,12 @@ RULE_CATALOG = {
         "BGPDB) also carries Tor exit traffic: at least 0.5 % of it or 10+ exit addresses (VPNDB Tor overview).",
         "The hijacking or squatting network welcomes Tor exits: privacy or bulletproof-style hosting, where traffic "
         "drawn by the announcement is hard to trace."),
+    "Hosting Moved to a New Network": (
+        "Medium (none of the earlier networks left) / Low (a network added)", "T1583 (Acquire Infrastructure)",
+        "The usual origin network of the domain's hosting IPs (BGPDB) is not one the domain's latest earlier saved run "
+        "recorded (any target list).",
+        "Re-hosting after a takedown or a block, or a campaign moving to fresh infrastructure; routine CDN or provider "
+        "changes look the same, so check the new network."),
     # VPNDB (VPNDB key and the VPN / proxy / Tor check)
     "Domain on Tor Relay / Exit Node": ("High (exit) / Medium-High (relay)", "T1090.003 (Proxy: Multi-hop Proxy)",
                                         "An IP the domain resolves to (in the window, or now in Iris) exits Tor "

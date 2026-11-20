@@ -28,14 +28,42 @@ from integrations.http import USER_AGENT, FetchResult, count_response, describe_
 SOURCE = "BGPDB"
 COMMANDS = ("ip", "prefix", "asn", "route")
 CONNECT_TIMEOUT, READ_TIMEOUT = 10, 60
+UNREACHABLE = "unreachable"   # FetchResult.extras flag: the host did not answer (no connection / connect timeout)
+STOP_AFTER_FAILURES = 3       # consecutive unreachable lookups that stop the rest of the run's BGPDB lookups
+STOPPED = ("BGPDB stopped: the host did not answer {count} lookups in a row (it is only reachable on the DomainTools "
+           "network or VPN); the remaining lookups were skipped")
 _thread_local = threading.local()
+
+
+class Breaker:
+    """
+    Stops a run's BGPDB lookups once the host failed to answer STOP_AFTER_FAILURES times in a row, so a run off the
+    VPN loses seconds, not minutes, to connect timeouts. Lookups served from the cache never trip it. Thread-safe.
+    """
+
+    def __init__(self, limit=STOP_AFTER_FAILURES):
+        self.limit, self.failures, self.tripped = limit, 0, False
+        self._lock = threading.Lock()
+
+    def call(self, lookup, target, *args):
+        if self.tripped:
+            return FetchResult(SOURCE, target, error=STOPPED.format(count=self.limit))
+        result = lookup(*args)
+        with self._lock:
+            if (getattr(result, "extras", None) or {}).get(UNREACHABLE):
+                self.failures += 1
+                self.tripped = self.tripped or self.failures >= self.limit
+            elif result.ok or not result.error or "BGPDB refused" in str(result.error):
+                self.failures = 0
+        return result
 
 
 def _session():
     """A per-thread session retrying transient 5xx errors (BGPDB only reads)."""
     session = getattr(_thread_local, "session", None)
     if session is None:
-        retry = Retry(total=2, backoff_factor=1.0, status_forcelist=(500, 502, 503, 504),
+        # no connect retries: a host that does not answer (off the VPN) will not answer a second later either
+        retry = Retry(total=2, connect=0, backoff_factor=1.0, status_forcelist=(500, 502, 503, 504),
                       allowed_methods=frozenset({"GET"}), raise_on_status=False)
         session = requests.Session()
         session.mount("https://", HTTPAdapter(max_retries=retry))
@@ -96,6 +124,8 @@ def _query(command, argument, limit=None):
     try:
         response = _session().get(url, headers=headers, auth=auth, verify=not options["insecure"],
                                   timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        return FetchResult(SOURCE, target, error=describe_exception(exc), extras={UNREACHABLE: True})
     except Exception as exc:
         return FetchResult(SOURCE, target, error=describe_exception(exc))
     if response.status_code != 200:

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from core import bgp
 from core.anonymizers import ANONYMIZER_CATEGORIES, by_ip, shared_exit
 from core.helpers import extract_ip_addresses, is_ip_address
 from core.intel_data import INFORMATIONAL_RULES
@@ -28,6 +29,48 @@ def dataset_iocs(ds):
     if "iocs" not in ds.derived:
         ds.derived["iocs"] = collect_iocs(ds, ds.ip_intel)
     return ds.derived["iocs"]
+
+
+ROUTING_TYPES = ("autonomous-system", "ipv4-prefix", "ipv6-prefix")   # context: never to_ids, never malicious alone
+ROUTING_FINDING = "Routing finding: "
+
+
+def routing_iocs(ds):
+    """
+    IOC rows for the BGP routing of the selected domains (BGPDB): each usual origin network (autonomous-system) and
+    announced prefix, plus the networks named by a routing finding (an unauthorized origin, for one). Context for
+    pivoting and blocking decisions, marked as such; a finding naming the value is added to its Note.
+    """
+    origins = getattr(ds, "bgp_origins", None)
+    if origins is None or origins.empty:
+        return []
+    found = bgp.findings(origins, getattr(ds, "bgp_asns", None), getattr(ds, "bgp_routes", None))
+    by_value = {}
+    for _, row in found.iterrows():
+        for value in (row["ASN"], row["Prefix"]):
+            if value:
+                by_value.setdefault(str(value), set()).add(row["Finding"])
+    rows, selected = [], set(ds.selected_domains)
+
+    def add(kind, value, domains, first, last, note):
+        findings = by_value.get(value)
+        for domain in sorted({d.strip() for d in str(domains).split(",") if d.strip()} & selected):
+            rows.append({"Type": kind, "Value": value, "Domain": domain, "Source": "BGPDB", "First Seen": first,
+                         "Last Seen": last, "Note": note + (f"; {ROUTING_FINDING}{', '.join(sorted(findings))}"
+                                                            if findings else "")})
+
+    for _, row in bgp.main_origins(origins).iterrows():
+        add("autonomous-system", str(row["Origin"]).upper(), row["Domains"], row["First Seen"], row["Last Seen"],
+            f"Context: origin network of {row['IP']} ({row['AS Name']})".replace(" ()", ""))
+        prefix = str(row["Prefix"]).rstrip("+")
+        add("ipv6-prefix" if ":" in prefix else "ipv4-prefix", prefix, row["Domains"], row["First Seen"],
+            row["Last Seen"], f"Context: announced prefix of {row['IP']} by {row['Origin']}")
+    flagged = found[found["Finding"].isin((bgp.CONFLICT, bgp.UNAUTHORIZED_ORIGIN, bgp.TOR_ORIGIN))]
+    for _, row in flagged.iterrows():
+        if row["ASN"]:
+            add("autonomous-system", str(row["ASN"]).upper(), row["Domains"], row["First Seen"], row["Last Seen"],
+                f"Announced {row['Prefix']} without authorization")
+    return rows
 
 
 def collect_iocs(ds, ip_intel=None):
@@ -58,6 +101,7 @@ def collect_iocs(ds, ip_intel=None):
         for entry in extract_iris_profile(obj)["ips"]:
             rows.append({"Type": "ipv6-addr" if ":" in entry["ip"] else "ipv4-addr", "Value": entry["ip"], "Domain": domain,
                          "Source": "Iris Investigate", "Note": f"AS{entry['asn']} {entry['isp']}".strip() if entry["asn"] else entry["isp"]})
+    rows += routing_iocs(ds)
     if ds.ssl_utc is not None and not ds.ssl_utc.empty:
         for _, cert in ds.ssl_utc.iterrows():
             value = str(cert.get("Hash") or "").strip()
@@ -83,7 +127,9 @@ def collect_iocs(ds, ip_intel=None):
 
 
 MISP_TYPES = {"domain-name": "domain", "ipv4-addr": "ip-dst", "ipv6-addr": "ip-dst",
-              "x509-sha256": "x509-fingerprint-sha256", "x509-sha1": "x509-fingerprint-sha1"}
+              "x509-sha256": "x509-fingerprint-sha256", "x509-sha1": "x509-fingerprint-sha1",
+              "autonomous-system": "AS", "ipv4-prefix": "ip-dst", "ipv6-prefix": "ip-dst"}
+_ASN_RE = re.compile(r"^as\d+$")
 _HEX_RE = re.compile(r"^[0-9a-f]+$")
 
 
@@ -92,6 +138,10 @@ def ioc_type(value):
     value = str(value or "").strip().lower()
     if is_ip_address(value):
         return "ipv6-addr" if ":" in value else "ipv4-addr"
+    if _ASN_RE.match(value):
+        return "autonomous-system"
+    if "/" in value and is_ip_address(value.split("/")[0]) and value.split("/")[1].isdigit():
+        return "ipv6-prefix" if ":" in value else "ipv4-prefix"
     if _HEX_RE.match(value) and len(value) in (40, 64):
         return "x509-sha256" if len(value) == 64 else "x509-sha1"
     if "." in value and " " not in value and "/" not in value:
@@ -146,14 +196,17 @@ def to_misp_event(indicators, info="DomainTools Analytics & Detection: confirmed
         kind = MISP_TYPES.get(row["Type"])
         if not kind:
             continue
-        shared = bool(row.get("Shared Exit"))   # a shared VPN / proxy exit: context, not a detection indicator
+        # a shared VPN / proxy exit, a network or a prefix: context, not a detection indicator
+        shared = bool(row.get("Shared Exit")) or row["Type"] in ROUTING_TYPES
         technique = _technique(RULE_CATALOG.get(_reason_rule(row.get("Reason")), ("", ""))[1])
         tags = [{"name": f'misp-galaxy:mitre-attack-pattern="{technique[1]} - {technique[0]}"'}] if technique else []
-        attributes.append({"type": kind, "category": "Network activity", "value": row["Value"], "to_ids": not shared,
+        value = str(row["Value"]).upper().removeprefix("AS") if kind == "AS" else row["Value"]
+        attributes.append({"type": kind, "category": "Network activity", "value": value, "to_ids": not shared,
                            "Tag": tags,
                            "comment": "; ".join(str(part) for part in (row.get("Domain"), row.get("Reason"),
                                                                        f"VPNDB: {row['VPNDB']}" if row.get("VPNDB") else "",
-                                                                       "shared exit" if shared else "")
+                                                                       "context (network / prefix)" if row["Type"] in ROUTING_TYPES
+                                                                       else "shared exit" if shared else "")
                                                 if part and str(part) != "nan")})
     event = {"info": info, "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"), "threat_level_id": "2",
              "analysis": "1", "distribution": "0", "Attribute": attributes}
@@ -176,6 +229,10 @@ def _stix_pattern(ioc_type, value):
         return f"[x509-certificate:hashes.'SHA-256' = '{escaped}']"
     if ioc_type == "x509-sha1":
         return f"[x509-certificate:hashes.'SHA-1' = '{escaped}']"
+    if ioc_type == "autonomous-system" and escaped.upper().removeprefix("AS").isdigit():
+        return f"[autonomous-system:number = {int(escaped.upper().removeprefix('AS'))}]"
+    if ioc_type in ("ipv4-prefix", "ipv6-prefix"):
+        return f"[{ioc_type[:4]}-addr:value = '{escaped}']"
     return None
 
 
@@ -214,11 +271,12 @@ def to_stix_bundle(iocs, alerts, producer="DT Analytics & Detection", correlatio
     objects, patterns, relationships = [identity], {}, []
     for _, ioc in iocs.iterrows():
         pattern = _stix_pattern(ioc["Type"], ioc["Value"])
-        if not pattern:
-            continue
+        routing = ioc["Type"] in ROUTING_TYPES
+        if not pattern or (routing and ROUTING_FINDING not in str(ioc["Note"])):
+            continue   # a network or prefix only as an indicator of a routing finding
         related = [alerts_by_domain[d] for d in str(ioc["Domain"]).split(", ") if d in alerts_by_domain]
         related = pd.concat(related) if related else pd.DataFrame(columns=["Threat Type", "Severity"])
-        backing = _malicious(related)
+        backing = _malicious(related) if not routing else related.iloc[0:0]   # a network is never malicious alone
         threats = sorted(set(related["Threat Type"]))
         best = backing["Confidence"].map(STIX_CONFIDENCE).max() if not backing.empty and "Confidence" in backing else None
         indicator = {

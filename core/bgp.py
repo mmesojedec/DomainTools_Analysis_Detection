@@ -44,9 +44,25 @@ NEW_ASN = "Recently Registered Origin Network"
 THIN_ROUTE = "Low-Visibility or Single-Upstream Route"
 EXIT_ON_UNSTABLE = "Anonymizer Exit on Unstable Routing"
 TOR_ORIGIN = "Unauthorized Origin Is a Tor Exit Network"
+MOVED = "Hosting Moved to a New Network"
 FINDINGS = (CONFLICT, UNAUTHORIZED_ORIGIN, NEW_PREFIX, NEW_ASN, THIN_ROUTE)
 # A finding about the prefix itself (not the network's age): what the VPNDB match calls unstable routing
 UNSTABLE = (CONFLICT, UNAUTHORIZED_ORIGIN, NEW_PREFIX)
+
+# Networks that announce their customers' address space for them: bring-your-own-IP (BYOIP) clouds and DDoS
+# protection / scrubbing services. The customer's registry objects often still name the customer's own network, so
+# their announcement looks unauthorized without being a hijack.
+BYOIP_NETWORKS = {
+    "AS13335": "Cloudflare", "AS209242": "Cloudflare Spectrum", "AS16509": "Amazon AWS", "AS14618": "Amazon AWS",
+    "AS15169": "Google", "AS396982": "Google Cloud", "AS8075": "Microsoft", "AS20940": "Akamai", "AS16625": "Akamai",
+    "AS32787": "Akamai Prolexic", "AS54113": "Fastly", "AS19551": "Imperva Incapsula", "AS31898": "Oracle Cloud",
+}
+BYOIP_NOTE = ("likely bring-your-own-IP or DDoS protection: {name} announces customers' address space, and the "
+              "customer's registry objects often still name the customer's own network")
+# words of AS names that say nothing about who runs the network
+_GENERIC_NAME_WORDS = {"NET", "NETS", "NETWORK", "NETWORKS", "INC", "LLC", "LTD", "GMBH", "CORP", "COMPANY", "THE",
+                       "AS", "ASN", "ISP", "TELECOM", "HOSTING", "HOST", "CLOUD", "DATA", "CENTER", "GLOBAL",
+                       "INTERNET", "SERVICES", "COMMUNICATIONS", "TECHNOLOGIES", "LIMITED", "PARENT", "BACKBONE"}
 
 NEW_DAYS = 14             # a prefix first announced this recently (and after the data window began) is new
 WINDOW_MARGIN_DAYS = 2    # ... but not within this many days of the window's first day (it may be older)
@@ -299,6 +315,8 @@ def main_origins(origins):
     extra = origins["Prefix"].map(is_more_specific_entry)
     own = set(origins.loc[~extra, "IP"])
     origins = origins[~extra | ~origins["IP"].isin(own)]
+    local = origins["Status"] == LOCAL_LEAK   # a collector-local private AS is never the usual origin when others exist
+    origins = origins[~local | ~origins["IP"].isin(set(origins.loc[~local, "IP"]))]
     ranked = origins.sort_values(["IP", "Prefix", "Updates", "Collectors"], ascending=[True, True, False, False])
     return ranked.drop_duplicates(["IP", "Prefix"]).reset_index(drop=True)
 
@@ -350,6 +368,8 @@ def findings(origins, asns=None, routes=None, now=None):
     for prefix, group in origins.groupby(blocks):
         mains = usual[usual["Prefix"].astype(str).str.rstrip("+") == prefix]
         main = (mains if not mains.empty else group).sort_values("Updates", ascending=False).iloc[0]
+        if main["Status"] == LOCAL_LEAK:   # only a collector's private-AS leak: nothing the internet routed
+            continue
         bad = group[group["Status"] == UNAUTHORIZED].drop_duplicates("Origin")
         good = group[group["Status"] == VALID]
         if not bad.empty and not good.empty:
@@ -358,14 +378,24 @@ def findings(origins, asns=None, routes=None, now=None):
                     continue
                 recent = pd.notna(end) and row["Last Seen"] >= end - pd.Timedelta(days=RECENT_CONFLICT_DAYS)
                 what = f"a more-specific prefix inside {prefix}" if is_more_specific_entry(row["Prefix"]) else prefix
-                add(CONFLICT, "High" if recent else "Medium", group, prefix, row["Origin"],
-                    f"{row['Origin']} announced {what} without authorization ({_why(row)}) while "
+                byoip = BYOIP_NETWORKS.get(row["Origin"])
+                add(CONFLICT, "Low" if byoip else "High" if recent else "Medium", group, prefix, row["Origin"],
+                    (f"{BYOIP_NOTE.format(name=byoip)}. " if byoip else "")
+                    + f"{row['Origin']} announced {what} without authorization ({_why(row)}) while "
                     f"{', '.join(sorted(set(good['Origin'])))} is the authorized origin; seen by {row['Collectors']} "
                     f"collector(s), {row['Updates']} update(s), {row['First Seen']:%Y-%m-%d %H:%M} → "
                     f"{row['Last Seen']:%Y-%m-%d %H:%M} UTC", row["First Seen"], row["Last Seen"])
         elif main["Status"] == UNAUTHORIZED:
-            add(UNAUTHORIZED_ORIGIN, "Medium-High", group, prefix, main["Origin"],
-                f"{main['Origin']} announces {prefix} but {_why(main)}: no registry authorizes it",
+            byoip = BYOIP_NETWORKS.get(main["Origin"])
+            inside = _authorized_inside(origins, prefix) if byoip else origins.iloc[0:0]
+            severity = ("Low" if not inside.empty else "Medium") if byoip else "Medium-High"
+            note = ""
+            if byoip:
+                note = f" ({BYOIP_NOTE.format(name=byoip)}" + (
+                    f"; {', '.join(sorted(set(inside['Origin'])))} is authorized for "
+                    f"{', '.join(sorted(set(inside['Prefix'])))} inside it" if not inside.empty else "") + ")"
+            add(UNAUTHORIZED_ORIGIN, severity, group, prefix, main["Origin"],
+                f"{main['Origin']} announces {prefix} but {_why(main)}: no registry authorizes it{note}",
                 main["First Seen"], main["Last Seen"])
         if is_new(main["First Seen"], start, end):
             add(NEW_PREFIX, "Medium", group, prefix, main["Origin"],
@@ -377,6 +407,7 @@ def findings(origins, asns=None, routes=None, now=None):
                 main["First Seen"], main["Last Seen"])
     if not asns.empty:
         origin_groups = {asn: grp for asn, grp in usual.groupby("Origin")}
+        upstreams = main_upstreams(routes)
         for _, net in asns[asns["Role"] == "origin"].iterrows():
             group = origin_groups.get(net["ASN"])
             if group is None:
@@ -388,12 +419,39 @@ def findings(origins, asns=None, routes=None, now=None):
                     f"{net['ASN']} {net['AS Name']} was registered at {net['RIR'] or 'its RIR'} on "
                     f"{registered:%Y-%m-%d} ({age} days ago)" + (f", {net['RIR Country']}" if net["RIR Country"] else ""),
                     registered)
-            if pd.notna(net["Upstreams"]) and int(net["Upstreams"]) == 1 and int(net["Downstreams"] or 0) == 0:
+            sole = [up for p in group["Prefix"] for up in [upstreams.get(p)] if up]
+            parent = next((up for up in sole if same_organisation(net["AS Name"], names.get(up, ""))), None)
+            if pd.notna(net["Upstreams"]) and int(net["Upstreams"]) == 1 and int(net["Downstreams"] or 0) == 0 \
+                    and not parent:   # a company's own network behind its parent (Cloudflare Spectrum → Cloudflare)
                 add(THIN_ROUTE, "Low", group, "", net["ASN"],
                     f"{net['ASN']} {net['AS Name']} reaches the internet through a single upstream network and serves "
                     "no other network", net["First Seen"], net["Last Seen"])
     return pd.DataFrame(rows, columns=FINDING_COLUMNS).drop_duplicates(["Finding", "Prefix", "ASN", "Detail"]) \
         .reset_index(drop=True)
+
+
+def name_words(name):
+    """The distinctive words of an AS name ("CLOUDFLARESPECTRUM CLOUDFLARE" → {"CLOUDFLARESPECTRUM", "CLOUDFLARE"})."""
+    return {w for w in re.split(r"[^A-Z0-9]+", str(name or "").upper())
+            if len(w) >= 4 and not w.isdigit() and w not in _GENERIC_NAME_WORDS}
+
+
+def same_organisation(name_a, name_b):
+    """Two AS names that share a distinctive word: most likely networks of one company (Cloudflare and Cloudflare
+    Spectrum). Names are BGPDB's (whois) AS names; empty names never match."""
+    a, b = name_words(name_a), name_words(name_b)
+    return bool(a & b) or any(x.startswith(y) or y.startswith(x) for x in a for y in b if min(len(x), len(y)) >= 6)
+
+
+def _authorized_inside(origins, prefix):
+    """Origins RPKI / IRR authorize for `prefix` itself or for a more-specific prefix inside it (rows, any IP)."""
+    block = prefix_network(prefix)
+    if block is None:
+        return origins.iloc[0:0]
+    valid = origins[origins["Status"] == VALID]
+    inside = valid["Prefix"].map(lambda p: (n := prefix_network(p)) is not None and n.version == block.version
+                                 and n.subnet_of(block))
+    return valid[inside]
 
 
 def _why(row):
@@ -516,6 +574,43 @@ def origin_numbers(usual):
         return {}
     return {row["IP"]: asn_number(row["Origin"]) for _, row in _most_specific(usual).iterrows()
             if asn_number(row["Origin"]) is not None}
+
+
+def previous_routing(snapshots, domains):
+    """
+    {domain: (created, (ASN, ...), (prefix, ...))}: per domain, the origin networks and prefixes its latest earlier
+    saved run recorded (snapshots oldest first, each with "artifacts" from domain_artifacts). Domains without an
+    earlier run with routing are left out. Tuples, so the result can be a cached function's argument.
+    """
+    wanted, found = set(domains or ()), {}
+    for snapshot in snapshots or []:
+        for domain, kinds in (snapshot.get("artifacts") or {}).items():
+            if domain in wanted and kinds.get("ASN"):
+                found[domain] = (str(snapshot.get("created") or ""),
+                                 tuple(sorted(str(a).upper() for a in kinds["ASN"])),
+                                 tuple(sorted(str(p) for p in kinds.get("Prefix") or ())))
+    return found
+
+
+def routing_moves(usual, previous):
+    """
+    [(domain, created, old networks, new networks, new prefixes, kept networks)] for each domain whose usual origin
+    networks now (rows of main_origins) differ from its earlier run's (`previous`, from previous_routing).
+    """
+    moves = []
+    if usual is None or usual.empty or not previous:
+        return moves
+    for domain, (created, old_asns, old_prefixes) in sorted(previous.items()):
+        mine = for_domain(usual, domain)
+        if mine.empty:
+            continue
+        now_asns = set(mine["Origin"].astype(str).str.upper())
+        added = sorted(now_asns - set(old_asns))
+        if not added:
+            continue
+        new_prefixes = sorted(set(mine["Prefix"].astype(str).str.lower()) - {p.lower() for p in old_prefixes})
+        moves.append((domain, created, list(old_asns), added, new_prefixes, sorted(now_asns & set(old_asns))))
+    return moves
 
 
 def domain_artifacts(origins):

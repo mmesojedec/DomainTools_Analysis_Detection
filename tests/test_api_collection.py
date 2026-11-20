@@ -23,7 +23,7 @@ from core.api_usage import (
 from core.threat_detection.context import DomainContext
 from core.threat_detection.enrichment_rules import apply_popularity, rule_iris_mail
 from core.use_cases import query_plan
-from integrations import cache, domain_history
+from integrations import cache, domain_history, vpndb_stage
 from integrations.enrichment import extract_iris_profile
 from integrations.http import FetchResult, StatusLog, count_query, metered, sdk_call
 from integrations.progress import CollectionProgress, tracking
@@ -372,6 +372,7 @@ def test_rows_without_keys_are_skipped_in_the_checklist(monkeypatch):
     from views.collection_progress import up_next
     monkeypatch.setattr(collector, "stages_without_keys", lambda: {"pdns"})
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: None)
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: None)
     notes = collector.rows_without_keys()
     assert set(notes) == {"pdns", "TXT", "CAA", "CNAME", "pivot", "vpndb", "bgpdb"} and "no VPNDB key" in notes["vpndb"]
     assert "no BGPDB host" in notes["bgpdb"]   # no host in tests (conftest.no_real_bgpdb)

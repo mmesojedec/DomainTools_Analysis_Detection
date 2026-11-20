@@ -96,6 +96,17 @@ def similar_query(target):
     return f'# IrisQL-1.0\nDOMAIN CONTAINS "{target.split(".")[0]}"'
 
 
+def network_query(value):
+    """
+    IrisQL for the domains Iris sees on a routing artifact: an origin network (`AS13335` → `asn matches "13335"`) or an
+    announced prefix (its first and last address, as similar_query). None for anything else.
+    """
+    text = str(value or "").strip().upper().rstrip("+")
+    if text.startswith("AS") and text[2:].isdigit():
+        return f'# IrisQL-1.0\nasn matches "{int(text[2:])}"'
+    return similar_query(text.lower()) if normalize_cidr(text.lower()) else None
+
+
 def error_hint(error):
     """What to do about an Iris answer that is about the query itself, or ''."""
     if TOO_MANY in str(error or ""):

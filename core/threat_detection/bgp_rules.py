@@ -38,8 +38,9 @@ def rule_origin_conflict(ctx):
     rows = _rows(ctx, bgp.CONFLICT)
     if rows.empty:
         return
+    # severity from core.bgp.findings: High / Medium, Low for a BYOIP or DDoS-protection network
     ctx.add(
-        "BGP Origin Conflict (Possible Hijack)", "High" if _worst(rows) == "High" else "Medium",
+        "BGP Origin Conflict (Possible Hijack)", _worst(rows),
         "T1557 (Adversary-in-the-Middle)",
         "Another network announced the prefix that hosts this domain without authorization (RPKI / IRR name a "
         "different origin) while the authorized origin was also announcing it: a BGP hijack or route leak, so traffic "
@@ -51,8 +52,9 @@ def rule_unauthorized_origin(ctx):
     rows = _rows(ctx, bgp.UNAUTHORIZED_ORIGIN)
     if rows.empty:
         return
+    # severity from core.bgp.findings: Medium-High, lower for a BYOIP or DDoS-protection network
     ctx.add(
-        "Unauthorized BGP Origin", "Medium-High", "T1583 (Acquire Infrastructure)",
+        "Unauthorized BGP Origin", _worst(rows), "T1583 (Acquire Infrastructure)",
         "The network that announces this domain's hosting is not the one the registries (RPKI / IRR) authorize for "
         "the prefix, and no authorized origin is seen: squatted, informally leased or hijacked address space.",
         _iocs(rows), flag="bgp_unauthorized", evidence=_records(rows))
@@ -150,5 +152,27 @@ def rule_unauthorized_origin_tor_network(ctx):
         "\n".join(lines[:MAX_IOC_LINES]), flag="bgp_tor_origin", confidence="Medium", evidence=evidence)
 
 
+def rule_hosting_moved_network(ctx):
+    """
+    Saved runs + BGPDB: the network that announces the domain's hosting is not one its earlier run recorded. Medium
+    when none of the earlier networks is left (a move), Low when a new one joined them.
+    """
+    for _, created, old, added, prefixes, kept in ctx.bgp_moves or []:
+        when = str(created)[:16].replace("T", " ")
+        moved = not kept
+        ctx.add(
+            "Hosting Moved to a New Network", "Medium" if moved else "Low", "T1583 (Acquire Infrastructure)",
+            ("The domain's hosting is now announced by a different network than in its earlier run"
+             if moved else "A new network now announces part of the domain's hosting, next to the earlier one(s)")
+            + f" (BGPDB, compared with the run of {when} UTC): re-hosting after a takedown or a block, or a campaign "
+            "moving to fresh infrastructure; also routine CDN or provider changes.",
+            f"Before: {', '.join(old)}\nNow: {', '.join(added + kept)}"
+            + (f"\nNew prefix(es): {', '.join(prefixes[:MAX_IOC_LINES])}" if prefixes else ""),
+            flag="bgp_moved", confidence="Medium" if moved else "Low",
+            evidence=[evidence_record(None, "New origin network", f"{asn} (before: {', '.join(old)})", asn)
+                      for asn in added])
+
+
 BGP_RULES = (rule_origin_conflict, rule_unauthorized_origin, rule_new_prefix, rule_new_origin_network,
-             rule_thin_route, rule_exit_on_unstable_routing, rule_unauthorized_origin_tor_network)
+             rule_thin_route, rule_exit_on_unstable_routing, rule_unauthorized_origin_tor_network,
+             rule_hosting_moved_network)

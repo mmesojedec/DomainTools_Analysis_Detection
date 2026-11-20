@@ -127,7 +127,8 @@ def start_links(snapshots, root):
 
 BGP_RULES = ("BGP Origin Conflict (Possible Hijack)", "Unauthorized BGP Origin", "Newly Announced Prefix",
              "Recently Registered Origin Network", "Low-Visibility or Single-Upstream Route",
-             "Anonymizer Exit on Unstable Routing", "Unauthorized Origin Is a Tor Exit Network")
+             "Anonymizer Exit on Unstable Routing", "Unauthorized Origin Is a Tor Exit Network",
+             "Hosting Moved to a New Network")
 
 
 def routing_text(snapshot, networks=2):

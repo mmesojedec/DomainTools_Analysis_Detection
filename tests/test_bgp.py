@@ -3,7 +3,7 @@ import pandas as pd
 
 from core import bgp
 from core.threat_detection import detect_threat_flags
-from integrations import bgpdb, collector
+from integrations import bgp_stage, bgpdb, collector
 from integrations.http import FetchResult
 
 NOW = pd.Timestamp("2026-11-20 12:00")
@@ -220,3 +220,118 @@ def test_tor_page_lists_every_network_bgp_saw():
 def test_t1557_is_a_credential_access_technique():
     from core.intel_data import MITRE_TACTICS
     assert MITRE_TACTICS["T1557"] == "Credential Access"
+
+
+def test_collect_bgp_stops_when_the_host_does_not_answer(monkeypatch):
+    calls = []
+
+    def down(ip):
+        calls.append(ip)
+        return FetchResult("BGPDB", f"ip {ip}", error="Connection timed out", extras={bgpdb.UNREACHABLE: True})
+
+    monkeypatch.setattr(bgpdb, "load_bgpdb_host", lambda: "bgpdb.example")
+    monkeypatch.setattr(bgpdb, "lookup_ip", down)
+    monkeypatch.setattr(bgp_stage, "_parallel", lambda items, func, **kw: [func(i) for i in items])
+    log = collector.StatusLog()
+    ips = [f"8.8.{n}.1" for n in range(20)]
+    found, *_ = collector.collect_bgp(["one.example"], ips, pd.DataFrame(), {}, log)
+    assert found.empty and len(calls) == bgpdb.STOP_AFTER_FAILURES
+    assert len(log.rows) == bgpdb.STOP_AFTER_FAILURES + 1 and "BGPDB stopped" in log.rows[-1]["Detail"]
+
+
+def test_breaker_resets_on_an_answer():
+    breaker = bgpdb.Breaker(limit=2)
+    fail = FetchResult("BGPDB", "x", error="timeout", extras={bgpdb.UNREACHABLE: True})
+    breaker.call(lambda: fail, "x")
+    breaker.call(lambda: FetchResult("BGPDB", "x", data=[]), "x")
+    breaker.call(lambda: fail, "x")
+    assert not breaker.tripped
+    breaker.call(lambda: fail, "x")
+    assert breaker.tripped and "stopped" in breaker.call(lambda: fail, "x").error
+
+
+def test_byoip_networks_and_a_parent_upstream_count_lower():
+    cust = {"prefix": "154.83.31.0/24", "origin": "AS134494", "first": "2026-10-21 00:23:13",
+            "last": "2026-11-07 06:45:30", "count": 4072, "collectors": 44, "irr_valid": True, "rpki_valid": True}
+    spectrum = {"prefix": "154.83.30.0/23", "origin": "AS209242", "first": "2026-10-21 00:02:55",
+                "last": "2026-11-10 15:46:22", "count": 8947, "collectors": 49, "irr_invalid_origin": True}
+    frame = pd.DataFrame(bgp.origin_rows("154.83.31.138", {"byoip.example"}, [spectrum, cust]),
+                         columns=bgp.ORIGIN_COLUMNS)
+    asn = bgp.asn_row({"asn": "AS209242", "asname": ["CLOUDFLARESPECTRUM CLOUDFLARE"], "hop_upstream": 1,
+                       "rir_asn": ["RIPE 2015-01-01 GB x"]}, "origin", {"byoip.example"})
+    parent = bgp.asn_row({"asn": "AS13335", "asname": ["CLOUDFLARENET CLOUDFLARE"]}, "upstream")
+    routes = pd.DataFrame(bgp.route_rows("154.83.30.0/23", [{"path": ["AS13335", "AS209242"], "collectors": 40}]),
+                          columns=bgp.ROUTE_COLUMNS)
+    found = bgp.findings(frame, pd.DataFrame([asn, parent], columns=bgp.ASN_COLUMNS), routes, now=NOW)
+    squat = found[found["Finding"] == bgp.UNAUTHORIZED_ORIGIN].iloc[0]
+    assert squat["Severity"] == "Low" and "bring-your-own-IP" in squat["Detail"] and "AS134494" in squat["Detail"]
+    assert not (found["Finding"] == bgp.THIN_ROUTE).any() or "AS209242" not in set(
+        found.loc[found["Finding"] == bgp.THIN_ROUTE, "ASN"])
+    assert bgp.same_organisation("CLOUDFLARESPECTRUM CLOUDFLARE", "CLOUDFLARENET CLOUDFLARE")
+    assert not bgp.same_organisation("LEVEL3 LEVEL 3 PARENT", "CLOUDFLARENET CLOUDFLARE")
+
+
+def test_a_byoip_network_in_a_conflict_is_low():
+    frame = pd.DataFrame(bgp.origin_rows("1.1.1.1", {"one.example"}, [CLOUDFLARE, {**LEAK, "origin": "AS20940"}]),
+                         columns=bgp.ORIGIN_COLUMNS)
+    conflict = bgp.findings(frame, now=NOW).query("Finding == @bgp.CONFLICT").iloc[0]
+    assert conflict["Severity"] == "Low" and "Akamai" in conflict["Detail"]
+
+
+def test_clean_routing_never_lowers_unified_risk():
+    from core.risk_profile import generate_digital_risk_profile
+    alerts = pd.DataFrame([{"Domain": "a.example", "Threat Type": "Fast-Flux DNS", "Severity": "High",
+                            "MITRE ATT&CK": "T1568 (Dynamic Resolution)", "Confidence": "High"}])
+    args = (["a.example"], alerts, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {})
+    without = generate_digital_risk_profile(*args).iloc[0]["Unified Risk"]
+    clean = generate_digital_risk_profile(*args, routed_domains={"a.example"}).iloc[0]["Unified Risk"]
+    assert without == clean > 0
+
+
+def test_hosting_moved_to_a_new_network_against_the_earlier_run():
+    earlier = [{"created": "2026-11-01T10:00:00+00:00",
+                "artifacts": {"one.example": {"ASN": ["as9999"], "Prefix": ["9.9.9.0/24"]},
+                              "fresh.example": {"ASN": ["as65010", "as65099"], "Prefix": ["203.0.113.0/24"]}}}]
+    previous = bgp.previous_routing(earlier, {"one.example", "fresh.example", "squat.example"})
+    assert previous["one.example"][1] == ("AS9999",) and "squat.example" not in previous
+    result = detect_threat_flags(pd.DataFrame(), {}, enrichment_data={"one.example": {}, "fresh.example": {}},
+                                 bgp_frames={"origins": origins(), "asns": asns(), "previous": previous})
+    moved = result.alerts[result.alerts["Threat Type"] == bgp.MOVED].set_index("Domain")
+    assert moved.loc["one.example", "Severity"] == "Medium" and "AS13335" in moved.loc["one.example", "Triggering IOCs"]
+    assert "fresh.example" not in moved.index      # its network was already there
+
+
+def test_exports_carry_networks_and_prefixes_as_context():
+    import json as _json
+    from types import SimpleNamespace
+
+    from core.export import collect_iocs, ioc_type, to_misp_event, to_stix_bundle
+    ds = SimpleNamespace(selected_domains=["one.example", "fresh.example"], events_utc=pd.DataFrame(), enrichment={},
+                         ssl_utc=pd.DataFrame(), bgp_origins=origins(), bgp_asns=asns(), bgp_routes=None)
+    iocs = collect_iocs(ds)
+    routing = iocs[iocs["Source"] == "BGPDB"].set_index("Value")
+    assert routing.loc["AS13335", "Type"] == "autonomous-system" and routing.loc["1.1.1.0/24", "Type"] == "ipv4-prefix"
+    assert "AS577" in routing.index and "Routing finding" in routing.loc["AS577", "Note"]
+    assert "AS65020" not in routing.index                           # squat.example is not selected
+    misp = _json.loads(to_misp_event(iocs.assign(Reason="")))["Event"]["Attribute"]
+    asn = next(a for a in misp if a["type"] == "AS" and a["value"] == "13335")
+    assert asn["to_ids"] is False
+    alerts = pd.DataFrame([{"Domain": "one.example", "Threat Type": bgp.CONFLICT, "Severity": "High",
+                            "Confidence": "Medium", "MITRE ATT&CK": "T1557 (Adversary-in-the-Middle)"}])
+    names = [o["name"] for o in _json.loads(to_stix_bundle(iocs, alerts))["objects"] if o["type"] == "indicator"]
+    assert "autonomous-system: AS577" in names and "autonomous-system: AS13335" not in names
+    assert ioc_type("AS13335") == "autonomous-system" and ioc_type("10.0.0.0/8") == "ipv4-prefix"
+
+
+def test_iris_queries_for_a_network_and_a_prefix():
+    from core.irisql import network_query
+    assert network_query("AS13335") == '# IrisQL-1.0\nasn matches "13335"'
+    assert 'ip greater_than_or_equal "185.199.108.0"' in network_query("185.199.108.0/24+")
+    assert network_query("not a network") is None
+
+
+def test_a_collector_local_leak_alone_raises_no_finding():
+    leak = {"prefix": "52.213.114.0/24+", "origin": "AS65001", "first": "2026-11-10 00:00:00",
+            "last": "2026-11-10 01:00:00", "count": 3, "collectors": 1}
+    frame = pd.DataFrame(bgp.origin_rows("52.213.114.9", {"aws.example"}, [leak]), columns=bgp.ORIGIN_COLUMNS)
+    assert bgp.findings(frame, now=NOW).empty

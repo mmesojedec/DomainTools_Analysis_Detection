@@ -47,6 +47,7 @@ class DomainContext:
     tor_prefixes: list = field(default_factory=list)  # [(ip_network, exitPrefixes entry)] (VPNDB /tor)
     bgp_findings: pd.DataFrame = field(default_factory=pd.DataFrame)   # the domain's rows of core.bgp.findings
     bgp_origins: dict = field(default_factory=dict)   # {ip: usual origin AS number (int)} of the domain's IPs (BGPDB)
+    bgp_moves: list = field(default_factory=list)     # core.bgp.routing_moves rows of the domain (vs its earlier run)
     brands: tuple = ()
     official_domains: tuple = ()
     now: pd.Timestamp = field(default_factory=lambda: pd.Timestamp.now(tz="UTC").tz_localize(None))

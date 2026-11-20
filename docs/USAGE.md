@@ -838,6 +838,15 @@ the same as the `bgpdbq` tool's commands:
    (with VPNDB's known exits on them).
 7. **Responses**: every BGPDB answer as received (NDJSON) with its URL; select one for its curl command.
 
+When the BGPDB host does not answer (off the DomainTools network or VPN), the stage stops after 3 lookups in a row
+without an answer: the rest are skipped with one row on Data sources (*BGPDB stopped*), so the run loses seconds, not
+minutes. Lookups already in the cache still count.
+
+The **Overview** tab ends with **Other domains in Iris on**: pick one of the run's origin networks or prefixes and
+**Open in IrisQL** for the domains Iris sees there (`asn matches "13335"`, or the prefix's first and last address);
+edit, then **Search** (one Iris Investigate query). A CDN or cloud network matches more domains than Iris returns:
+narrow it, e.g. with `CREATE_DATE` or `RISK_SCORE`.
+
 Elsewhere in the app:
 - **Domain profile**: a *BGP routing* card per domain (its IPs, prefixes, origin networks and their age, routing
   findings).
@@ -851,6 +860,11 @@ Elsewhere in the app:
 - **Evidence → Records → BGPDB Responses**: every answer as a table of records, as received, and as a download;
   **Evidence → Lookup queries → BGPDB**: each lookup as a `bgpdbq` and a curl command.
 - **Results toolbar → Network**: keep only the domains on chosen origin networks.
+- **Exports**: the IOCs hold each domain's origin networks (`autonomous-system`) and announced prefixes
+  (`ipv4-prefix` / `ipv6-prefix`, source *BGPDB*) as context, with the routing findings that name them. MISP gets them
+  as `AS` and `ip-dst` attributes with `to_ids: false`; the STIX bundle only carries a network or prefix that a routing
+  finding names (an unauthorized origin, for one), as `anomalous-activity`, never as malicious on its own.
+- **Runs**: *Hosting Moved to a New Network* compares each domain's routing with its latest earlier saved run.
 
 The Summary's *Analysis Details* has a **BGP** block (IPs routed, prefixes, origin networks, routing findings, and a
 few sentences on who announces the hosting and the worst findings), DNS & Hosting a one-line summary, and each Hunt map

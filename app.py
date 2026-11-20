@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from config import SEED_MAX_TARGETS, SETTINGS_FILE, SUPPRESSIONS_FILE, TRIAGE_FILE
+from core import bgp
 from core.account import unavailable_stages
 from core.allowlist import ALLOWLIST_SETTING
 from core.api_usage import queries_by_product
@@ -118,7 +119,7 @@ CACHE_HASH_FUNCS = {pd.DataFrame: _frame_digest}
 def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip_observations, brands, official_domains,
                       window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None, exit_weeks=None,
                       neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist="",
-                      bgp_origins=None, bgp_asns=None, bgp_routes=None):
+                      bgp_origins=None, bgp_asns=None, bgp_routes=None, bgp_previous=None):
     return detect_threat_flags(
         events, thresholds, risk_df=risk, ssl_df=ssl, enrichment_data=enrichment, cert_events_df=cert_events,
         ip_observations=ip_observations, brands=brands, official_domains=official_domains,
@@ -126,7 +127,7 @@ def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip
         anonymizers=anonymizers, vpndb_context={"exit_weeks": exit_weeks, "neighbour_ranges": neighbour_ranges,
                                                 "hosting_asns": hosting_asns, "tor_overview": tor_overview},
         verdicts=verdicts, allowlist=allowlist,
-        bgp_frames={"origins": bgp_origins, "asns": bgp_asns, "routes": bgp_routes},
+        bgp_frames={"origins": bgp_origins, "asns": bgp_asns, "routes": bgp_routes, "previous": bgp_previous},
     )
 
 
@@ -141,7 +142,16 @@ def vpndb_frames(ds):
     frames of the BGP routing rules."""
     return {"exit_weeks": ds.exit_weeks, "neighbour_ranges": ds.neighbour_ranges, "hosting_asns": ds.hosting_asns,
             "tor_overview": ds.tor_overview, "bgp_origins": ds.bgp_origins, "bgp_asns": ds.bgp_asns,
-            "bgp_routes": ds.bgp_routes}
+            "bgp_routes": ds.bgp_routes, "bgp_previous": previous_bgp_routing(ds)}
+
+
+def previous_bgp_routing(ds):
+    """Each domain's routing in its latest earlier saved run (any target list), for *Hosting Moved to a New Network*."""
+    origins = getattr(ds, "bgp_origins", None)
+    if origins is None or origins.empty:
+        return {}
+    created = st.session_state.get("run_created")
+    return bgp.previous_routing(runs_before(created) if created else [], routed_domains(ds))
 
 
 def count_alerts_outside_window(ds, thresholds, windowed_alerts, suppressions):

@@ -18,7 +18,7 @@ from views.common import chart, selected_rows, selection_key
 PAGE_TAB_KEY = "bgp_tab"
 TAGLINE = "Who announces the hosting IPs on the internet, since when, and whether the registries allow it."
 TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "Neighbouring prefixes", "VPNDB match", "Responses"]
-RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN]
+RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN, bgp.MOVED]
 SEVERITY_BADGES = {"Critical": "red", "High": "red", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
 STATUS_BADGES = {bgp.VALID: "green", bgp.UNAUTHORIZED: "red", bgp.UNVERIFIED: "gray", bgp.LOCAL_LEAK: "orange"}
 # worst first: a link or prefix node takes the colour of the worst origin behind it
@@ -204,6 +204,32 @@ def _overview(ds, found, ips):
         _ip_card(ds, ips.iloc[rows[0]]["IP"])
     else:
         st.caption("Select an IP to see every origin, AS path and network BGPDB knows for it.")
+    iris_pivot(ds, "bgp_overview")
+
+
+def iris_pivot(ds, key):
+    """Opens IrisQL with the domains Iris sees on one of the run's origin networks or announced prefixes."""
+    from core.irisql import network_query
+    from views.irisql_view import QUERY_KEY as IRISQL_KEY  # the IrisQL page imports view helpers
+    from views.query_editor import set_query
+    usual = bgp.main_origins(ds.bgp_origins)
+    if usual.empty:
+        return
+    networks = usual.drop_duplicates("Origin")
+    options = {row["Origin"]: f"{row['Origin']} {row['AS Name']} (network)".replace("  ", " ")
+               for _, row in networks.iterrows()}
+    options.update({p.rstrip("+"): f"{p.rstrip('+')} (prefix)" for p in usual["Prefix"].astype(str)})
+    c_pick, c_go = st.columns([3, 1.4], vertical_alignment="bottom")
+    picked = c_pick.selectbox("Other domains in Iris on", list(options), format_func=options.get, key=f"{key}::iris",
+                              help="Opens IrisQL with the domains Iris Investigate sees on this origin network (ASN) "
+                                   "or on this prefix's addresses; edit the query, then Search (one Iris Investigate "
+                                   "query). Large networks (a CDN, a cloud) match more than Iris returns: narrow the "
+                                   "query, e.g. with CREATE_DATE or RISK_SCORE")
+    if c_go.button("Open in IrisQL", key=f"{key}::iris_go", icon=":material/manage_search:", type="tertiary"):
+        query = network_query(picked)
+        if query:
+            set_query(IRISQL_KEY, query)
+            navigation.go("irisql")
 
 
 def _ip_card(ds, ip):

@@ -6,7 +6,7 @@ from core import anonymizers
 from core.export import IOC_COLUMNS, confirmed_indicators, to_misp_event
 from core.risk_profile import VECTOR_RULES
 from core.threat_detection.engine import detect_threat_flags
-from integrations import collector
+from integrations import collector, vpndb_stage
 from integrations.http import FetchResult, StatusLog
 
 BULK = {"total": 4, "anonymous": 3, "results": [
@@ -92,15 +92,19 @@ def test_shared_exits_are_marked_in_confirmed_indicators_and_not_for_detection()
 def test_collection_checks_in_one_bulk_request_then_details_for_anonymizers(monkeypatch):
     calls = []
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "vpndb_test")
-    monkeypatch.setattr(collector.anonymizers, "select_ips", lambda *args: CANDIDATES)
-    monkeypatch.setattr(collector, "bulk_lookup", lambda ips: calls.append(ips) or FetchResult("VPNDB", "4", data=BULK,
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage.anonymizers, "select_ips", lambda *args: CANDIDATES)
+    monkeypatch.setattr(vpndb_stage, "bulk_lookup", lambda ips: calls.append(ips) or FetchResult("VPNDB", "4", data=BULK,
                                                                                                record_count=4))
-    monkeypatch.setattr(collector, "lookup_ip", lambda ip: calls.append(ip) or FetchResult("VPNDB", ip, data=DETAILS.get(ip, {})))
+    monkeypatch.setattr(vpndb_stage, "lookup_ip", lambda ip: calls.append(ip) or FetchResult("VPNDB", ip, data=DETAILS.get(ip, {})))
     log = collector.StatusLog()
     frame = collector.collect_anonymizers(["vpn.com"], [], pd.DataFrame(), {}, log)
     assert calls[0] == tuple(sorted(CANDIDATES)) and sorted(calls[1:]) == ["185.220.101.1", "45.248.77.91", "81.2.3.4"]
     assert len(frame) == 4 and len(log.rows) == 4
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: None)
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: None)
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: None)
     assert collector.collect_anonymizers(["vpn.com"], [], pd.DataFrame(), {}, log).empty and len(calls) == 4
 
 
@@ -113,9 +117,11 @@ def test_ip_check_runs_only_vpndb_and_alerts_on_the_ip_targets(monkeypatch):
                  "collect_cert_events", "collect_ct_telemetry"):
         monkeypatch.setattr(collector, name, lambda *args, name=name, **kwargs: calls.append(name))
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
     bulk = {"results": [BULK["results"][0], {"ip": "2001:db8::1", "anonymous": False, "note": "IPv6 not collected"}]}
-    monkeypatch.setattr(collector, "bulk_lookup", lambda ips: calls.append(ips) or FetchResult("VPNDB", "2", data=bulk))
-    monkeypatch.setattr(collector, "lookup_ip", lambda ip: calls.append(ip) or FetchResult("VPNDB", ip, data=DETAILS[ip]))
+    monkeypatch.setattr(vpndb_stage, "bulk_lookup", lambda ips: calls.append(ips) or FetchResult("VPNDB", "2", data=bulk))
+    monkeypatch.setattr(vpndb_stage, "lookup_ip", lambda ip: calls.append(ip) or FetchResult("VPNDB", ip, data=DETAILS[ip]))
     data = collector.collect_all(["45.248.77.91", "2001:db8::1", "example.com"], 5000, vpndb_only=True)
     assert calls == [("45.248.77.91", "2001:db8::1"), "45.248.77.91"]   # no other source; IPv6 only in the bulk
     assert data.has_data and list(data.anonymizers["Domains"]) == ["45.248.77.91", "2001:db8::1"]
@@ -158,10 +164,12 @@ def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
     monkeypatch.setattr(collector, "collect_pdns", lambda targets, *a: record("pdns", targets, (pd.DataFrame(), {})))
     monkeypatch.setattr(collector, "collect_anonymizers", lambda domains, ips, *a: record("ips", ips, pd.DataFrame()))
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "vpndb_test")
-    monkeypatch.setattr(collector, "lookup_prefix", lambda cidr: FetchResult("VPNDB", cidr, data=PREFIX, record_count=1))
-    monkeypatch.setattr(collector, "prefix_addresses", lambda cidr, **kw: record(
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
+    monkeypatch.setattr(vpndb_stage, "lookup_prefix", lambda cidr: FetchResult("VPNDB", cidr, data=PREFIX, record_count=1))
+    monkeypatch.setattr(vpndb_stage, "prefix_addresses", lambda cidr, **kw: record(
         "addresses", (cidr, kw), FetchResult("VPNDB", cidr, data=ADDRESSES, record_count=1)))
-    monkeypatch.setattr(collector, "bulk_lookup", lambda ips: record("bulk", ips, FetchResult("VPNDB", "256", data={
+    monkeypatch.setattr(vpndb_stage, "bulk_lookup", lambda ips: record("bulk", ips, FetchResult("VPNDB", "256", data={
         "results": [{"ip": "104.21.59.3", "anonymous": True, "provider": "nordvpn", "types": ["VPN"], "method": "probe",
                      "confidence": 2}] + [{"ip": f"104.21.59.{n}", "anonymous": False} for n in (0, 1, 2)]})))
     data = collector.collect_all(["a.com", "8.8.8.8", "104.21.59.0/24"], 5000, include_ct=False,
@@ -319,14 +327,16 @@ def test_hosted_among_exits_rule():
 def test_context_collection_looks_up_history_ranges_networks_and_dedicated_exits(monkeypatch):
     calls = []
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "k")
-    monkeypatch.setattr(collector, "load_dnsdb_key", lambda: "k")
-    monkeypatch.setattr(collector, "ip_history", lambda ip: calls.append(("history", ip)) or FetchResult(
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "load_dnsdb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "ip_history", lambda ip: calls.append(("history", ip)) or FetchResult(
         "VPNDB", ip, data={"weeks": [{"week": "2026-10-05", "status": "probe", "providers": []}]}))
-    monkeypatch.setattr(collector, "lookup_prefix", lambda cidr: calls.append(("prefix", cidr)) or FetchResult(
+    monkeypatch.setattr(vpndb_stage, "lookup_prefix", lambda cidr: calls.append(("prefix", cidr)) or FetchResult(
         "VPNDB", cidr, data={"observedIps": 3, "networkSize": 256}))
-    monkeypatch.setattr(collector, "lookup_asn", lambda asn: calls.append(("asn", asn)) or FetchResult(
+    monkeypatch.setattr(vpndb_stage, "lookup_asn", lambda asn: calls.append(("asn", asn)) or FetchResult(
         "VPNDB", asn, data={"observedIps": 0}))
-    monkeypatch.setattr(collector, "fetch_dnsdb_history", lambda ip, limit: calls.append(("dnsdb", ip)) or FetchResult(
+    monkeypatch.setattr(vpndb_stage, "fetch_dnsdb_history", lambda ip, limit: calls.append(("dnsdb", ip)) or FetchResult(
         "DNSDB", ip, data=[{"rrname": "x.evil.net.", "rrtype": "A", "rdata": [ip], "time_first": 1, "time_last": 2}]))
     checked = table().copy()
     checked.loc[checked["IP"] == "81.2.3.4", "Sharing"] = "LOW"   # a dedicated residential exit
@@ -355,11 +365,13 @@ def test_a_hoster_with_one_proxy_exit_is_not_a_vpn_network():
 
 def test_vpndb_lookups_keep_their_request_and_answer(monkeypatch):
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "k")
-    monkeypatch.setattr(collector, "bulk_lookup", lambda ips: FetchResult("VPNDB", f"{len(ips)} IP(s)", data=BULK,
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "bulk_lookup", lambda ips: FetchResult("VPNDB", f"{len(ips)} IP(s)", data=BULK,
                                                                           record_count=4))
-    monkeypatch.setattr(collector, "lookup_ip", lambda ip: FetchResult("VPNDB", ip, data=DETAILS.get(ip, {}),
+    monkeypatch.setattr(vpndb_stage, "lookup_ip", lambda ip: FetchResult("VPNDB", ip, data=DETAILS.get(ip, {}),
                                                                        record_count=1))
-    monkeypatch.setattr(collector.anonymizers, "select_ips", lambda *args: CANDIDATES)
+    monkeypatch.setattr(vpndb_stage.anonymizers, "select_ips", lambda *args: CANDIDATES)
     log = StatusLog()
     collector.collect_anonymizers(["vpn.com"], [], pd.DataFrame(), {}, log, max_details=1)
     assert [r["Request"]["endpoint"] for r in log.rows] == ["/bulk", "/ip/{ip}"]   # one full verdict: the budget
@@ -420,7 +432,10 @@ def test_tor_overview_places_an_ip_in_the_tor_network(monkeypatch):
     assert anonymizers.tor_context(TOR, "8.8.8.8", 15169, "US") == []
 
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "k")
-    monkeypatch.setattr(collector, "tor_overview", lambda: FetchResult("VPNDB", "tor", data=TOR, record_count=1))
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+
+    monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "k")
+    monkeypatch.setattr(vpndb_stage, "tor_overview", lambda: FetchResult("VPNDB", "tor", data=TOR, record_count=1))
     log = StatusLog()
     assert collector.collect_tor_overview(log)["counts"]["relays"] == 9000
     assert log.rows[0]["Request"]["endpoint"] == "/tor" and log.raw[0]["Response"] is TOR

@@ -161,10 +161,19 @@ def _apps_block_and_description(txt_joined):
     return block, desc
 
 
+def routing_counts(routing, others):
+    """
+    Whether the BGP Routing vector joins the average: only with BGPDB data for the domain and when it is above the
+    other vectors' mean, so clean routing never lowers Unified Risk and a routing finding can raise it.
+    """
+    return routing is not None and pd.notna(routing) and float(routing) > sum(others) / len(others)
+
+
 def vector_weight(profile):
-    """Each vector's share of Unified Risk: 1.5 / the number of vectors that apply (BGP Routing only with BGPDB data)."""
-    routing = profile.get(ROUTING_VECTOR) if hasattr(profile, "get") else None
-    count = len(VECTOR_RULES) - (0 if routing is not None and pd.notna(routing) else 1)
+    """Each vector's share of Unified Risk: 1.5 / the number of vectors averaged (see routing_counts)."""
+    get = profile.get if hasattr(profile, "get") else (lambda key, default=None: default)
+    others = [float(get(v) or 0) if pd.notna(get(v)) else 0.0 for v in VECTOR_RULES if v != ROUTING_VECTOR]
+    count = len(others) + (1 if routing_counts(get(ROUTING_VECTOR), others) else 0)
     return VECTOR_FACTOR / count
 
 
@@ -212,7 +221,7 @@ def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map, rout
         vectors = [vec_dns, vec_certificate, vec_email, vec_c2, vec_sprawl]
         vec_routing = min(100, _max_severity(dom_alerts, VECTOR_RULES[ROUTING_VECTOR][0])) \
             if dom in routed_domains else None
-        if vec_routing is not None:
+        if routing_counts(vec_routing, vectors):
             vectors.append(vec_routing)
         active_avg = sum(vectors) / len(vectors)
         unified_score = min(100, max(base_score, int((base_score * BASE_WEIGHT) + (active_avg * 1.5))))
