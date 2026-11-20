@@ -15,12 +15,12 @@ from datetime import datetime
 from datetime import timezone as dt_timezone
 
 from core.case_report import CSS
-from core.hunt_result import STATUS_LABELS, norm, start_links
+from core.hunt_result import STATUS_LABELS, norm, routing_text, start_links
 from core.intel_data import SEVERITY_COLORS, SEVERITY_ORDER
 from core.run_history import format_created
 
 RANK = {severity: number for number, severity in enumerate(SEVERITY_ORDER)}
-KIND_ORDER = ("IP", "Name Server", "MX", "Email", "Certificate", "JA4X", "Hostname")
+KIND_ORDER = ("IP", "Prefix", "ASN", "Name Server", "MX", "Email", "Certificate", "JA4X", "Hostname")
 EXTRA_CSS = """
 .map { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fafafa; }
 .map svg { display: block; max-width: none; }
@@ -221,6 +221,8 @@ def hunt_map_svg(hunt, links, open_steps=0):
                 lines.append(("text", part))
         else:
             lines.append(("muted", "No alerts"))
+        for part in _wrap(routing_text(snapshot), 44):   # BGPDB: prefixes, origin networks, routing alerts
+            lines.append(("text", part))
         link = links.get(snapshot["id"])
         if depth and link is not None:
             lines.append(("link" if link else "drift", "Linked to start: " + (_counted(link, 2) if link

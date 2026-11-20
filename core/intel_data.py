@@ -344,6 +344,13 @@ RULE_METADATA = {
     "Anonymizer Exit Shared by Analyzed Domains": ("Hosting & DNS Providers", "Medium"),
     "Hosted Among Anonymizer Exits": ("Hosting & DNS Providers", "Low"),
     "Hosted Among Tor Exits": ("Hosting & DNS Providers", "Low"),
+    # BGPDB: BGP routing of the hosting IPs
+    "BGP Origin Conflict (Possible Hijack)": ("BGP Routing", "Medium"),
+    "Unauthorized BGP Origin": ("BGP Routing", "Medium"),
+    "Newly Announced Prefix": ("BGP Routing", "Medium"),
+    "Recently Registered Origin Network": ("BGP Routing", "Medium"),
+    "Low-Visibility or Single-Upstream Route": ("BGP Routing", "Low"),
+    "Anonymizer Exit on Unstable Routing": ("BGP Routing", "High"),
     # Lookalikes
     "Homoglyph / IDN Brand Impersonation": ("Lookalike / Brand", "High"),
     "Typosquatting Lookalike": ("Lookalike / Brand", "Medium"),

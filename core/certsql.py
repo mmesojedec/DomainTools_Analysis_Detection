@@ -633,12 +633,32 @@ def payload(query, limit, sort=None):
     return {"query_string": query, "limit": int(limit), **({"sort": [sort]} if sort else {})}
 
 
-def commands(query, limit, sort=None):
-    """The same search as a curl command and a Python script; the key comes from $DT_CERT_API_KEY, else $DT_API_KEY (no values)."""
+CURL_FORMATS = ("JSON", "Text")   # how the curl command carries the query: escaped into the JSON body, or as its lines
+
+
+def _curl_json(query, limit, sort):
+    body = json.dumps(payload(query, limit, sort), indent=2)
+    return (f"curl -X POST '{ENDPOINT}' \\\n  -H \"X-Api-Key: ${{DT_CERT_API_KEY:-$DT_API_KEY}}\" -H 'Content-Type: application/json' "
+            f"\\\n  --data-binary @- <<'EOF' | jq .\n{body}\nEOF")
+
+
+def _curl_text(query, limit, sort):
+    """The query as written (no escaping): jq (1.6+) wraps the lines into the JSON body and curl (7.82+) sends it with
+    --json. The heredoc's last newline is trimmed, so the API gets the same query_string as the JSON form."""
+    rest = json.dumps({key: value for key, value in payload(query, limit, sort).items() if key != "query_string"},
+                      separators=(", ", ": "))
+    program = '{"query_string": ($q | rtrimstr("\\n")), ' + rest[1:]
+    return (f"jq -n --rawfile q /dev/stdin '{program}' <<'EOF' \\\n"
+            f"  | curl -s '{ENDPOINT}' -H \"X-Api-Key: ${{DT_CERT_API_KEY:-$DT_API_KEY}}\" --json @- \\\n"
+            f"  | jq .\n{query}\nEOF")
+
+
+def commands(query, limit, sort=None, curl_format="JSON"):
+    """The same search as a curl command and a Python script; the key comes from $DT_CERT_API_KEY, else $DT_API_KEY
+    (no values). `curl_format` (CURL_FORMATS): the query escaped into the JSON body, or written as text for jq."""
     body = json.dumps(payload(query, limit, sort), indent=2)
     return {
-        "curl": f"curl -X POST '{ENDPOINT}' \\\n  -H \"X-Api-Key: ${{DT_CERT_API_KEY:-$DT_API_KEY}}\" -H 'Content-Type: application/json' "
-                f"\\\n  --data-binary @- <<'EOF' | jq .\n{body}\nEOF",
+        "curl": (_curl_text if curl_format == "Text" else _curl_json)(query, limit, sort),
         "Python script": "import json, os, requests\n\n"
                              f"body = {body}\n"
                              f"response = requests.post({json.dumps(ENDPOINT)}, json=body, timeout=60,\n"

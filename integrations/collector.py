@@ -10,6 +10,12 @@ from dataclasses import dataclass, field, replace
 import pandas as pd
 
 from config import (
+    BGPDB_ASN_MAX,
+    BGPDB_MAX_IPS,
+    BGPDB_NEIGHBOUR_LIMIT,
+    BGPDB_NEIGHBOUR_MAX,
+    BGPDB_ROUTE_LIMIT,
+    BGPDB_ROUTE_MAX,
     CAA_SUPPLEMENT_FETCH_LIMIT,
     CERT_API_MAX_WORKERS,
     CERT_RETRY_PAUSE_SECONDS,
@@ -41,14 +47,14 @@ from config import (
     VPNDB_REVERSE_LIMIT,
     VPNDB_REVERSE_MAX,
 )
-from core import anonymizers
+from core import anonymizers, bgp
 from core.account import STAGE_NAMES, STAGE_PRODUCTS
 from core.cert_inputs import InputItem, derive_hostnames, derive_targets, hostname_search_query, matched_kind, seed_query
 from core.cname import CHASE_COLUMNS, QUERY_LIMIT, build_cname_map, chase_plan, merge_chases, rdata_rows
 from core.helpers import classify_targets, is_cidr, is_ip_address
 from core.network_intel import cdn_for_ip, explode_ip_events, is_public_ip
 from core.pdns_features import add_event_gaps
-from integrations import progress
+from integrations import bgpdb, progress
 from integrations.cache import FROM_CACHE, refreshing
 from integrations.certificates import (
     build_search_queries,
@@ -114,6 +120,11 @@ class CollectedData:
     exit_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)    # other names on dedicated exits (DNSDB)
     vpndb_raw: pd.DataFrame = field(default_factory=pd.DataFrame)      # every VPNDB answer as received (Raw Records)
     tor_overview: dict = field(default_factory=dict)  # VPNDB /tor: the Tor network at a glance (not counted in quota)
+    bgp_origins: pd.DataFrame = field(default_factory=pd.DataFrame)    # BGPDB: prefix and origin AS per hosting IP
+    bgp_asns: pd.DataFrame = field(default_factory=pd.DataFrame)       # BGPDB: the origin and upstream networks
+    bgp_routes: pd.DataFrame = field(default_factory=pd.DataFrame)     # BGPDB: AS paths towards the run's prefixes
+    bgp_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB: prefixes announced around them
+    bgp_raw: pd.DataFrame = field(default_factory=pd.DataFrame)        # every BGPDB answer as received
     statuses: list = field(default_factory=list)
     seed_inputs: list = field(default_factory=list)                  # certificate input labels, e.g. "cn:Acme VPN"
     seeds: pd.DataFrame = field(default_factory=pd.DataFrame)        # one row per certificate input and what it found
@@ -747,6 +758,90 @@ def vpndb_raw_frame(rows):
 VPNDB_RAW_COLUMNS = ["Endpoint", "Target", "Status", "Records", "Detail", "Cached At", "Request", "Response"]
 
 
+def _bgp_logged(log, raw, result, command, argument, limit=None):
+    """Logs a BGPDB lookup (Data sources) and keeps its answer as received (the BGP page's Responses)."""
+    log.record(result)
+    raw.append({"Command": command, "Argument": argument, "Status": result.status_row()["Status"],
+                "Records": result.record_count, "Detail": result.error or result.note or "",
+                "URL": (result.extras or {}).get("url") or bgpdb.request_url(command, argument, limit) or "",
+                "Response": (result.extras or {}).get("raw") or json.dumps(result.data, default=str)})
+    return result
+
+
+def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IPS, context=True):
+    """
+    BGPDB: the announced prefixes and origin networks of the run's hosting IPs (one `ip` lookup each, core.bgp.select_ips),
+    then the AS paths of the prefixes (`route`), the origin and upstream networks (`asn`) and, with `context`, the
+    prefixes announced in the range around them (`prefix`). Skipped without a BGPDB host. Returns
+    (origins, asns, routes, neighbours, raw) frames.
+    """
+    empty = (pd.DataFrame(columns=bgp.ORIGIN_COLUMNS), pd.DataFrame(columns=bgp.ASN_COLUMNS),
+             pd.DataFrame(columns=bgp.ROUTE_COLUMNS), pd.DataFrame(columns=bgp.NEIGHBOUR_COLUMNS),
+             pd.DataFrame(columns=bgp.RAW_COLUMNS))
+    if not bgpdb.load_bgpdb_host():
+        progress.skip("bgpdb", "No BGPDB host (Settings → API credentials)")
+        return empty
+    chosen = bgp.select_ips(domains, pdns, enrichment, ip_targets, max_ips)
+    if not chosen:
+        progress.skip("bgpdb", "No public hosting addresses to look up")
+        return empty
+    raw = []
+    ips = sorted(chosen)
+    progress.start("bgpdb", len(ips), note=f"{len(ips)} IP(s): announced prefixes and origin networks")
+    results = _parallel(ips, lambda ip: _safe_call(bgpdb.lookup_ip, bgpdb.SOURCE, f"ip {ip}", ip), key="bgpdb")
+    rows = []
+    for ip, result in zip(ips, results):
+        _bgp_logged(log, raw, result, "ip", ip)
+        rows += bgp.origin_rows(ip, chosen[ip], result.data if result.ok else [])
+    origins = pd.DataFrame(rows, columns=bgp.ORIGIN_COLUMNS)
+    if origins.empty:
+        progress.finish("bgpdb", "no announced prefix found")
+        return origins, *empty[1:4], pd.DataFrame(raw, columns=bgp.RAW_COLUMNS)
+    usual = bgp.main_origins(origins)
+    prefixes = list(dict.fromkeys(usual.sort_values("Updates", ascending=False)["Prefix"]))[:BGPDB_ROUTE_MAX]
+    progress.start("bgpdb", len(prefixes), note="AS paths of the announced prefixes")
+    routes = []
+    for prefix, result in zip(prefixes, _parallel(prefixes, lambda p: _safe_call(
+            bgpdb.lookup_route, bgpdb.SOURCE, f"route {p}", p, BGPDB_ROUTE_LIMIT), key="bgpdb")):
+        _bgp_logged(log, raw, result, "route", prefix, BGPDB_ROUTE_LIMIT)
+        routes += bgp.route_rows(prefix, result.data if result.ok else [])
+    routes = pd.DataFrame(routes, columns=bgp.ROUTE_COLUMNS)
+    domains_of = {}
+    for _, row in origins.iterrows():
+        domains_of.setdefault(row["Origin"], set()).update(d.strip() for d in str(row["Domains"]).split(",") if d.strip())
+    wanted = {asn: "origin" for asn in usual["Origin"]}
+    wanted.update({asn: "origin" for asn in origins.loc[origins["Status"] == bgp.UNAUTHORIZED, "Origin"]})
+    for upstream in bgp.main_upstreams(routes).values():
+        wanted.setdefault(upstream, "upstream")
+    asn_list = list(wanted)[:BGPDB_ASN_MAX]
+    progress.start("bgpdb", len(asn_list), note="origin and upstream networks")
+    asn_rows = []
+    for asn, result in zip(asn_list, _parallel(asn_list, lambda a: _safe_call(
+            bgpdb.lookup_asn, bgpdb.SOURCE, f"asn {a}", a), key="bgpdb")):
+        _bgp_logged(log, raw, result, "asn", asn)
+        for record in (result.data if result.ok else [])[:1]:
+            asn_rows.append(bgp.asn_row(record, wanted[asn], domains_of.get(asn, ())))
+    asns = pd.DataFrame(asn_rows, columns=bgp.ASN_COLUMNS)
+    neighbours = pd.DataFrame(columns=bgp.NEIGHBOUR_COLUMNS)
+    if context:
+        ranges = {}
+        for prefix in usual["Prefix"]:
+            cover = bgp.covering_range(prefix)
+            if cover:
+                ranges.setdefault(cover, set()).add(prefix)
+        covers = list(ranges)[:BGPDB_NEIGHBOUR_MAX]
+        progress.start("bgpdb", len(covers), note="prefixes announced around them")
+        run_origins = set(usual["Origin"])
+        rows = []
+        for cover, result in zip(covers, _parallel(covers, lambda c: _safe_call(
+                bgpdb.lookup_prefix, bgpdb.SOURCE, f"prefix {c}", c, BGPDB_NEIGHBOUR_LIMIT), key="bgpdb")):
+            _bgp_logged(log, raw, result, "prefix", cover, BGPDB_NEIGHBOUR_LIMIT)
+            rows += bgp.neighbour_rows(cover, ranges[cover], run_origins, result.data if result.ok else [])
+        neighbours = pd.DataFrame(rows, columns=bgp.NEIGHBOUR_COLUMNS)
+    progress.finish("bgpdb", f"{origins['Prefix'].nunique()} prefix(es), {usual['Origin'].nunique()} origin network(s)")
+    return (bgp.with_names(origins, asns), asns, routes, neighbours, pd.DataFrame(raw, columns=bgp.RAW_COLUMNS))
+
+
 def collect_anonymizers(domains, ip_targets, pdns, enrichment, log, max_ips=VPNDB_MAX_IPS,
                         max_details=VPNDB_DETAIL_MAX):
     """
@@ -1064,6 +1159,8 @@ def rows_without_keys():
         notes.update(dict.fromkeys(("pdns", "TXT", "CAA", "CNAME", "pivot"), _no_key_text("pdns")))
     if not load_vpndb_key():
         notes["vpndb"] = "Skipped: no VPNDB key (Settings → API credentials)"
+    if not bgpdb.load_bgpdb_host():
+        notes["bgpdb"] = "Skipped: no BGPDB host (Settings → API credentials)"
     return notes
 
 
@@ -1132,7 +1229,8 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
                 progress=None, pivot_ips=False, pivot_max_ips=10, txt_records=0, caa_lookup=False,
                 seed_hits=None, host_focus=None, cname_lookup=False, vpndb_check=False, vpndb_only=False,
                 vpndb_max_ips=VPNDB_MAX_IPS, vpndb_details=VPNDB_DETAIL_MAX, vpndb_context=True, history_days=0,
-                history_max=DOMAIN_HISTORY_MAX_CHANGES, pdns_base=None, unavailable=()):
+                history_max=DOMAIN_HISTORY_MAX_CHANGES, pdns_base=None, unavailable=(), bgp_check=False,
+                bgp_max_ips=BGPDB_MAX_IPS, bgp_context=True):
     """
     Runs every collection stage and returns CollectedData. `progress(label)` is called from the calling thread.
     Every domain is looked up in full (all subdomains). `host_focus` ({apex: [hostnames]}) is kept for the views'
@@ -1223,6 +1321,10 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
                 data.anonymizers, domains, data.enrichment, log, vpndb_details, vpndb_context)
             data.tor_overview = collect_tor_overview(log)
             data.prefixes, data.prefix_addresses, data.range_ips = collect_prefixes(cidrs, log)
+        if bgp_check:
+            step("Looking up BGP routing of the hosting IPs (BGPDB)...")
+            (data.bgp_origins, data.bgp_asns, data.bgp_routes, data.bgp_neighbours,
+             data.bgp_raw) = collect_bgp(domains, ip_targets, data.pdns, data.enrichment, log, bgp_max_ips, bgp_context)
         if ct is not None:
             step("Fetching CT log and certificate co-occurrence telemetry...")
             [(data.ctl, data.cert_observations)] = _wait_drawing([ct])

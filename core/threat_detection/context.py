@@ -45,6 +45,7 @@ class DomainContext:
     asn_verdicts: dict = field(default_factory=dict)  # ASN -> VPNDB row (core.anonymizers.asn_frame)
     tor_networks: dict = field(default_factory=dict)  # ASN -> Tor exit network (VPNDB /tor exitNetworks)
     tor_prefixes: list = field(default_factory=list)  # [(ip_network, exitPrefixes entry)] (VPNDB /tor)
+    bgp_findings: pd.DataFrame = field(default_factory=pd.DataFrame)   # the domain's rows of core.bgp.findings
     brands: tuple = ()
     official_domains: tuple = ()
     now: pd.Timestamp = field(default_factory=lambda: pd.Timestamp.now(tz="UTC").tz_localize(None))

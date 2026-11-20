@@ -125,6 +125,36 @@ def start_links(snapshots, root):
     return links
 
 
+BGP_RULES = ("BGP Origin Conflict (Possible Hijack)", "Unauthorized BGP Origin", "Newly Announced Prefix",
+             "Recently Registered Origin Network", "Low-Visibility or Single-Upstream Route",
+             "Anonymizer Exit on Unstable Routing")
+
+
+def routing_text(snapshot, networks=2):
+    """
+    A run's BGP routing in one line, '' without BGPDB data: 'BGP: 3 prefixes · AS13335, AS16509 +1 · 2 routing
+    alerts (High)' from the prefixes and origin networks it recorded and its BGP routing alerts.
+    """
+    prefixes, asns = set(), set()
+    for kinds in (snapshot.get("artifacts") or {}).values():
+        prefixes.update(kinds.get("Prefix") or ())
+        asns.update(str(a).upper() for a in kinds.get("ASN") or ())
+    alerts = [a for a in snapshot.get("alerts") or [] if a.get("Threat Type") in BGP_RULES]
+    if not prefixes and not alerts:
+        return ""
+    shown = sorted(asns)[:networks]
+    parts = [f"BGP: {len(prefixes)} prefix{'es' if len(prefixes) != 1 else ''}"]
+    if shown:
+        parts.append(", ".join(shown) + (f" +{len(asns) - networks}" if len(asns) > networks else ""))
+    if alerts:
+        worst = min((a.get("Severity") for a in alerts), key=lambda s: SEVERITY_ORDER.index(s)
+                    if s in SEVERITY_ORDER else 99)
+        parts.append(f"{len(alerts)} routing alert{'s' if len(alerts) != 1 else ''} ({worst})")
+    else:
+        parts.append("no routing alert")
+    return " · ".join(parts)
+
+
 def link_text(counter, limit=3):
     """'4 Certificate, 1 IP' for a start link."""
     return ", ".join(f"{count} {kind}" for kind, count in counter.most_common(limit))

@@ -11,6 +11,7 @@ import streamlit as st
 
 from config import CERTSQL_DEFAULT_RESULTS, CERTSQL_MAX_RESULTS, CERTSQL_PAGE_SIZE, SEED_DEFAULT_TARGETS, SEED_MAX_TARGETS
 from core.certsql import (
+    CURL_FORMATS,
     DEFAULT_SORT,
     HEADER,
     SORT_FIELDS,
@@ -177,7 +178,12 @@ def render_certsql_page():
         with st.spinner("Searching certificates..."):
             _search(query, max_results, sort, int(preselect))
     with st.expander("The same search outside the app (curl, Python script)", icon=":material/terminal:"):
-        for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort).items():
+        curl_format = st.segmented_control(
+            "Query in the curl command", CURL_FORMATS, default=CURL_FORMATS[0], key="certsql_curl_format",
+            help="**JSON**: the query is escaped into the JSON body (newlines as `\\n`, quotes as `\\\"`). **Text**: the "
+                 "query is written as it is, one condition per line, and jq builds the JSON body from it (needs jq 1.6+ "
+                 "and curl 7.82+). Both send the same request.") or CURL_FORMATS[0]
+        for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort, curl_format).items():
             st.markdown(f"**{name}**")
             st.code(command, language="python" if name == "Python script" else "bash")
     state = st.session_state.get(STATE_KEY)

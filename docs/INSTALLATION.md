@@ -40,6 +40,7 @@ credentials:
 - the DomainTools API username and key;
 - the DNSDB key;
 - the VPNDB key;
+- optionally, the BGPDB host (an internal DomainTools service; see below);
 - optionally, a Certificate API key.
 
 They are saved to `credentials.toml` outside the project folder (see
@@ -55,7 +56,8 @@ key (or a credential warning) changes, and a grey line keeps the state in view. 
 - no Certificate API key: certificates, certificate events and CT logs. The Certificate API uses the DomainTools key
   when it has none of its own;
 - no DNSDB key: passive DNS and the IP pivots;
-- no VPNDB key: the VPN, proxy and Tor check.
+- no VPNDB key: the VPN, proxy and Tor check;
+- no BGPDB host: the BGP routing lookups (the BGP page and the BGP routing alerts).
 
 Credentials can come from three sources. Each credential is taken from the **first** source that has it:
 
@@ -65,6 +67,7 @@ Credentials can come from three sources. Each credential is taken from the **fir
 | DNSDB Scout | `$DNSDB_API_KEY` | `[dnsdb]` `api_key` | `~/.dtdnsdb` |
 | Certificate API | `$DT_CERT_API_KEY` | `[cert_api]` `api_key` | `~/.dtcertapi` |
 | VPNDB | `$VPNDB_API_KEY` | `[vpndb]` `api_key` | `~/.dtvpndb` |
+| BGPDB | `$BGPDB_HOST` (+ `$BGPDB_API_KEY`) | `[bgpdb]` `host` (+ `api_key`) | `~/.bgpdbq.conf` (`api:` line) |
 
 - The **Certificate API** uses the DomainTools API key unless one of its own options is set, so it usually needs
   no separate entry.
@@ -73,6 +76,12 @@ Credentials can come from three sources. Each credential is taken from the **fir
   vpndb.io under *Account → API keys* (it starts with `vpndb_`). For an on-premise installation, set its address in
   `$VPNDB_URL` or `[vpndb]` `url` (e.g. `http://localhost:3000/api/v1`); the hosted `https://vpndb.io/api/v1` is used
   otherwise.
+- **BGPDB** (BGP routing history of the last ~30 days: announced prefixes, origin networks, RPKI / IRR, AS paths) is an
+  internal DomainTools service, reachable on the DomainTools network or VPN. It needs its **host** (FQDN), e.g.
+  `bgpdb-dt.dev.fsi.io`; a bare name such as `bgpdb-dt` becomes `bgpdb-dt.dev.fsi.io`, and `https://` and `/v1` are
+  added, as the `bgpdbq` tool does. If you use `bgpdbq`, its config `~/.bgpdbq.conf` is read as it is (`api:` the host,
+  `key:` an API key sent as `X-API-Key`, `user:` / `pass:` HTTP auth, `insecure:` to skip certificate checks), so
+  nothing needs entering. A key is only needed if the host asks for one. Without a host the BGP lookups are skipped.
 - Use whichever source suits you; different services can come from different sources.
 - Credential values are never displayed, logged or saved with runs.
 
@@ -88,6 +97,8 @@ Credentials can come from three sources. Each credential is taken from the **fir
 | `DT_CERT_API_KEY` | Certificate API, only if it needs its own key |
 | `VPNDB_API_KEY` | VPNDB |
 | `VPNDB_URL` | VPNDB address of an on-premise installation (optional) |
+| `BGPDB_HOST` | BGPDB host (FQDN or URL), e.g. `bgpdb-dt.dev.fsi.io` |
+| `BGPDB_API_KEY` | BGPDB API key, only if the host needs one |
 | `DT_CREDENTIALS_FILE` | Another path for `credentials.toml` |
 
 - `DOMAINTOOLS_USERNAME` / `DOMAINTOOLS_API_KEY` are the names used in the
@@ -122,6 +133,10 @@ api_key = "DNSDB_API_KEY"
 [vpndb]                # VPN / residential proxy / Tor attribution
 api_key = "vpndb_..."
 # url = "http://localhost:3000/api/v1"   # only for an on-premise installation
+
+[bgpdb]                # BGP routing (internal DomainTools service)
+host = "bgpdb-dt.dev.fsi.io"
+# api_key = "..."      # only if the host needs one
 ```
 
 ```bash
@@ -142,6 +157,7 @@ One file per service in your home directory:
 | `~/.dtdnsdb` | DNSDB API key on line 1 |
 | `~/.dtcertapi` | Optional: Certificate API key, only if it differs from the DomainTools API key |
 | `~/.dtvpndb` | VPNDB API key on line 1 |
+| `~/.bgpdbq.conf` | The `bgpdbq` tool's config: `api: <BGPDB host>`, optionally `key:`, `user:`, `pass:`, `insecure:` |
 
 `~/.dtapi` uses the same format as the DomainTools SDK's own credential file. Restrict the files to your user:
 
@@ -176,8 +192,8 @@ the files without restarting the app; changed environment variables still need a
 
 ### Entering keys in the app
 
-**Enter API keys**, below the panel, takes the DomainTools API username and key, the DNSDB API key, the VPNDB API key
-and, optionally, a Certificate API key. It opens by itself when a service has no credentials, and the sidebar links
+**Enter API keys**, below the panel, takes the DomainTools API username and key, the DNSDB API key, the VPNDB API key,
+the BGPDB host (FQDN) with an optional BGPDB API key and, optionally, a Certificate API key. It opens by itself when a service has no credentials, and the sidebar links
 to it. The VPNDB address of an on-premise installation is not part of the form: set `[vpndb]` `url` in the file or
 `$VPNDB_URL`. **Save to credentials.toml** writes them
 to [`credentials.toml`](#credentialstoml), so the order above does not change: environment variables still win, and

@@ -167,6 +167,14 @@ def collect_run_artifacts(collected):
             for email in _contact_values(obj, field):
                 if "@" in email:
                     add(domain, "Email", email)
+    origins = getattr(collected, "bgp_origins", None)   # BGPDB: the usual prefix and origin network of each domain
+    if origins is not None and not origins.empty:
+        from core.bgp import domain_artifacts
+        for domain, kinds in domain_artifacts(origins).items():
+            for prefix in kinds.get("Prefix", ()):
+                add(domain, "Prefix", prefix)
+            for asn in kinds.get("ASN", ()):
+                artifacts.setdefault(domain, {}).setdefault("ASN", set()).add(asn.upper())
     for frame in (collected.ssl, collected.ssl_active):
         if frame is not None and not frame.empty and "Hash" in frame.columns:
             for domain, value in zip(frame["Domain"], frame["Hash"]):

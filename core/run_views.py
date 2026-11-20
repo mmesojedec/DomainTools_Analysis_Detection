@@ -14,7 +14,7 @@ from core.intel_data import SEVERITY_COLORS  # noqa: F401 (imported from here by
 from core.network_intel import cdn_for_ip, is_large_dns_provider, is_parking_ns, is_public_ip
 from core.run_history import SEVERITY_ORDER, alert_key_set, run_summary, snapshot_alerts
 
-SHARED_KINDS = ("IP", "Name Server", "Certificate", "JA4X", "Web Tracker", "Email")   # artifact kinds that link runs
+SHARED_KINDS = ("IP", "Prefix", "Name Server", "Certificate", "JA4X", "Web Tracker", "Email")   # artifact kinds that link runs
 COMMON_LISTS = 5          # a value seen in more target lists than this is infrastructure everyone uses, not a link
 TREND_RUNS = 8            # runs per target list in a card's risk trend
 GRAPH_RUNS = 40           # newest runs the Hunting graph draws
@@ -37,10 +37,22 @@ def top_severity(summary):
 
 
 @lru_cache(maxsize=65536)
+def _small_prefix(value):
+    """A prefix of /22 or longer (IPv6 /44): a hosting block, not a large provider's aggregate."""
+    import ipaddress
+    try:
+        network = ipaddress.ip_network(str(value), strict=False)
+    except ValueError:
+        return False
+    return network.prefixlen >= (22 if network.version == 4 else 44) and network.is_global
+
+
 def _significant(kind, value):
     """Whether an artifact can link two investigations: not a CDN IP, a large DNS provider or a parking name server."""
     if kind == "IP" or (kind == "Name Server" and is_ip_address(value)):   # loopback, private and CDN IPs link nothing
         return is_public_ip(value) and cdn_for_ip(value) is None
+    if kind == "Prefix":   # an announced block (BGPDB): only a small one is one operator's
+        return _small_prefix(value)
     if kind == "Name Server":   # recorded as a host name, or as an IP (then a CDN's anycast DNS is common too)
         return not is_large_dns_provider(value) and not is_parking_ns(value) and cdn_for_ip(value) is None
     return True

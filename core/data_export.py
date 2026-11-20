@@ -71,6 +71,18 @@ EXPORT_SETS = [
               "Iris hosting ASN", lambda c: _frame(c.ds.hosting_asns)),
     ExportSet("vpndb_exit_neighbours", "Tables", "Other domains on dedicated exits", "Every name DNSDB saw on an exit "
               "VPNDB rates dedicated, and whether it is one of the run's domains", lambda c: _frame(c.ds.exit_neighbours)),
+    ExportSet("bgp_ips", "Tables", "BGP routing per IP (BGPDB)", "Each hosting IP's announced prefix, usual origin "
+              "network, RPKI / IRR status, RIR, upstream and routing findings", lambda c: _bgp(c.ds, "ips")),
+    ExportSet("bgp_findings", "Tables", "BGP routing findings (BGPDB)", "Origin conflicts, unauthorized origins, new "
+              "prefixes, young networks and thin routes, with their evidence", lambda c: _bgp(c.ds, "findings")),
+    ExportSet("bgp_origins", "Tables", "BGP origins (BGPDB)", "Every prefix and origin network BGPDB saw announcing "
+              "the hosting IPs, with dates, collectors, RPKI, IRR and RIR", lambda c: _frame(c.ds.bgp_origins)),
+    ExportSet("bgp_routes", "Tables", "AS paths (BGPDB)", "Every AS path seen towards the run's prefixes",
+              lambda c: _frame(c.ds.bgp_routes)),
+    ExportSet("bgp_networks", "Tables", "BGP networks (BGPDB)", "The origin and upstream networks: RIR registration, "
+              "visibility, upstream and downstream counts", lambda c: _frame(c.ds.bgp_asns)),
+    ExportSet("bgp_neighbours", "Tables", "Neighbouring prefixes (BGPDB)", "Prefixes announced around the run's "
+              "prefixes, and whether one of the run's own networks announces them", lambda c: _frame(c.ds.bgp_neighbours)),
     ExportSet("data_source_status", "Tables", "Data source status", "Outcome of every lookup (OK / Partial / Error)",
               lambda c: pd.DataFrame(getattr(c.collected, "statuses", []) or []).drop(columns="Request",
                                                                                    errors="ignore")),
@@ -94,6 +106,16 @@ EXPORT_SETS = [
     ExportSet("vpndb_responses", "Raw data", "VPNDB responses", "Every VPNDB answer as received, with the request that "
               "got it (nested JSON: NDJSON only)", lambda c: _vpndb_responses(c.ds.vpndb_raw)),
 ]
+def _bgp(ds, table):
+    """The BGP page's computed tables (core.bgp): "ips" or "findings"."""
+    from core import bgp
+    origins = getattr(ds, "bgp_origins", None)
+    if origins is None or origins.empty:
+        return pd.DataFrame()
+    found = bgp.findings(origins, ds.bgp_asns, ds.bgp_routes)
+    return found if table == "findings" else bgp.ip_table(origins, ds.bgp_routes, found, ds.enrichment)
+
+
 def _vpndb_responses(raw):
     """One record per VPNDB lookup (Raw Records → VPNDB Responses): endpoint, target, status, request and answer."""
     if raw is None or raw.empty:

@@ -242,7 +242,7 @@ def commands(query, page_size, sort_by=""):
     return {
         "DomainTools Python SDK": f"domaintools iris_investigate --irisql {shlex.quote(query)}{flags} "
                            '-u "$DT_API_USERNAME" -k "$DT_API_KEY"',
-        "curl": f"curl -X POST '{url}' \\\n  -H \"X-Api-Key: $DT_API_KEY\" -H 'Content-Type: application/json' \\\n"
+        "curl": f"curl -X POST '{url}' \\\n  -H \"X-Api-Key: $DT_API_KEY\" \\\n"
                 f"  --data-binary @- <<'EOF' | jq .\n{query}\nEOF",
         "Python script": "import json, os\n\nfrom domaintools import API\n\n"
                       "api = API(os.environ[\"DT_API_USERNAME\"], os.environ[\"DT_API_KEY\"])\n"

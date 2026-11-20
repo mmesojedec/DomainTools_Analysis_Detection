@@ -71,7 +71,7 @@ def test_costs_and_commands():
     assert cmds["DomainTools Python SDK"].startswith("domaintools iris_investigate --irisql '# IrisQL-1.0")
     assert "--sort-by risk_score" in cmds["DomainTools Python SDK"] and "$DT_API_KEY" in cmds["curl"]
     assert "page_size=500&sort_by=risk_score" in cmds["curl"] and "irisql=" in cmds["Python script"]
-    assert "Content-Type: application/json" in cmds["curl"] and "text/plain" not in cmds["curl"]
+    assert "Content-Type" not in cmds["curl"]   # as in the DomainTools IrisQL docs: no content type header
 
 
 class FakePages:

@@ -28,6 +28,7 @@ DTAPI_FILE = Path.home() / ".dtapi"                # username / API key on lines
 DNSDB_KEY_FILE = Path.home() / ".dtdnsdb"         # DNSDB API key
 CERT_API_KEY_FILE = Path.home() / ".dtcertapi"     # optional; the DomainTools API key is used otherwise
 VPNDB_KEY_FILE = Path.home() / ".dtvpndb"          # VPNDB API key (vpndb_...); optional service
+BGPDB_CONF_FILE = Path.home() / ".bgpdbq.conf"     # the bgpdbq tool's config (api: host, key, user, pass); optional
 
 # --- COLLECTION LIMITS ---
 DNSDB_LIMIT_OPTIONS = [10, 50, 100, 500, 1000, 2000, 5000, 10000, 25000, 50000, 100000, 1000000]  # choices of the DNSDB result limit (Settings)
@@ -77,6 +78,12 @@ VPNDB_IPS_PER_DOMAIN = 100           # most recently seen IPs per domain before 
 VPNDB_DETAIL_MAX = 50                # anonymous IPs given the full verdict (sharing, Tor, evidence), one query each
 VPNDB_HISTORY_MAX = 50               # anonymizer exits given their weekly history (exit while the domain used it?)
 VPNDB_NEIGHBOUR_MAX = 30             # /24 ranges around non-exit hosting IPs looked up for known exits
+BGPDB_MAX_IPS = 200                  # hosting IPs looked up in BGPDB per run (one query each)
+BGPDB_ROUTE_MAX = 30                 # announced prefixes whose AS paths are fetched (one query each)
+BGPDB_ROUTE_LIMIT = 100              # AS paths kept per prefix
+BGPDB_ASN_MAX = 40                   # origin and upstream networks looked up (one query each)
+BGPDB_NEIGHBOUR_MAX = 10             # covering ranges listed for neighbouring prefixes (one query each)
+BGPDB_NEIGHBOUR_LIMIT = 200          # prefixes kept per covering range
 VPNDB_ASN_MAX = 20                   # hosting networks (Iris ASNs) looked up for the providers on them
 VPNDB_REVERSE_MAX = 10               # dedicated exits whose other domains are looked up in DNSDB (rdata/ip)
 VPNDB_REVERSE_LIMIT = 1000           # DNSDB records per dedicated exit
@@ -91,8 +98,9 @@ CERT_RETRY_PAUSE_SECONDS = 5     # pause before failed certificate lookups are r
 FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups (Settings → Storage & cache)
 # Source groups that can keep cached results for their own lifetime (Settings → Storage & cache)
 CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
-                "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB"}
-CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600}   # changes rarely: 7 days; changes often: 6 hours
+                "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB",
+                "bgpdb": "BGPDB (BGP routing)"}
+CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600, "bgpdb": 21600}   # changes rarely: 7 days; changes often: 6 hours
 # cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache)
 CACHE_LIFETIMES = {"Off": 0, "30 minutes": 1800, "6 hours": 21600, "1 day": 86400, "7 days": 604800,
                    "30 days": 2592000}

@@ -2,8 +2,9 @@
 
 An unofficial Streamlit tool that combines several DomainTools data sources (Iris Investigate with its risk scores,
 Domain History, passive DNS from DNSDB Scout, and the Certificate API with search, hostname / IP /
-SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs, and runs a behavioral
-threat engine over the combined telemetry.
+SHA-256 events and CT logs) with VPNDB's VPN, residential proxy and Tor attribution of IPs and, where the internal
+BGPDB service is reachable, the BGP routing of the hosting IPs, and runs a behavioral threat engine over the combined
+telemetry.
 
 > **Disclaimer:** this is not an official DomainTools application. It is an example of a custom-built application
 > that shows how the DomainTools Python SDK and the other DomainTools APIs can be used to get DomainTools data and
@@ -47,6 +48,12 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   domain used it, the ranges and networks around the hosting, and other domains on dedicated exits. Every use case
   checks VPNDB within its own query budget; *Check IP addresses* looks up IPs and CIDR ranges in VPNDB only, with
   every address of a range checked.
+- **Reads the BGP routing** of the hosting IPs with BGPDB (an internal DomainTools service; optional): the announced
+  prefix and the network that announces it, whether RPKI / IRR authorize it, the RIR allocation, the AS paths and
+  upstreams, the networks' age and visibility, and the prefixes announced around them. Alerts on origin conflicts
+  (possible hijacks), unauthorized origins, newly announced prefixes, young networks and thin routes, and on VPNDB
+  exits that sit on such routing. A BGP page (Sankey, AS-path graph, origin timeline, networks, neighbours, VPNDB
+  match), a BGP block on the Summary and a BGP line on each Hunt map box.
 - **Finds targets with IrisQL**: an Iris Investigate query in IrisQL (`domain contains "domaintools"`) lists the
   matching domains with their risk, dates, registrar and hosting; tick domains and IPs, pick a use case and analyze
   them. The query editor suggests the fields, then only the operators each field accepts, then the value in the right
@@ -107,6 +114,7 @@ its lookups are skipped, and the sidebar names it (close that notice with its ×
 | DNSDB API key | Passive DNS through DNSDB Scout, CNAME chasing and IP pivots |
 | Certificate API key | Optional: only if it differs from the DomainTools API key |
 | VPNDB API key | Optional: the VPN, residential proxy and Tor check of hosting IPs |
+| BGPDB host (FQDN) | Optional, internal DomainTools service: the BGP routing of hosting IPs. Read from the `bgpdbq` tool's `~/.bgpdbq.conf` too |
 
 The keys are saved to `~/.config/dt-analytics/credentials.toml`, outside the project folder (so they cannot be
 committed), readable only by your user; they are never shown again. The panel above the form shows which source each
@@ -162,6 +170,8 @@ core/
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
   anonymizers.py               VPNDB verdicts of the run's hosting IPs: which IPs are checked, one row per IP, shared exits,
                                Iris cross-check, exit history overlap, neighbouring /24s, hosting ASNs, exit neighbours
+  bgp.py                       BGPDB answers as tables (origins, networks, AS paths, neighbouring prefixes), the routing
+                               findings, the per-IP table, the VPNDB match and the run's prefixes / ASNs for the Hunt map
   network_intel.py             CDN attribution, ASN-aware network keys, hosting watchlist, origin-IP discovery
   lookalike.py                 Typosquatting, homoglyph/IDN, combosquatting, and brand-in-subdomain analysis
   correlation.py               Shared-infrastructure clusters (IPs, name servers, CNAME targets, certificates, trackers) and domain hopping
@@ -186,6 +196,8 @@ core/
     anonymizer_rules.py        VPNDB rules (Tor / residential / VPN exit, dedicated exit, moved onto or rotating across exits,
                                new domain on an exit, exit shared by analyzed domains, hosted among exits; exit
                                history decides whether an exit counted while the domain used it)
+    bgp_rules.py               BGP routing rules (origin conflict, unauthorized origin, new prefix, young network, thin
+                               route) and the VPNDB match (anonymizer exit on unstable routing)
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
     enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
@@ -203,6 +215,8 @@ integrations/
   certificates.py              Certificate Search (incl. CertsQL searches) / Events / CTL APIs and X.509 normalization
   dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming, incremental lookups), Scout-style CNAME chasing, the key's quota
   vpndb.py                     VPNDB API: VPN / residential proxy / Tor attribution of IPs, prefixes, ASNs; every operation, paging, bulk, quota
+  bgpdb.py                     BGPDB (internal): ip / prefix / asn / route lookups as the bgpdbq tool makes them, NDJSON
+                               answers, result limits, curl commands
   domain_history.py            Domain History (SDK) parsing and lifespans
   risk.py                      DomainTools risk scores from the Iris Investigate records
   account.py                   Account Information (SDK): products, limits and usage, kept for an hour and shared
@@ -242,6 +256,8 @@ views/                         One module per page + sidebar, alert tools, certi
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
                                on dedicated exits, CIDR address grids
+  bgp_page.py                  BGP page: routing findings and the hosting IPs, routing map (Sankey, AS-path graph), origin
+                               timeline, networks, neighbouring prefixes, VPNDB match, responses; Summary / DNS lines
   tor_page.py                  Tor network page (Infrastructure): network-wide Tor statistics from VPNDB's /tor overview
   ip_card.py                   One IP in full: VPNDB verdict and whole answer, weekly history, where the run saw it,
                                Iris, its /24 and network, Tor share; fetches a full verdict on demand

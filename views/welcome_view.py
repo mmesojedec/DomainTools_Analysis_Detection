@@ -1,13 +1,13 @@
 """
 First start: a dialog with the disclaimer (this is not an official DomainTools application), which must be accepted
-before anything else, then the API credentials (DomainTools username and API key, Certificate API, DNSDB, VPNDB),
+before anything else, then the API credentials (DomainTools username and API key, Certificate API, DNSDB, VPNDB, BGPDB host),
 saved to credentials.toml. A service left without a key is not queried until a key is entered (Settings → API
 credentials). The acceptance is kept in dt_settings.json; Settings → API credentials can show the dialog again.
 """
 import streamlit as st
 
 from core.persistence import load_settings, save_setting
-from integrations.credentials import CERT_API, SERVICES, credential_overview, credentials_file, display_path
+from integrations.credentials import BGPDB, CERT_API, SERVICES, credential_overview, credentials_file, display_path
 from views.sidebar import KEY_FIELDS, KEY_HELP, TOAST_KEY, _save_entered_keys
 
 ACCEPTED_SETTING = "disclaimer_accepted"   # dt_settings.json: the disclaimer version accepted
@@ -78,6 +78,8 @@ def _welcome_dialog():
             state = (f":green[:material/check_circle: ready ({row['Source']})]" if row["Found"]
                      else ":gray[:material/radio_button_unchecked: no key: uses the DomainTools API key once it is "
                           "set]" if service == CERT_API
+                     else ":gray[:material/radio_button_unchecked: no host: not queried (internal DomainTools "
+                          "service; optional)]" if service == BGPDB
                      else ":gray[:material/radio_button_unchecked: no key: not queried]")
             st.markdown(f"**{service}** · {SERVICES[service]}  \n{state}")
             columns = st.columns(len(fields)) if len(fields) > 1 else [st]

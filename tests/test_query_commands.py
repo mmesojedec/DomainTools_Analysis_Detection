@@ -1,5 +1,6 @@
 """The copyable curl / CLI / Python on the IrisQL and CertsQL pages: valid shell and Python, answer piped to jq."""
 import ast
+import json
 import shutil
 import subprocess
 
@@ -10,7 +11,8 @@ from core import certsql, irisql
 CERTS = certsql.normalize('san_dns contains "login"\nAND\nissuer_organization in ["Let\'s Encrypt", "ZeroSSL"]')
 IRIS = irisql.normalize('DOMAIN CONTAINS "it\'s"\nAND\nRISK_SCORE GREATER_THAN 70')
 ALL = [*certsql.commands(CERTS, 500, certsql.sort_term("validity_not_before", "desc")).items(),
-       *certsql.commands(CERTS, 100).items(), *irisql.commands(IRIS, 500, "risk_score").items()]
+       *certsql.commands(CERTS, 100).items(), *irisql.commands(IRIS, 500, "risk_score").items(),
+       ("curl, text", certsql.commands(CERTS, 500, certsql.sort_term("validity_not_before", "desc"), "Text")["curl"])]
 
 
 @pytest.mark.parametrize("label,code", ALL)
@@ -44,3 +46,15 @@ def test_copy_fallback_is_installed_on_every_page():
     assert "execCommand(\"copy\")" in common._COPY_FALLBACK and "writeText" in common._COPY_FALLBACK
     source = open("app.py", encoding="utf-8").read()
     assert "install_copy_fallback()" in source
+
+
+def test_text_curl_writes_the_query_as_lines_and_sends_the_same_body():
+    sort = certsql.sort_term("validity_not_before", "desc")
+    code = certsql.commands(CERTS, 500, sort, "Text")["curl"]
+    assert f"\n{CERTS}\nEOF" in code and "\\n" not in code.split("<<'EOF'")[1]   # the query unescaped, as typed
+    assert "--json @-" in code and code.splitlines()[2].endswith("| jq .")
+    assert certsql.commands(CERTS, 500, sort)["curl"] == certsql.commands(CERTS, 500, sort, "JSON")["curl"]
+    if shutil.which("bash") and shutil.which("jq"):   # stand-in curl echoes what jq built: the JSON form's body
+        run = subprocess.run(["bash", "-c", "curl() { cat; }\n" + code], capture_output=True, text=True)
+        assert run.returncode == 0, run.stderr
+        assert json.loads(run.stdout) == certsql.payload(CERTS, 500, sort)

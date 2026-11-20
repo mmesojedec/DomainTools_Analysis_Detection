@@ -373,7 +373,8 @@ def test_rows_without_keys_are_skipped_in_the_checklist(monkeypatch):
     monkeypatch.setattr(collector, "stages_without_keys", lambda: {"pdns"})
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: None)
     notes = collector.rows_without_keys()
-    assert set(notes) == {"pdns", "TXT", "CAA", "CNAME", "pivot", "vpndb"} and "no VPNDB key" in notes["vpndb"]
+    assert set(notes) == {"pdns", "TXT", "CAA", "CNAME", "pivot", "vpndb", "bgpdb"} and "no VPNDB key" in notes["vpndb"]
+    assert "no BGPDB host" in notes["bgpdb"]   # no host in tests (conftest.no_real_bgpdb)
     plan = [{"Key": key, "Source": "s", "Lookup": key} for key in ("iris", "pdns", "vpndb")]
     tracker = CollectionProgress(plan)
     for key, note in notes.items():

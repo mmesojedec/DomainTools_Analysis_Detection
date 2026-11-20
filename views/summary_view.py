@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from core import bgp
 from core.anonymizers import PROXY, RESIDENTIAL, TOR, VPN, anonymizer_rows, shared_exit
 from core.helpers import md_escape
 from core.hunt_stats import (
@@ -32,6 +33,9 @@ from integrations.cache import age_text
 from views import navigation
 from views.alert_tools import HEATMAP_SEVERITY_COLORS, SEVERITY_ORDER, THREAT_TYPE_KEY
 from views.anonymizer_view import alerts_button, domain_verdict_text, ip_check_only, render_ip_check, render_networks, selectable_table
+from views.bgp_page import alerts_button as bgp_alerts_button
+from views.bgp_page import badges as bgp_badges
+from views.bgp_page import brief as bgp_brief
 from views.collection_progress import PROGRESS_KEY, render_last_collection
 from views.common import chart, selected_rows, selection_key
 from views.history_cap import render_history_cap_notice
@@ -146,6 +150,7 @@ def _render_glance(ds, alerts):
             "Distinct names in passive DNS")
     _metric(row2[3], "Passive DNS records", f"{stats['Passive DNS records']:,}", "raw", "Records")
     _render_vpndb_glance(ds)
+    _render_bgp_glance(ds)
     render_ja4x_notes(ds.ssl_all_utc if not ds.ssl_all_utc.empty else ds.ssl, "summary_ja4x", window_ssl=ds.ssl)
 
 
@@ -173,6 +178,28 @@ def _render_vpndb_glance(ds):
         selectable_table(flagged[["IP", "Domains", "Category", "Provider", "Confidence", "Sharing", "IOC Value",
                                   "AS Organization", "Country"]], "summary_vpndb", table, ds=ds)
         alerts_button("summary_vpndb")
+
+
+def _render_bgp_glance(ds):
+    """The BGP row of Analysis Details: the hosting's routing in numbers and a short description (BGPDB)."""
+    if ds.bgp_origins is None or ds.bgp_origins.empty:
+        return
+    found = bgp.findings(ds.bgp_origins, ds.bgp_asns, ds.bgp_routes)
+    stats = bgp.summary(ds.bgp_origins, ds.bgp_asns, ds.bgp_routes, found)
+    st.markdown("**BGP** · who announces the hosting IPs, and whether the registries allow it",
+                help="BGPDB's routing table history (about the last 30 days) for the run's public hosting IPs: the "
+                     "announced prefix, the origin network, RPKI / IRR validity, the AS paths and the networks.")
+    row = st.columns(4)
+    _metric(row[0], "IPs routed", f"{stats['ips']:,}", "bgp", "BGP page")
+    _metric(row[1], "Prefixes", f"{stats['prefixes']:,}", help_text="Announced blocks the hosting IPs are in")
+    _metric(row[2], "Origin networks", f"{stats['origins']:,}", help_text="The ASes that usually announce them")
+    _metric(row[3], "Routing findings", f"{stats['findings']:,}",
+            help_text="Origin conflicts, unauthorized origins, new prefixes, young networks, thin routes")
+    st.markdown(bgp_badges(found))
+    with st.container(border=True):
+        st.markdown("\n".join(f"- {line}" for line in bgp_brief(ds, found)))
+    if not found.empty:
+        bgp_alerts_button("summary_bgp")
 
 
 def _render_hunt_pointer(alerts, leads, start):

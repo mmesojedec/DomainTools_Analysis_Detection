@@ -12,6 +12,10 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from config import (
+    BGPDB_ASN_MAX,
+    BGPDB_MAX_IPS,
+    BGPDB_NEIGHBOUR_MAX,
+    BGPDB_ROUTE_MAX,
     CAA_SUPPLEMENT_FETCH_LIMIT,
     CERT_CTL_LIMIT,
     CERT_EVENTS_MAX_RECORDS,
@@ -57,6 +61,9 @@ COLLECTION_DEFAULTS = {
     "opt_vpndb_details": VPNDB_DETAIL_MAX,  # full verdicts and weekly histories of the exits (one query each)
     "opt_vpndb_context": True,              # neighbouring /24s, hosting networks, other domains on dedicated exits
     "opt_vpndb_only": False,
+    "opt_bgpdb": True,                      # BGP routing of the hosting IPs (BGPDB; only with a BGPDB host)
+    "opt_bgpdb_max_ips": BGPDB_MAX_IPS,     # hosting IPs looked up in BGPDB (one query each)
+    "opt_bgpdb_context": True,              # prefixes announced around the run's prefixes (BGPDB)
     "opt_ct": True,
     "opt_ct_max": CT_LOOKUP_DEFAULT_MAX_HASHES,
     "opt_seed_preselect": SEED_DEFAULT_TARGETS,
@@ -73,6 +80,8 @@ OPTION_LABELS = {   # the one name of each option: Settings widgets, Start cards
     "opt_vpndb": "Check hosting IPs for VPN, residential proxy and Tor", "opt_vpndb_only": "Only the VPNDB IP check",
     "opt_vpndb_max_ips": "VPNDB hosting IPs per run", "opt_vpndb_details": "VPNDB full verdicts per run",
     "opt_vpndb_context": "VPNDB neighbourhood and leads",
+    "opt_bgpdb": "Look up BGP routing of the hosting IPs (BGPDB)", "opt_bgpdb_max_ips": "BGPDB hosting IPs per run",
+    "opt_bgpdb_context": "BGPDB neighbouring prefixes",
     "opt_ct": "CT log & co-occurrence telemetry", "opt_ct_max": "Max certificates for CT lookups",
     "opt_seed_preselect": "Certificate inputs: pre-selected targets", "opt_force_refresh": "Force refresh",
     WINDOW_KEY: "Analysis window",
@@ -343,6 +352,13 @@ def query_plan(settings):
                               f"history of up to {int(s['opt_vpndb_details'])} anonymizer IPs"
                               + (f", {VPNDB_NEIGHBOUR_MAX} ranges, {VPNDB_ASN_MAX} networks, {VPNDB_REVERSE_MAX} DNSDB "
                                  "lookups" if context else "")})
+    if s["opt_bgpdb"]:
+        context = bool(s["opt_bgpdb_context"])
+        rows.append({"Key": "bgpdb", "Source": "BGPDB", "Lookup": "BGP routing of the IPs the domains use (only with a "
+                     "BGPDB host): announced prefix, origin network, RPKI / IRR, RIR; AS paths and the origin and "
+                     "upstream networks" + ("; prefixes announced in the range around them" if context else ""),
+                     "Limit": f"{int(s['opt_bgpdb_max_ips'])} IPs per run (one query each), {BGPDB_ROUTE_MAX} prefixes, "
+                              f"{BGPDB_ASN_MAX} networks" + (f", {BGPDB_NEIGHBOUR_MAX} ranges" if context else "")})
     if s["opt_ct"]:
         rows.append({"Key": "ct", "Source": "Certificate API", "Lookup": "CT log entries and co-occurrence of the newest certificates",
                      "Limit": f"{int(s['opt_ct_max'])} certificates per run, 2 calls each ({CERT_CTL_LIMIT:,} entries)"})

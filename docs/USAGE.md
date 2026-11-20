@@ -15,6 +15,7 @@ their text is shown.
 - [Running an analysis](#running-an-analysis)
 - [VPN, residential proxy and Tor (VPNDB)](#vpn-residential-proxy-and-tor-vpndb)
   - [CIDR ranges](#cidr-ranges)
+- [BGP routing (BGPDB)](#bgp-routing-bgpdb)
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
@@ -220,6 +221,9 @@ global defaults:
 | VPNDB | VPNDB full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
 | VPNDB | VPNDB neighbourhood and leads | On (the use case sets it) | The /24 around each non-exit hosting IP (up to 30) and the Iris hosting networks (up to 20) in VPNDB, and DNSDB reverse lookups on dedicated exits (up to 10). |
 | VPNDB | Only the VPNDB IP check | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
+| BGPDB | Look up BGP routing of the hosting IPs (BGPDB) | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. Only with a BGPDB host ([Credentials](INSTALLATION.md#credentials)); without one it is skipped. Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb). |
+| BGPDB | BGPDB hosting IPs per run | 200 | Public hosting addresses looked up; each is one BGPDB query. |
+| BGPDB | BGPDB neighbouring prefixes | On | The prefixes announced in the /20 (IPv6 /40) around up to 10 of the run's prefixes, and by whom; one query each. |
 | Certificate API | CT log & co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
 | Certificate API | Max certificates for CT lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
 | Certificate API | Certificate inputs: pre-selected targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
@@ -797,6 +801,51 @@ range holding its per-IP table (exits first), and Export & report has *CIDR rang
 *Not observed* is not an all-clear: VPNDB only knows the exits it measured or that public lists name, and it does not
 collect IPv6, so IPv6 addresses are not sent.
 
+## BGP routing (BGPDB)
+
+BGPDB is an internal DomainTools service holding the BGP routing table history of about the last 30 days. With its
+host entered under Settings → API credentials (or the `bgpdbq` tool's `~/.bgpdbq.conf` in place), every live run looks
+up the hosting IPs there (see the collection option above; it needs the DomainTools network or VPN). Four lookups,
+the same as the `bgpdbq` tool's commands:
+
+| Lookup | For | What comes back |
+| --- | --- | --- |
+| `ip/<address>` | Each hosting IP | Every prefix covering it and each network (origin AS) that announced it: first / last seen, updates, route collectors, RPKI and IRR validity, RIR allocation (registry, date, country), score |
+| `route/<prefix>` | The 30 busiest prefixes | Every AS path seen towards it (100 kept), with collectors and peers: the upstreams |
+| `asn/<asn>` | Up to 40 origin and upstream networks | RIR registration date and country, name, visibility, upstream and downstream neighbour counts |
+| `prefix/<range>` | The /20 (IPv6 /40) around up to 10 prefixes | The other prefixes announced there, and by whom |
+
+**The BGP page** (Infrastructure → BGP) has seven tabs, each with *How to read this*:
+
+1. **Overview**: the routing findings (also alerts) and one row per hosting IP with its prefix, usual origin, status
+   (*Valid*, *Unauthorized*, *Not in RPKI / IRR*), how many networks announced it, RIR and Iris country, upstream.
+   Select an IP for every origin, AS path and network BGPDB knows for it, with the lookups as curl commands.
+2. **Routing map**: domain → prefix → origin network → upstream as a Sankey (unauthorized flows in red), and the AS
+   paths towards one prefix as a graph (prefixes with an unauthorized origin listed first; thicker arrows: more
+   collectors).
+3. **Origin timeline**: one row per prefix and network, from first to last seen; green authorized, red unauthorized.
+   A short red bar under a long green one is a hijack or a route leak.
+4. **Networks**: the origin and upstream networks, their RIR registration (age), visibility and neighbours, with a
+   chart of age against visibility (the last year shaded).
+5. **Neighbouring prefixes**: per /20 around a prefix, the prefixes of the run's own networks (leads), of others, and
+   unauthorized ones. Aggregates of /20 or larger (a carrier's /9) have no neighbourhood.
+6. **VPNDB match**: the run's VPN / proxy / Tor exits with their routing, and the origin networks that carry exits
+   (with VPNDB's known exits on them).
+7. **Responses**: every BGPDB answer as received (NDJSON) with its URL; select one for its curl command.
+
+The Summary's *Analysis Details* has a **BGP** block (IPs routed, prefixes, origin networks, routing findings, and a
+few sentences on who announces the hosting and the worst findings), DNS & Hosting a one-line summary, and each Hunt map
+box a BGP line. Export & report has *BGP routing per IP*, *BGP routing findings*, *BGP origins*, *AS paths*, *BGP
+networks* and *Neighbouring prefixes*. How the findings are decided is in the
+[User Guide](USER_GUIDE.md#bgp-routing-rules).
+
+Reading it right:
+- **RPKI decides**, IRR only when RPKI has nothing. *Not in RPKI / IRR* is common and not a finding on its own.
+- **30 days**: a prefix first seen on the first days of BGPDB's window is *at least that old*, never new.
+- **`/24+`** in a prefix means the more-specific announcements inside that block (often a leak, e.g. from a private
+  AS such as AS65001).
+- **CDN addresses are not looked up**: their routing is the CDN's, the same for every customer.
+
 ## Certificate inputs
 
 Besides domains and IPs, the target box accepts certificates. They are looked up first, and the domains and IPs their
@@ -1076,6 +1125,15 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
    total is exact up to 10,000; *10,000+* means at least that many match. *The same search outside the app* gives
    the request as a curl command and a Python script, without the key value (taken from `$DT_CERT_API_KEY`, else `$DT_API_KEY`).
    As on the IrisQL page, the curl answer is piped to `jq .` and the Python prints it indented.
+   **Query in the curl command** picks how the curl command carries the query; both send the same request:
+
+   | Option | The query in the command | Needs |
+   | --- | --- | --- |
+   | **JSON** (default) | Escaped into the JSON body: newlines as `\n`, quotes as `\"` | curl, jq for the output |
+   | **Text** | As written, one condition per line; `jq -n --rawfile` builds the JSON body from it and `curl --json` sends it. Easiest to edit by hand | jq 1.6+, curl 7.82+ |
+
+   The IrisQL curl command has no such choice: Iris Investigate takes the query itself as the request body, already
+   as plain lines.
 
    **Sort by** is a field of each certificate, not a date in your query: the API orders every matching certificate by
    it before paging, so when more match than you fetch it decides which ones you get. **Order** is the direction, worded
@@ -1302,3 +1360,6 @@ Credentials are not stored in the project folder: keys entered in the app go to
 | Results marked *Partial* | The source hit its result limit (DNSDB: your limit). Raise the DNSDB limit or rely on the TXT / CAA / CNAME lookups. |
 | CNAME Chains shows *Not chased* everywhere | Chains are filled in on demand. Select hostnames (or none for all shown) and click **Chase CNAMEs**; click again when the toast says names wait for the next click. A DNSDB key is needed for chains that leave the collected data. |
 | No or few CNAME records for a busy domain | The main passive DNS lookup hit its limit with A / NS records. Keep *CNAME lookup* on and re-run, and pick a longer analysis window (*All time*) to see older CNAMEs. A domain with thousands of CNAME hostnames can still fill the 5,000-record CNAME lookup. |
+| *Skipped: no BGPDB host* | Enter the BGPDB host (e.g. `bgpdb-dt.dev.fsi.io`) under Settings → API credentials, set `$BGPDB_HOST`, or set up the `bgpdbq` tool's `~/.bgpdbq.conf` (`api: <host>`). |
+| BGPDB lookups fail with a connection error | BGPDB is internal: connect to the DomainTools network or VPN. A host that only has an IPv6 address (e.g. `bgpdb.dev.fsi.io`) can be unreachable on IPv4-only networks; use the host your `bgpdbq` config names. |
+| A well-known site gets *Unauthorized BGP Origin* or *Low-Visibility or Single-Upstream Route* | Check the BGP page's Overview row: some large networks announce space whose registry records lag behind, and a provider's sub-network often has a single upstream (its parent). These are Low or Medium findings for a reason: weigh them with the other alerts. |

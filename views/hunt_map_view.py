@@ -22,6 +22,7 @@ from core.hunt_result import (
     hunt_status,
     link_text,
     norm,
+    routing_text,
     run_yield,
     start_links,
     top_types,
@@ -60,17 +61,18 @@ HEADER = ('digraph { graph [rankdir=LR, bgcolor="transparent", nodesep=0.18, ran
           'edge [color="#888888", arrowsize=0.5, penwidth=0.8, fontname="Courier", fontsize=8, fontcolor="#aaaaaa"];')
 # Map options (This hunt → Map options): what each box shows, the layout and the size on the page
 DETAILS = {"gain": "New domains & alerts", "types": "Top alert types", "link": "Link to the start",
+           "bgp": "BGP routing (prefixes, origin networks, routing alerts)",
            "lookup": "Lookup details (use case, window, options, API queries, what led to it)",
            "done": "Followed steps"}
-DEFAULT_DETAILS = ("gain", "types", "link", "done")   # hunt_map_dot's default: everything but the lookup details
-MAP_DETAILS = ("gain", "link", "done")                # the page's default: compact boxes
+DEFAULT_DETAILS = ("gain", "types", "bgp", "link", "done")   # hunt_map_dot's default: everything but the lookup details
+MAP_DETAILS = ("gain", "bgp", "link", "done")                # the page's default: compact boxes
 LAYOUTS = {"Auto": None, "Left to right": "LR", "Top to bottom": "TB"}
 AUTO_LR_RUNS = 3          # Auto: left to right up to this many runs, then top to bottom (a long chain stays readable)
 SIZES = ("Fit", "Fill width")
 MAP_DETAILS_KEY, MAP_LAYOUT_KEY, MAP_SIZE_KEY, MAP_OPEN_KEY = ("hunt_map_details", "hunt_map_layout",
                                                                "hunt_map_size", "hunt_map_open")
 LEGEND = ("Boxes are runs: targets, when, what the run added to the hunt (new domains and alerts), its alerts and "
-          "top alert types, and whether its new domains share infrastructure with the starting point (red outline: "
+          "top alert types, its BGP routing (prefixes, origin networks, routing alerts), and whether its new domains share infrastructure with the starting point (red outline: "
           "drifted, nothing shared). Dashed boxes are steps still open: orange *start here* (an indicator the alerts "
           "name), grey a lead, with score, Iris count and the alerts naming it. Green ✓ steps were followed, on to "
           "the run they started. A step is only ever open once in a hunt.")
@@ -128,6 +130,7 @@ def lookup_lines(snapshot):
         parts = [f"DNSDB {int(options['opt_dnsdb_limit']):,}" if options.get("opt_dnsdb_limit") else "",
                  f"CT {options.get('opt_ct_max')}" if options.get("opt_ct") else "",
                  "VPNDB" if options.get("opt_vpndb") else "",
+                 "BGPDB" if options.get("opt_bgpdb") else "",
                  f"IP pivots {options.get('opt_pivot_max')}" if options.get("opt_pivot") else ""]
     queries = snapshot.get("queries") or {}
     spent = sum(queries.values())
@@ -166,6 +169,10 @@ def _run_label(snapshot, timezone, loaded, gain=None, link=None, root=False, det
     types = _types_line(snapshot) if "types" in details else ""
     if types:
         rows.append(f'<FONT POINT-SIZE="8" COLOR="#cfcfcf">{_e(types)}</FONT>')
+    routing = routing_text(snapshot) if "bgp" in details else ""
+    if routing:
+        color = "#ff8a80" if "routing alert" in routing and "no routing alert" not in routing else "#80cbc4"
+        rows.append(f'<FONT POINT-SIZE="8" COLOR="{color}">{_e(routing)}</FONT>')
     if "lookup" in details:
         rows += [f'<FONT POINT-SIZE="8" COLOR="#b0bec5">{_e(line)}</FONT>' for line in lookup_lines(snapshot)]
     if link is not None and not root and "link" in details:

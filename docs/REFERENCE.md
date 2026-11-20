@@ -79,6 +79,9 @@ Options per use case (generated from `core/use_cases.py`):
 | VPNDB full verdicts per run | 50 | 20 | · | · | 10 | 20 | 20 | 100 | · |
 | VPNDB neighbourhood and leads | on | · | · | · | off | off | off | · | · |
 | Only the VPNDB IP check | off | · | · | · | · | · | · | on | · |
+| Look up BGP routing of the hosting IPs (BGPDB) | on | · | · | · | · | · | · | · | · |
+| BGPDB hosting IPs per run | 200 | · | · | · | · | · | · | · | · |
+| BGPDB neighbouring prefixes | on | · | · | · | · | · | · | · | · |
 | CT log & co-occurrence telemetry | on | · | · | · | · | · | · | · | · |
 | Max certificates for CT lookups | 10 | · | · | · | · | 100 | · | · | · |
 | Certificate inputs: pre-selected targets | 10 | · | · | · | · | · | · | · | · |
@@ -179,6 +182,12 @@ Limits (generated from `config.py`):
 | `VPNDB_DETAIL_MAX` | 50 | anonymous IPs given the full verdict (sharing, Tor, evidence), one query each |
 | `VPNDB_HISTORY_MAX` | 50 | anonymizer exits given their weekly history (exit while the domain used it?) |
 | `VPNDB_NEIGHBOUR_MAX` | 30 | /24 ranges around non-exit hosting IPs looked up for known exits |
+| `BGPDB_MAX_IPS` | 200 | hosting IPs looked up in BGPDB per run (one query each) |
+| `BGPDB_ROUTE_MAX` | 30 | announced prefixes whose AS paths are fetched (one query each) |
+| `BGPDB_ROUTE_LIMIT` | 100 | AS paths kept per prefix |
+| `BGPDB_ASN_MAX` | 40 | origin and upstream networks looked up (one query each) |
+| `BGPDB_NEIGHBOUR_MAX` | 10 | covering ranges listed for neighbouring prefixes (one query each) |
+| `BGPDB_NEIGHBOUR_LIMIT` | 200 | prefixes kept per covering range |
 | `VPNDB_ASN_MAX` | 20 | hosting networks (Iris ASNs) looked up for the providers on them |
 | `VPNDB_REVERSE_MAX` | 10 | dedicated exits whose other domains are looked up in DNSDB (rdata/ip) |
 | `VPNDB_REVERSE_LIMIT` | 1,000 | DNSDB records per dedicated exit |
@@ -191,8 +200,8 @@ Limits (generated from `config.py`):
 | `CERT_API_MAX_WORKERS` | 4 | SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s |
 | `CERT_RETRY_PAUSE_SECONDS` | 5 | pause before failed certificate lookups are retried once, one at a time |
 | `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Storage & cache) |
-| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
-| `CACHE_GROUP_DEFAULTS` | history: 604,800, vpndb: 21,600 | changes rarely: 7 days; changes often: 6 hours |
+| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB, bgpdb: BGPDB (BGP routing) | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
+| `CACHE_GROUP_DEFAULTS` | history: 604,800, vpndb: 21,600, bgpdb: 21,600 | changes rarely: 7 days; changes often: 6 hours |
 | `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache) |
 
 ## Other built-in values

@@ -138,6 +138,7 @@ shows them as *skipped* from the start, and *Data sources* says *Skipped: no …
 | Certificate API (uses the DomainTools key unless it has its own) | 2 Certificate Search, 7 Certificate Events, 8 CT / co-occurrence |
 | DNSDB | 4 Passive DNS (with TXT / CAA / CNAME), 5 IP pivots, and the DNSDB lookups of 6b |
 | VPNDB | 6, 6b, 6c |
+| BGPDB (no host) | 6d BGP routing |
 
 ```mermaid
 flowchart TD
@@ -153,6 +154,7 @@ flowchart TD
         S9["8. CT log and SHA-256 events for the newest certificates (if on)"]
         S7["5. IP pivots (if on, DNSDB Scout)"]
         S7w["6-6c. VPNDB: verdicts, exits' history, neighbourhood, Tor overview (if on, with a key)"]
+        S7b["6d. BGPDB: prefixes and origins, AS paths, networks, neighbouring prefixes (if on, with a host)"]
     end
     W2 --> Z["Done"]
 ```
@@ -167,6 +169,7 @@ flowchart TD
 | 6 | VPN / proxy / Tor | VPNDB | Public IPv4 hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); up to the use case's *VPNDB hosting IPs per run* (500 by default, 100 per domain at most); CIDR targets | Which VPN, residential proxy or Tor operator is behind each IP, with confidence, sharing and IOC value; per range its providers and every address | One bulk request; full verdict of up to *VPNDB full verdicts per run* exits (50 by default); per range one prefix query, up to 200 addresses and a bulk request for up to 1,024 addresses | Only with a VPNDB key and *Check hosting IPs for VPN, residential proxy and Tor* on (on in every use case). CDN, private and IPv6 addresses are skipped. |
 | 6b | VPNDB context | VPNDB, DNSDB | The exits (weekly history, as many as the full verdicts), and with *VPNDB neighbourhood and leads*: the /24s around the other hosting IPs (30), current Iris ASNs (20), dedicated exits (DNSDB reverse IP, 10) | Was the IP an exit while the domain used it; hosted among exits; other domains on dedicated exits | 1 query each | Only with a VPNDB key and the VPNDB check on; the neighbourhood is off in the takeover, phishing and monitoring use cases; the DNSDB lookups need a DNSDB key. Feeds the exit rules, *Hosted Among Anonymizer Exits* and the VPNDB page. |
 | 6c | Tor network | VPNDB | Once per run | The Tor overview (`/tor`): relays and each network's, country's and prefix's share of Tor exit traffic | One call, not counted against the quota | With the VPNDB check and in *Check IP addresses*. Feeds the Tor network page (Infrastructure) and each IP card. |
+| 6d | BGP routing | BGPDB (internal) | Public hosting IPs (IPv4 and IPv6, no CDN): IP targets, current Iris IPs, then passive DNS (latest first); up to *BGPDB hosting IPs per run* (200 by default, 50 per domain) | `ip`: each covering prefix and origin network, RPKI / IRR, RIR; then `route` (AS paths of the 30 busiest prefixes), `asn` (up to 40 origin and upstream networks) and, with *BGPDB neighbouring prefixes*, `prefix` (the /20 or /40 around up to 10 prefixes) | 1 query per IP; 100 paths per prefix, 200 prefixes per range | Only with a BGPDB host and *Look up BGP routing of the hosting IPs (BGPDB)* on (on in every use case). BGPDB keeps about 30 days. Feeds the BGP page, the BGP routing alerts, the Summary's BGP block and the Hunt map. |
 | 7 | Certificate Events | Certificate API | Each domain (with subdomains) and IP | Where certificates were observed on hostnames / IPs | 2,500 events per target, last 365 days | Always. Hostname gap-fill if capped. |
 | 8 | CT / co-occurrence | Certificate API | The newest Certificate API certificates, taking turns between domains | CT log submissions (500 per certificate) and SHA-256 observations (1,000 per certificate) | Settings cap, default 10 certificates (two calls each) | Only when *CT log & co-occurrence telemetry* is on. |
 
@@ -175,7 +178,8 @@ can return HTTP 503). All HTTP lookups also retry on rate limits and server erro
 calls (Iris Investigate, Domain History, Account): after 2 s and 4 s on HTTP 429 / 5xx or a connection error. The SDK
 also spaces its calls to each product's per-minute limit. Successful lookups are cached on disk, so re-running the
 same targets, or a new run that repeats a domain, costs no API query for them: for the *Cache lifetime* (default
-1 day), or a source's own lifetime (Domain History 7 days, VPNDB 6 hours by default; Settings → Storage & cache).
+1 day), or a source's own lifetime (Domain History 7 days, VPNDB and BGPDB 6 hours by default; Settings → Storage &
+cache).
 
 ## Passive DNS logic
 

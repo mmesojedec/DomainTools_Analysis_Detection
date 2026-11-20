@@ -9,7 +9,7 @@ import pytest
 from integrations import credentials
 
 ENV_VARS = ("DT_API_USERNAME", "DT_API_KEY", "DOMAINTOOLS_USERNAME", "DOMAINTOOLS_API_KEY", "DNSDB_API_KEY",
-            "DT_CERT_API_KEY", "DT_CREDENTIALS_FILE", "VPNDB_API_KEY", "VPNDB_URL")
+            "DT_CERT_API_KEY", "DT_CREDENTIALS_FILE", "VPNDB_API_KEY", "VPNDB_URL", "BGPDB_HOST", "BGPDB_API_KEY")
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +22,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(credentials, "DNSDB_KEY_FILE", tmp_path / ".dtdnsdb")
     monkeypatch.setattr(credentials, "CERT_API_KEY_FILE", tmp_path / ".dtcertapi")
     monkeypatch.setattr(credentials, "VPNDB_KEY_FILE", tmp_path / ".dtvpndb")
+    monkeypatch.setattr(credentials, "BGPDB_CONF_FILE", tmp_path / ".bgpdbq.conf")
     credentials.clear_credential_cache()
     yield tmp_path
     credentials.clear_credential_cache()
@@ -41,7 +42,7 @@ def test_nothing_configured():
     assert credentials.load_dnsdb_key() is None
     assert credentials.load_cert_api_key() is None
     overview = credentials.credential_overview()
-    assert [r["Found"] for r in overview["services"]] == [False, False, False, False]
+    assert [r["Found"] for r in overview["services"]] == [False, False, False, False, False]
     assert overview["toml"]["error"] is None and not overview["toml"]["exists"]
     assert not any(o["Configured"] for opts in overview["options"].values() for o in opts)
 
@@ -137,7 +138,7 @@ def test_status_never_contains_secret_values(isolated, monkeypatch):
     text = repr(overview)
     for secret in ("toml-user", "toml-key", "toml-dnsdb", "env-dnsdb"):
         assert secret not in text
-    assert [r["Found"] for r in rows] == [True, True, True, False]   # VPNDB not set
+    assert [r["Found"] for r in rows] == [True, True, True, False, False]   # VPNDB, BGPDB not set
 
 
 def options_by_label(overview):
@@ -164,7 +165,7 @@ def test_overview_marks_used_overridden_and_unset_options(isolated, monkeypatch)
     assert not options["$DT_CERT_API_KEY"]["Configured"] and options["$DT_CERT_API_KEY"]["Note"] == ""
     kinds = {r["Service"]: r["Kind"] for r in overview["services"]}
     assert kinds == {"DomainTools API": "credentials.toml", "DNSDB Scout": "Environment", "Certificate API": "credentials.toml",
-                     "VPNDB": ""}
+                     "VPNDB": "", "BGPDB": ""}
 
 
 def test_overview_half_set_env_and_incomplete_dtapi(isolated, monkeypatch):
@@ -321,3 +322,21 @@ def test_vpndb_key_and_url_follow_the_same_order(isolated, monkeypatch):
     assert tomllib.loads((isolated / "credentials.toml").read_text())["vpndb"]["api_key"] == "vpndb_saved" and path
     rows = {o["Option"]: o for o in credentials.credential_overview()["options"][credentials.TOML]}
     assert rows["[vpndb] api_key"]["Note"].startswith("Not used")
+
+
+def test_bgpdb_host_follows_the_bgpdbq_tool(isolated, monkeypatch):
+    assert credentials.load_bgpdb_host() is None and credentials.bgpdb_base_url() is None
+    write(isolated / ".bgpdbq.conf", "api: bgpdb-dt.dev.fsi.io   # comment\nkey: k1\nuser: me\npass: pw\n")
+    credentials.clear_credential_cache()
+    assert credentials.bgpdb_credential().source == "~/.bgpdbq.conf" or credentials.bgpdb_credential().kind == "Files"
+    assert credentials.bgpdb_base_url() == "https://bgpdb-dt.dev.fsi.io/v1"
+    assert credentials.bgpdb_options() == {"api_key": "k1", "user": "me", "password": "pw", "insecure": False}
+    assert credentials.bgpdb_base_url("bgpdb") == "https://bgpdb.dev.fsi.io/v1"          # a bare name, as bgpdbq
+    assert credentials.bgpdb_base_url("http://localhost:8080/v2") == "http://localhost:8080/v2"
+    credentials.save_credentials({credentials.BGPDB: {"host": "toml-host.example"}})
+    assert credentials.bgpdb_credential().kind == credentials.TOML
+    monkeypatch.setenv("BGPDB_HOST", "env-host.example")
+    credentials.clear_credential_cache()
+    assert credentials.load_bgpdb_host() == "env-host.example"
+    services = {row["Service"]: row for row in credentials.credential_overview()["services"]}
+    assert services[credentials.BGPDB]["Found"] and "k1" not in str(credentials.credential_overview())

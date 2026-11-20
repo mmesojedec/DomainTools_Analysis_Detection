@@ -102,6 +102,9 @@ def render_vpndb_page(ds):
     st.caption(VPNDB_TAGLINE)
     navigation.link("tor", label="Tor network statistics (also from VPNDB) are on their own page",
                     icon=":material/travel_explore:")
+    if ds.bgp_origins is not None and not ds.bgp_origins.empty:
+        navigation.link("bgp", label="BGP routing of these IPs (BGPDB): see its VPNDB match tab",
+                        icon=":material/hub:")
     table = ds.anonymizers
     if _empty(table) and _empty(ds.prefixes):
         st.info("No VPNDB verdicts in this run. Add a VPNDB key under Settings → API credentials and keep *Check "

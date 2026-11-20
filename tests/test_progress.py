@@ -25,7 +25,7 @@ def test_every_plan_row_has_a_key_and_starts_waiting():
     progress = CollectionProgress(PLAN)
     assert all(row["Key"] for row in PLAN)
     assert {row.state for row in progress.snapshot()} == {WAITING}
-    assert set(rows(progress)) == {"iris", "history", "certs", "pdns", "TXT", "CAA", "vpndb", "ct"}
+    assert set(rows(progress)) == {"iris", "history", "certs", "pdns", "TXT", "CAA", "vpndb", "bgpdb", "ct"}
 
 
 def test_supplements_count_only_the_capped_domains_and_skip_when_none_were_capped(monkeypatch):

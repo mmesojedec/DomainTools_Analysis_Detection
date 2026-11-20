@@ -27,6 +27,7 @@ SECTIONS = {
     "Infrastructure": (PageSpec("dns", "DNS & Hosting", ":material/dns:"),
                        PageSpec("vpndb", "VPNDB", ":material/vpn_lock:"),
                        PageSpec("tor", "Tor network", ":material/travel_explore:"),
+                       PageSpec("bgp", "BGP", ":material/hub:"),
                        PageSpec("cname", "CNAME Chains", ":material/route:"),
                        PageSpec("certs", "Certificates", ":material/verified_user:")),
     "Hunt": (PageSpec("hunt_tree", "Hunt map", ":material/account_tree:", True),

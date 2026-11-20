@@ -4,26 +4,29 @@ Loads API credentials once per process (cleared on "Force refresh").
 Each credential comes from the first source that provides it:
   1. environment variables
   2. a single TOML file (~/.config/dt-analytics/credentials.toml, or the path in $DT_CREDENTIALS_FILE)
-  3. per-service files (~/.dtapi, ~/.dtdnsdb, ~/.dtcertapi, ~/.dtvpndb)
+  3. per-service files (~/.dtapi, ~/.dtdnsdb, ~/.dtcertapi, ~/.dtvpndb, and the bgpdbq tool's ~/.bgpdbq.conf)
 Keys entered on Settings → API credentials are saved to the TOML file (save_credentials).
 The Certificate API uses the DomainTools API key unless a certificate-specific key is configured. Without a VPNDB key
-the VPN / proxy / Tor check is skipped.
+the VPN / proxy / Tor check is skipped; without a BGPDB host (an internal DomainTools service: its FQDN, an
+optional API key) the BGP routing lookups are.
 Sources and options are reported for display; credential values never are.
 """
+import configparser
 import functools
 import json
 import os
+import re
 import stat
 import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from config import CERT_API_KEY_FILE, CREDENTIALS_FILE, DNSDB_KEY_FILE, DTAPI_FILE, VPNDB_KEY_FILE
+from config import BGPDB_CONF_FILE, CERT_API_KEY_FILE, CREDENTIALS_FILE, DNSDB_KEY_FILE, DTAPI_FILE, VPNDB_KEY_FILE
 
 ENVIRONMENT, TOML, FILES = "Environment", "credentials.toml", "Files"
 SOURCES = (ENVIRONMENT, TOML, FILES)
-DOMAINTOOLS, DNSDB, CERT_API, VPNDB = "DomainTools API", "DNSDB Scout", "Certificate API", "VPNDB"
+DOMAINTOOLS, DNSDB, CERT_API, VPNDB, BGPDB = "DomainTools API", "DNSDB Scout", "Certificate API", "VPNDB", "BGPDB"
 # DomainTools username / key variable pairs, first complete pair wins; DOMAINTOOLS_* are the names the SDK docs use
 DOMAINTOOLS_ENV_PAIRS = (("DT_API_USERNAME", "DT_API_KEY"), ("DOMAINTOOLS_USERNAME", "DOMAINTOOLS_API_KEY"))
 SERVICES = {
@@ -31,8 +34,10 @@ SERVICES = {
     DNSDB: "Passive DNS (DNSDB)",
     CERT_API: "Certificates, CT log events",
     VPNDB: "VPN, residential proxy and Tor attribution of IPs, prefixes and ASNs",
+    BGPDB: "BGP routing of the hosting IPs: announced prefixes, origin networks, AS paths, RPKI / IRR (internal host)",
 }
 VPNDB_DEFAULT_URL = "https://vpndb.io/api/v1"
+BGPDB_DEFAULT_DOMAIN = "dev.fsi.io"   # the bgpdbq tool's rule: a bare name (no dot, no colon) is <name>.dev.fsi.io
 
 
 @dataclass(frozen=True)
@@ -182,6 +187,74 @@ def vpndb_base_url():
     return url.rstrip("/")
 
 
+@functools.lru_cache(maxsize=1)
+def _bgpdb_conf():
+    """
+    The bgpdbq tool's config file as it reads it: `key: value` lines, optionally under [options] (api = host, key = API
+    key, user / pass = HTTP auth, insecure = skip certificate checks). {} when the file is missing or unreadable.
+    """
+    try:
+        text = Path(BGPDB_CONF_FILE).read_text()
+    except OSError:
+        return {}
+    if not text.startswith("["):
+        text = "[options]\n" + text
+    parser = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=("#",))
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return {}
+    return {k: v.strip() for k, v in parser.items("options") if v.strip()} if parser.has_section("options") else {}
+
+
+@functools.lru_cache(maxsize=1)
+def bgpdb_credential():
+    """The BGPDB host (FQDN or URL): $BGPDB_HOST, [bgpdb] host in credentials.toml, or `api` in ~/.bgpdbq.conf."""
+    host = _env("BGPDB_HOST")
+    if host:
+        return Credential(host, "$BGPDB_HOST", kind=ENVIRONMENT, origin=("env:BGPDB_HOST",))
+    host = _toml_value("bgpdb", "host")
+    if host:
+        return _from_file(host, credentials_file(), TOML, ("toml:bgpdb.host",), "[bgpdb]")
+    host = _bgpdb_conf().get("api")
+    if host:
+        return _from_file(host, BGPDB_CONF_FILE, FILES, ("file:bgpdbq",))
+    return Credential()
+
+
+def bgpdb_options():
+    """
+    How to call BGPDB besides its host, from the same sources (never shown): {"api_key", "user", "password",
+    "insecure"}. The key: $BGPDB_API_KEY, [bgpdb] api_key, or `key` in ~/.bgpdbq.conf; HTTP auth and `insecure` come
+    from ~/.bgpdbq.conf ([bgpdb] user / password / insecure in credentials.toml too).
+    """
+    conf = _bgpdb_conf()
+    insecure = _toml_value("bgpdb", "insecure") or conf.get("insecure") or ""
+    return {"api_key": _env("BGPDB_API_KEY") or _toml_value("bgpdb", "api_key") or conf.get("key"),
+            "user": _toml_value("bgpdb", "user") or conf.get("user"),
+            "password": _toml_value("bgpdb", "password") or conf.get("pass") or "",
+            "insecure": insecure.lower() in ("1", "true", "yes", "on")}
+
+
+def bgpdb_base_url(host=None):
+    """
+    The API root for a BGPDB host, by the bgpdbq tool's rules: a bare name becomes <name>.dev.fsi.io, https:// is added
+    when no scheme is given, and /v1 unless the host already names a version (…/v2). None without a host.
+    """
+    host = str(host if host is not None else bgpdb_credential().value or "").strip().rstrip("/")
+    if not host:
+        return None
+    if "." not in host and ":" not in host:
+        host = f"{host}.{BGPDB_DEFAULT_DOMAIN}"
+    if not host.startswith(("http://", "https://")):
+        host = f"https://{host}"
+    return host if re.search(r"/v[0-9]+$", host) else f"{host}/v1"
+
+
+def load_bgpdb_host():
+    return bgpdb_credential().value
+
+
 def load_dtapi_credentials():
     """Returns (username, api_key), or None if not configured."""
     return dtapi_credential().value
@@ -211,7 +284,7 @@ def get_dt_api():
 
 def _service_credentials():
     return {DOMAINTOOLS: dtapi_credential(), DNSDB: dnsdb_credential(), CERT_API: cert_api_credential(),
-            VPNDB: vpndb_credential()}
+            VPNDB: vpndb_credential(), BGPDB: bgpdb_credential()}
 
 
 def _option_specs():
@@ -224,6 +297,8 @@ def _option_specs():
         ("DNSDB_API_KEY", (DNSDB,), ""),
         ("DT_CERT_API_KEY", (CERT_API,), "Only if the Certificate API needs its own key"),
         ("VPNDB_API_KEY", (VPNDB,), "$VPNDB_URL points at an on-premise installation"),
+        ("BGPDB_HOST", (BGPDB,), "The BGPDB host's FQDN (or URL)"),
+        ("BGPDB_API_KEY", (BGPDB,), "Optional: sent as X-API-Key when BGPDB needs one"),
     ]
     specs = [(ENVIRONMENT, f"env:{name}", f"${name}", services, bool(_env(name)), detail) for name, services, detail in env]
     toml = [
@@ -232,6 +307,8 @@ def _option_specs():
         ("dnsdb", "api_key", (DNSDB,), ""),
         ("cert_api", "api_key", (CERT_API,), "Only if the Certificate API needs its own key"),
         ("vpndb", "api_key", (VPNDB,), "[vpndb] url points at an on-premise installation"),
+        ("bgpdb", "host", (BGPDB,), "The BGPDB host's FQDN (or URL)"),
+        ("bgpdb", "api_key", (BGPDB,), "Optional: sent as X-API-Key"),
     ]
     specs += [(TOML, f"toml:{section}.{key}", f"[{section}] {key}", services, bool(_toml_value(section, key)), detail)
               for section, key, services, detail in toml]
@@ -245,6 +322,8 @@ def _option_specs():
          "Optional: only if the Certificate API needs its own key"),
         (FILES, "file:dtvpndb", display_path(VPNDB_KEY_FILE), (VPNDB,), bool(_read_lines(VPNDB_KEY_FILE)),
          "VPNDB API key on line 1"),
+        (FILES, "file:bgpdbq", display_path(BGPDB_CONF_FILE), (BGPDB,), bool(_bgpdb_conf().get("api")),
+         "The bgpdbq tool's config: `api: <host>` (and key, user, pass)"),
     ]
     return specs
 
@@ -256,7 +335,7 @@ def credential_overview():
     """
     resolved = _service_credentials()
     option_files = {"file:dtapi": DTAPI_FILE, "file:dtdnsdb": DNSDB_KEY_FILE, "file:dtcertapi": CERT_API_KEY_FILE,
-                    "file:dtvpndb": VPNDB_KEY_FILE}
+                    "file:dtvpndb": VPNDB_KEY_FILE, "file:bgpdbq": BGPDB_CONF_FILE}
     services = [{"Service": name, "Used by": SERVICES[name], "Found": cred.found, "Kind": cred.kind,
                  "Source": cred.source or "Not configured", "Warnings": list(dict.fromkeys(cred.warnings))}
                 for name, cred in resolved.items()]
@@ -297,7 +376,7 @@ def _matrix_status(service, credential, source, source_options):
     return NOT_SET
 
 
-SECTIONS = {DOMAINTOOLS: "domaintools", DNSDB: "dnsdb", CERT_API: "cert_api", VPNDB: "vpndb"}   # credentials.toml table per service
+SECTIONS = {DOMAINTOOLS: "domaintools", DNSDB: "dnsdb", CERT_API: "cert_api", VPNDB: "vpndb", BGPDB: "bgpdb"}   # credentials.toml table per service
 
 
 class CredentialFileError(Exception):
@@ -328,7 +407,7 @@ def saved_sections():
 
 def save_credentials(updates, remove=()):
     """
-    Writes `updates` ({service: {"username"/"api_key": value}}) into credentials.toml and drops the tables of the
+    Writes `updates` ({service: {"username"/"api_key"/"host": value}}) into credentials.toml and drops the tables of the
     services in `remove`. Other tables and keys are kept; comments are not. The file is replaced atomically, created
     readable only by you (0600) in a folder only you can open (0700). Returns the file's display path.
     """
@@ -365,7 +444,8 @@ def save_credentials(updates, remove=()):
 
 
 def clear_credential_cache():
-    for loader in (_load_toml, dtapi_credential, dnsdb_credential, cert_api_credential, vpndb_credential, get_dt_api):
+    for loader in (_load_toml, dtapi_credential, dnsdb_credential, cert_api_credential, vpndb_credential,
+                   _bgpdb_conf, bgpdb_credential, get_dt_api):
         loader.cache_clear()
 
 
@@ -378,3 +458,5 @@ CERT_API_MISSING = (f"Certificate API key not found: it uses the DomainTools API
                     "$DT_API_KEY, $DOMAINTOOLS_API_KEY, or line 2 of ~/.dtapi) unless [cert_api] api_key or $DT_CERT_API_KEY is set")
 VPNDB_MISSING = (f"VPNDB key not found: set [vpndb] api_key in {_FILE}, set $VPNDB_API_KEY, or create ~/.dtvpndb "
                  "(create a key on vpndb.io under Account → API keys)")
+BGPDB_MISSING = (f"BGPDB host not found: enter its FQDN on Settings → API credentials ([bgpdb] host in {_FILE}), set "
+                 "$BGPDB_HOST, or put `api: <host>` in ~/.bgpdbq.conf (the bgpdbq tool's config)")

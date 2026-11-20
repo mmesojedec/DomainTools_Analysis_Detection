@@ -44,6 +44,7 @@ from views.account_view import render_account_page
 from views.alert_tools import AlertView
 from views.anonymizer_view import render_anonymizer_summary
 from views.api_usage_view import skipped_products_note
+from views.bgp_page import render_bgp_line, render_bgp_page
 from views.campaign_view import render_campaign_lens
 from views.certsql_view import CERTS_KEY as CERTSQL_CERTS_KEY
 from views.certsql_view import ORIGIN_KEY as CERTSQL_ORIGIN_KEY
@@ -116,7 +117,8 @@ CACHE_HASH_FUNCS = {pd.DataFrame: _frame_digest}
 @st.cache_data(show_spinner=False, max_entries=16, hash_funcs=CACHE_HASH_FUNCS)
 def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip_observations, brands, official_domains,
                       window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None, exit_weeks=None,
-                      neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist=""):
+                      neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist="",
+                      bgp_origins=None, bgp_asns=None, bgp_routes=None):
     return detect_threat_flags(
         events, thresholds, risk_df=risk, ssl_df=ssl, enrichment_data=enrichment, cert_events_df=cert_events,
         ip_observations=ip_observations, brands=brands, official_domains=official_domains,
@@ -124,6 +126,7 @@ def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip
         anonymizers=anonymizers, vpndb_context={"exit_weeks": exit_weeks, "neighbour_ranges": neighbour_ranges,
                                                 "hosting_asns": hosting_asns, "tor_overview": tor_overview},
         verdicts=verdicts, allowlist=allowlist,
+        bgp_frames={"origins": bgp_origins, "asns": bgp_asns, "routes": bgp_routes},
     )
 
 
@@ -134,9 +137,11 @@ def analyst_inputs():
 
 
 def vpndb_frames(ds):
-    """The VPNDB context frames the anonymizer rules read (see collector.collect_anonymizer_context)."""
+    """The VPNDB context frames the anonymizer rules read (see collector.collect_anonymizer_context), and the BGPDB
+    frames of the BGP routing rules."""
     return {"exit_weeks": ds.exit_weeks, "neighbour_ranges": ds.neighbour_ranges, "hosting_asns": ds.hosting_asns,
-            "tor_overview": ds.tor_overview}
+            "tor_overview": ds.tor_overview, "bgp_origins": ds.bgp_origins, "bgp_asns": ds.bgp_asns,
+            "bgp_routes": ds.bgp_routes}
 
 
 def count_alerts_outside_window(ds, thresholds, windowed_alerts, suppressions):
@@ -260,6 +265,9 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
                 vpndb_max_ips=settings.vpndb_max_ips,
                 vpndb_details=settings.vpndb_details,
                 vpndb_context=settings.vpndb_context,
+                bgp_check=settings.bgp_check,
+                bgp_max_ips=settings.bgp_max_ips,
+                bgp_context=settings.bgp_context,
                 seed_hits=resolution.hits if resolution is not None else None,
                 host_focus=host_focus,
                 history_days=settings.history_days,
@@ -648,6 +656,7 @@ def page_dns():
     st.header(navigation.title("dns"), help="Domain History and passive DNS over time, subdomains and IP clusters, web "
                                             "trackers and TXT fingerprints, and the campaign and hosting view.")
     render_anonymizer_summary(CTX.ds)
+    render_bgp_line(CTX.ds)
     names = [*INFRA_TABS, "Campaign & hosting"]
     tabs = st.tabs(names, key=DNS_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
@@ -704,6 +713,7 @@ PAGE_FUNCTIONS = {
     "alerts": data_page(page_alerts),
     "dns": data_page(page_dns),
     "vpndb": data_page(lambda: render_vpndb_page(CTX.ds)),
+    "bgp": data_page(lambda: render_bgp_page(CTX.ds)),
     "tor": data_page(lambda: render_tor_page(CTX.ds)),
     "cname": data_page(lambda: render_cname_lens(CTX.ds, CTX.collected)),
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
@@ -723,7 +733,7 @@ PAGE_FUNCTIONS = {
 }
 
 
-TOOLBAR_PAGES = {"summary", "profile", "alerts", "dns", "vpndb", "tor", "cname", "certs", "hostnames", "triage",
+TOOLBAR_PAGES = {"summary", "profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "certs", "hostnames", "triage",
                  "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
 
 

@@ -18,3 +18,17 @@ def every_key_present(monkeypatch):
     key is skipped). test_stages_without_keys_are_skipped checks the skipping itself."""
     from integrations import collector
     monkeypatch.setattr(collector, "stages_without_keys", lambda: set())
+
+
+@pytest.fixture(autouse=True)
+def no_real_bgpdb(monkeypatch, tmp_path):
+    """The analyst's BGPDB host (~/.bgpdbq.conf, $BGPDB_HOST) never reaches a test: BGPDB lookups go to the network."""
+    from integrations import credentials
+    for name in ("BGPDB_HOST", "BGPDB_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(credentials, "BGPDB_CONF_FILE", tmp_path / ".bgpdbq.conf")
+    credentials._bgpdb_conf.cache_clear()
+    credentials.bgpdb_credential.cache_clear()
+    yield
+    credentials._bgpdb_conf.cache_clear()
+    credentials.bgpdb_credential.cache_clear()

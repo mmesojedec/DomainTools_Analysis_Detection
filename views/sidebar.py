@@ -10,6 +10,9 @@ import pytz
 import streamlit as st
 
 from config import (
+    BGPDB_ASN_MAX,
+    BGPDB_MAX_IPS,
+    BGPDB_ROUTE_MAX,
     CACHE_GROUP_DEFAULTS,
     CACHE_GROUPS,
     CACHE_LIFETIMES,
@@ -48,6 +51,7 @@ from core.use_cases import (
 from core.window import CUSTOM_RANGE, DEFAULT_WINDOW, WINDOW_PRESETS
 from integrations.cache import cache_usage, clear_all_caches, set_cache_ttl, set_group_ttl
 from integrations.credentials import (
+    BGPDB,
     CERT_API,
     DNSDB,
     DOMAINTOOLS,
@@ -90,6 +94,9 @@ class LookupSettings:
     vpndb_max_ips: int = VPNDB_MAX_IPS      # hosting IPs in the bulk request
     vpndb_details: int = VPNDB_DETAIL_MAX   # full verdicts and weekly histories
     vpndb_context: bool = True              # neighbouring /24s, hosting networks, leads on dedicated exits
+    bgp_check: bool = False                 # BGPDB: BGP routing of the hosting IPs
+    bgp_max_ips: int = BGPDB_MAX_IPS        # hosting IPs looked up in BGPDB
+    bgp_context: bool = True                # BGPDB: prefixes announced around the run's prefixes
     history_days: int = 0                   # Domain History: only changes of the last N days (0: no period)
     history_max: int = DOMAIN_HISTORY_MAX_CHANGES   # Domain History: changes per domain at most (0: no cap)
     pdns_incremental: bool = False          # DNSDB: only records seen since the last offline copy of the targets
@@ -101,7 +108,8 @@ class LookupSettings:
                 "txt_records": self.txt_records, "caa_lookup": self.caa_lookup, "seed_preselect": self.seed_preselect,
                 "cname_lookup": self.cname_lookup, "vpndb_check": self.vpndb_check, "vpndb_only": self.vpndb_only,
                 "vpndb_max_ips": self.vpndb_max_ips, "vpndb_details": self.vpndb_details,
-                "vpndb_context": self.vpndb_context, "history_days": self.history_days,
+                "vpndb_context": self.vpndb_context, "bgp_check": self.bgp_check, "bgp_max_ips": self.bgp_max_ips,
+                "bgp_context": self.bgp_context, "history_days": self.history_days,
                 "history_max": self.history_max,
                 "pdns_incremental": self.pdns_incremental}
 
@@ -157,6 +165,8 @@ def lookup_settings(raw_input, run, save_offline=False):
                           cname_lookup=bool(opt["opt_cname"]), vpndb_check=bool(opt["opt_vpndb"]),
                           vpndb_only=bool(opt["opt_vpndb_only"]), vpndb_max_ips=int(opt["opt_vpndb_max_ips"]),
                           vpndb_details=int(opt["opt_vpndb_details"]), vpndb_context=bool(opt["opt_vpndb_context"]),
+                          bgp_check=bool(opt["opt_bgpdb"]), bgp_max_ips=int(opt["opt_bgpdb_max_ips"]),
+                          bgp_context=bool(opt["opt_bgpdb_context"]),
                           history_days=next_history_days(), history_max=next_history_cap(),
                           pdns_incremental=bool(opt["opt_pdns_incremental"]))
 
@@ -196,6 +206,8 @@ def options_summary():
     if opt["opt_vpndb"]:
         parts.append(f"VPNDB {int(opt['opt_vpndb_max_ips'])}/{int(opt['opt_vpndb_details'])}"
                      + ("" if opt["opt_vpndb_context"] else " (no neighbourhood)"))
+    if opt["opt_bgpdb"]:
+        parts.append(f"BGPDB {int(opt['opt_bgpdb_max_ips'])}" + ("" if opt["opt_bgpdb_context"] else " (no neighbours)"))
     if opt["opt_pivot"]:
         parts.append(f"IP pivots {opt['opt_pivot_max']}")
     if opt["opt_pdns_incremental"]:
@@ -419,6 +431,23 @@ def render_collection_options(prefix=""):
                 help=f"Neighbouring /24s, hosting networks and other domains on dedicated exits: up to {VPNDB_NEIGHBOUR_MAX} /24 ranges and {VPNDB_ASN_MAX} hosting networks in VPNDB (one "
                      f"query each) and up to {VPNDB_REVERSE_MAX} DNSDB reverse lookups on dedicated exits. Feeds "
                      "*Hosted Among Anonymizer Exits* and the VPNDB page's Neighbourhood and Leads tabs.")
+    st.markdown("**BGPDB**")
+    st.checkbox(OPTION_LABELS["opt_bgpdb"], key=prefix + "opt_bgpdb",
+                help="On in every use case; only queried with a BGPDB host (Settings → API credentials: an internal "
+                     "DomainTools service, reachable on its network or VPN). Looks up each public hosting IP (IP "
+                     "targets, current Iris IPs, passive DNS; IPv4 and IPv6, no CDN addresses): the announced prefix, "
+                     "the origin network, RPKI / IRR validity and the RIR allocation; then the AS paths of the "
+                     f"prefixes (up to {BGPDB_ROUTE_MAX}) and the origin and upstream networks (up to {BGPDB_ASN_MAX}). "
+                     "Feeds the BGP page and the BGP routing alerts.")
+    bgp_off = not st.session_state[prefix + "opt_bgpdb"] or st.session_state[prefix + "opt_vpndb_only"]
+    b1, b2 = st.columns(2)
+    b1.number_input(OPTION_LABELS["opt_bgpdb_max_ips"], min_value=1, max_value=BGPDB_MAX_IPS * 5, step=50,
+                    key=prefix + "opt_bgpdb_max_ips", disabled=bgp_off,
+                    help="Public hosting addresses looked up (IP targets first, then each domain's current Iris IPs "
+                         "and passive DNS addresses, most recent first). One BGPDB query each.")
+    b2.checkbox(OPTION_LABELS["opt_bgpdb_context"], key=prefix + "opt_bgpdb_context", disabled=bgp_off,
+                help="The prefixes announced in the /20 (IPv6: /40) around the run's prefixes, and by whom: neighbours "
+                     "of the same origin are leads. One query per range, up to 10 ranges.")
     st.checkbox(OPTION_LABELS["opt_vpndb_only"], key=prefix + "opt_vpndb_only",
                 help="No other source: for runs on IP addresses and CIDR ranges only. Looks up the IP targets (IPv4 and IPv6) and CIDR "
                      "ranges in VPNDB and nothing else: no Iris, passive DNS, Domain History or certificates. Domain "
@@ -542,11 +571,15 @@ KEY_FIELDS = {   # service -> [(credentials.toml key, label, password field)]
     DNSDB: [("api_key", "DNSDB API key", True)],
     CERT_API: [("api_key", "Certificate API key (optional)", True)],
     VPNDB: [("api_key", "VPNDB API key", True)],
+    BGPDB: [("host", "BGPDB host (FQDN)", False), ("api_key", "BGPDB API key (optional)", True)],
 }
 KEY_HELP = {
     CERT_API: "Only if the Certificate API needs its own key; otherwise it uses the DomainTools API key.",
     VPNDB: "A key created on vpndb.io under Account → API keys (starts with vpndb_). For an on-premise installation, "
            "also set [vpndb] url in credentials.toml or $VPNDB_URL.",
+    BGPDB: "The internal BGPDB host, e.g. bgpdb-dt.dev.fsi.io (reachable on the DomainTools network or VPN). A bare "
+           "name gets .dev.fsi.io, as in the bgpdbq tool. The key is only needed if the host asks for one. Read from "
+           "~/.bgpdbq.conf too, when the bgpdbq tool is set up.",
 }
 
 

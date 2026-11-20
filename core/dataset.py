@@ -54,6 +54,11 @@ class Dataset:
     exit_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)    # other names on dedicated exits (DNSDB)
     vpndb_raw: pd.DataFrame = field(default_factory=pd.DataFrame)      # every VPNDB answer as received
     tor_overview: dict = field(default_factory=dict)                  # VPNDB /tor overview of the Tor network
+    bgp_origins: pd.DataFrame = field(default_factory=pd.DataFrame)    # BGPDB: prefix and origin per hosting IP
+    bgp_asns: pd.DataFrame = field(default_factory=pd.DataFrame)       # BGPDB: origin and upstream networks
+    bgp_routes: pd.DataFrame = field(default_factory=pd.DataFrame)     # BGPDB: AS paths towards the prefixes
+    bgp_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB: prefixes announced around them
+    bgp_raw: pd.DataFrame = field(default_factory=pd.DataFrame)        # every BGPDB answer as received
     host_focus: dict = field(default_factory=dict)                      # apex -> hostnames the views are focused on
     hostname_inventory: pd.DataFrame = field(default_factory=pd.DataFrame)   # every hostname, full history, unfocused
     hostname_certificates: pd.DataFrame = field(default_factory=pd.DataFrame)   # inventory hostname -> certificate links
@@ -187,6 +192,8 @@ def build_dataset(collected, selected_domains, dh_fields, pdns_fields, timezone,
         setattr(ds, name, frame[frame["CIDR"].isin(selected_domains)].reset_index(drop=True)
                 if frame is not None and not frame.empty else pd.DataFrame())
 
+    _bgp_frames(ds, collected, selected_domains)
+
     pivots = getattr(collected, "ip_pivots", pd.DataFrame())
     if pivots is not None and not pivots.empty:
         selected = set(selected_domains)
@@ -194,6 +201,33 @@ def build_dataset(collected, selected_domains, dh_fields, pdns_fields, timezone,
     # Full history: hop detection needs the domains that used an IP before the window; hops are windowed by the engine
     ds.ip_observations = build_ip_observations(pdns_all, pivots)
     return ds
+
+
+def _bgp_frames(ds, collected, selected_domains):
+    """The BGPDB frames of the selected domains: their IPs' origins, the routes and neighbours of those prefixes, and
+    the networks on them (a run saved before BGPDB existed has none)."""
+    origins = getattr(collected, "bgp_origins", None)
+    if origins is None or origins.empty:
+        for name in ("bgp_origins", "bgp_asns", "bgp_routes", "bgp_neighbours"):
+            setattr(ds, name, pd.DataFrame())
+    else:
+        selected = set(selected_domains)
+        keep = origins["Domains"].astype(str).map(lambda v: bool(selected & {d.strip() for d in v.split(",")}))
+        ds.bgp_origins = origins[keep].reset_index(drop=True)
+        prefixes = set(ds.bgp_origins["Prefix"])
+        routes = getattr(collected, "bgp_routes", None)
+        ds.bgp_routes = routes[routes["Prefix"].isin(prefixes)].reset_index(drop=True) \
+            if routes is not None and not routes.empty else pd.DataFrame()
+        networks = set(ds.bgp_origins["Origin"]) | (set(ds.bgp_routes["Upstream"]) if not ds.bgp_routes.empty else set())
+        asns = getattr(collected, "bgp_asns", None)
+        ds.bgp_asns = asns[asns["ASN"].isin(networks)].reset_index(drop=True) \
+            if asns is not None and not asns.empty else pd.DataFrame()
+        near = getattr(collected, "bgp_neighbours", None)
+        ds.bgp_neighbours = near[near["Run Prefix"].astype(str).map(
+            lambda v: bool(prefixes & {p.strip() for p in v.split(",")}))].reset_index(drop=True) \
+            if near is not None and not near.empty else pd.DataFrame()
+    raw = getattr(collected, "bgp_raw", None)
+    ds.bgp_raw = raw if raw is not None else pd.DataFrame()
 
 
 def expand_multiline_rows(df, split_cols, blank_cols):

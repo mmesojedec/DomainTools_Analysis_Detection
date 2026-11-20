@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from config import DEFAULT_THRESHOLDS
+from core import bgp
 from core.alert_grouping import merge_duplicate_alerts
 from core.allowlist import parse_allowlist
 from core.anonymizers import by_ip, tor_exit_lookups, vpndb_lookups
@@ -14,6 +15,7 @@ from core.helpers import is_ip_address
 from core.network_intel import build_ip_intel
 from core.pdns_features import add_event_gaps
 from core.threat_detection.anonymizer_rules import ANONYMIZER_RULES, shared_exit_alerts
+from core.threat_detection.bgp_rules import BGP_RULES
 from core.threat_detection.cname_rules import CNAME_RULES, shared_cname_alerts
 from core.threat_detection.compound_rules import (
     COMPOUND_RULES,
@@ -134,7 +136,7 @@ def _hop_alerts(contexts, hops):
 def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrichment_data=None,
                         cert_events_df=None, ip_observations=None, brands=(), official_domains=(),
                         history_gaps=False, window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None,
-                        vpndb_context=None, verdicts=None, allowlist=None):
+                        vpndb_context=None, verdicts=None, allowlist=None, bgp_frames=None):
     """
     Evaluates DNS/pDNS/Domain History events, SSL/TLS certificates, Iris enrichment, and cross-domain
     correlations per domain on raw UTC timestamps. Returns a ThreatResult.
@@ -145,6 +147,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     `anonymizers`: VPNDB verdicts of the run's IPs (core.anonymizers table) for the VPN / proxy / Tor rules.
     `vpndb_context`: {"exit_weeks", "neighbour_ranges", "hosting_asns"} frames (collector.collect_anonymizer_context)
     and "tor_overview" (VPNDB /tor).
+    `bgp_frames`: {"origins", "asns", "routes"} (BGPDB, core.bgp) for the BGP routing rules.
     """
     thresholds = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     enrichment_data = enrichment_data or {}
@@ -160,6 +163,8 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     exit_weeks, neighbours, asn_verdicts = vpndb_lookups(vpndb_context)
     tor_networks, tor_prefixes = tor_exit_lookups((vpndb_context or {}).get("tor_overview"))
     candidates.update(ip for ip, row in anonymizer_ips.items() if ip in str(row["Domains"]).split(", "))   # IP targets
+    bgp_frames = bgp_frames or {}
+    bgp_found = bgp.findings(bgp_frames.get("origins"), bgp_frames.get("asns"), bgp_frames.get("routes"))
     if not candidates:
         return result
 
@@ -211,6 +216,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
             asn_verdicts=asn_verdicts,
             tor_networks=tor_networks,
             tor_prefixes=tor_prefixes,
+            bgp_findings=bgp.for_domain(bgp_found, domain),
             brands=tuple(brands or ()),
             official_domains=tuple(official_domains or ()),
             now=now,
@@ -219,7 +225,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         if not dom_events.empty:
             for rule in DNS_RULES + CNAME_RULES:
                 rule(ctx)
-        for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES:
+        for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES + BGP_RULES:
             rule(ctx)
         run_ssl_rules(ctx)
         if gated:
