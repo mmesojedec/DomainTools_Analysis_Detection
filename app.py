@@ -161,8 +161,8 @@ def count_alerts_outside_window(ds, thresholds, windowed_alerts, suppressions):
 
 
 @st.cache_data(show_spinner=False, max_entries=16, hash_funcs=CACHE_HASH_FUNCS)
-def build_risk_profiles(domains, alerts, risk, ssl, pdns, enrichment):
-    return generate_digital_risk_profile(domains, alerts, risk, ssl, pdns, enrichment)
+def build_risk_profiles(domains, alerts, risk, ssl, pdns, enrichment, routed_domains=()):
+    return generate_digital_risk_profile(domains, alerts, risk, ssl, pdns, enrichment, routed_domains)
 
 
 def reuse_dataset(collected, selected_domains, selected_dh, selected_pdns, timezone, window, host_focus):
@@ -509,7 +509,7 @@ def _build_context(collected, timezone, window, thresholds, filters, step):
     step("Comparing with earlier runs and building the risk profiles...")
     view = build_alert_view(threats)
     profiles = build_risk_profiles(ds.selected_domains, view.active.drop(columns=["Evidence"], errors="ignore"), ds.risk,
-                                   ds.ssl, ds.pdns, ds.enrichment)
+                                   ds.ssl, ds.pdns, ds.enrichment, routed_domains(ds))
     save_pending_snapshot(view, profiles, ds.host_focus)
     context = Context(timezone, window, thresholds, collected, ds, threats, view, profiles)
     st.session_state[CONTEXT_MEMO_KEY] = (key, ds, context)   # holding `ds` keeps its id from being reused
@@ -517,6 +517,14 @@ def _build_context(collected, timezone, window, thresholds, filters, step):
 
 
 CONTEXT_MEMO_KEY = "context_memo"
+
+
+def routed_domains(ds):
+    """The domains whose hosting BGPDB answered for: only they get the BGP Routing risk vector."""
+    origins = getattr(ds, "bgp_origins", None)
+    if origins is None or origins.empty:
+        return ()
+    return tuple(sorted({d.strip() for value in origins["Domains"].astype(str) for d in value.split(",") if d.strip()}))
 
 
 def _mtimes():

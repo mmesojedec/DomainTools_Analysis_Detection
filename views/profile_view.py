@@ -2,6 +2,7 @@
 import pandas as pd
 import streamlit as st
 
+from core import bgp
 from core.anonymizers import ANONYMIZER_CATEGORIES, for_domains, shared_exit
 from core.certsql import certificates_query
 from core.cname import dataset_cname_map
@@ -105,6 +106,59 @@ def _render_vpndb(ds, domain, current_ips, window_ips):
         navigation.link("vpndb", label="Every checked IP (VPNDB page)", container=c_dns)
 
 
+BGP_IP_COLUMNS = ["IP", "Prefix", "Origin", "AS Name", "Status", "Origins", "Announced Since", "Collectors", "RIR Country",
+                  "Iris Country", "Upstream", "Findings"]
+
+
+def _render_bgp(ds, domain):
+    """BGPDB: who announces the domain's hosting IPs, whether the registries allow it, and the routing findings."""
+    from views.bgp_page import STATUS_BADGES, badges
+    from views.bgp_page import alerts_button as bgp_alerts_button
+    with st.container(border=True):
+        st.markdown("**BGP routing** · who announces each hosting IP on the internet (BGPDB)",
+                    help="Each public hosting IP of the domain (no CDN addresses) looked up in BGPDB, about the last "
+                         "30 days of the global routing table: the prefix it is announced in, the network (origin AS) "
+                         "that announces it, whether RPKI / IRR authorize that network, and the routing findings.")
+        origins = getattr(ds, "bgp_origins", None)
+        if origins is None or origins.empty:
+            st.caption("No BGPDB data in this run: add a BGPDB host (Settings → API credentials, or ~/.bgpdbq.conf) "
+                       "and keep *Look up BGP routing of the hosting IPs* on (Settings → Collection options), then analyze again.")
+            return
+        mine = bgp.for_domain(origins, domain)
+        if mine.empty:
+            st.caption("None of the domain's IPs was looked up in BGPDB (CDN, private, or over the per-run limit), "
+                       "or BGPDB knows no announcement for them.")
+            return
+        found = bgp.for_domain(bgp.findings(origins, ds.bgp_asns, ds.bgp_routes), domain)
+        usual = bgp.main_origins(mine)
+        networks = usual.drop_duplicates("Origin")
+        named = ", ".join(f"{row['Origin']} {row['AS Name']}".strip()
+                          + f" :{STATUS_BADGES.get(row['Status'], 'gray')}-badge[{row['Status']}]"
+                          for _, row in networks.head(4).iterrows())
+        st.markdown(f"**{mine['IP'].nunique()}** IP(s) in **{mine['Prefix'].nunique()}** prefix(es), announced by "
+                    f"{named}" + (f" and {len(networks) - 4} more" if len(networks) > 4 else "") + "  \n" + badges(found))
+        asns = getattr(ds, "bgp_asns", None)
+        if asns is not None and not asns.empty:
+            ages = asns[asns["ASN"].isin(set(usual["Origin"]))].dropna(subset=["Registered"])
+            if not ages.empty:
+                st.caption("Origin networks registered: " + ", ".join(
+                    f"{row['ASN']} {pd.Timestamp(row['Registered']):%Y-%m-%d} ({row['RIR'] or '?'}"
+                    f"{', ' + row['RIR Country'] if row['RIR Country'] else ''})" for _, row in ages.iterrows()))
+        ips = bgp.ip_table(mine, ds.bgp_routes, found=found, enrichment=ds.enrichment)
+        st.dataframe(ips[[c for c in BGP_IP_COLUMNS if c in ips.columns]], hide_index=True, width="stretch",
+                     column_config={"Announced Since": st.column_config.DatetimeColumn(format="YYYY-MM-DD"),
+                                    "Origins": st.column_config.NumberColumn(
+                                        "Origins", help="Networks that announced the prefix in the last ~30 days; "
+                                                        "more than 1: see the BGP page's Origin timeline"),
+                                    "Findings": st.column_config.TextColumn(width="medium")})
+        if not found.empty:
+            st.dataframe(found[["Finding", "Severity", "Prefix", "ASN", "Detail"]], hide_index=True, width="stretch",
+                         column_config={"Detail": st.column_config.TextColumn(width="large")})
+        c_alerts, c_page = st.columns(2)
+        bgp_alerts_button(f"profile_bgp_{domain}", c_alerts)
+        navigation.link("bgp", label="Routing map and timeline (BGP page)", container=c_page)
+
+
 def _render_actions(domain):
     """One row of next moves for the domain: where else it was seen, IrisQL / CertsQL searches, a copyable name."""
     from views.certsql_view import QUERY_KEY as CERTSQL_KEY  # the query pages import this page's helpers
@@ -132,8 +186,8 @@ def _render_actions(domain):
 def render_profile(ctx):
     ds, view, profiles = ctx.ds, ctx.view, ctx.profiles
     domains = list(ds.selected_domains)
-    st.header("Domain profile", help="One domain: risk, registration, hosting, DNS, CNAMEs, certificates, history and "
-                                     "alerts. Each section links to the page with the full detail.")
+    st.header("Domain profile", help="One domain: risk, registration, hosting, VPNDB, BGP routing, DNS, CNAMEs, "
+                                     "certificates, history and alerts. Each section links to the page with the full detail.")
     if not domains:
         st.info("No domain is selected in the toolbar's *Domains* filter.")
         return
@@ -194,6 +248,7 @@ def render_profile(ctx):
     window_ips = set(explode_ip_events(ds.pdns_utc[ds.pdns_utc["Domain"] == domain])["IP"].astype(str)) \
         if not ds.pdns_utc.empty else set()
     _render_vpndb(ds, domain, set(ips["IP"].astype(str)) if not ips.empty else set(), window_ips)
+    _render_bgp(ds, domain)
 
     st.subheader("Alerts")
     if ranked.empty:

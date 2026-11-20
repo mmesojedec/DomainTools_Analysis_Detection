@@ -170,11 +170,13 @@ TOR_NETWORK_EXITS = 10      # ... or holding this many Tor exit addresses
 
 def rule_hosted_among_tor_exits(ctx):
     """The domain's own IPs are not Tor relays, but they sit in a Tor exit prefix or on a network that carries a
-    real share of Tor exit traffic (VPNDB /tor overview): hosting next to Tor exits."""
+    real share of Tor exit traffic (VPNDB /tor overview): hosting next to Tor exits. The network is BGPDB's origin of
+    the IP when the run has it, else Iris's or VPNDB's ASN."""
     if ctx.is_ip or not (ctx.tor_networks or ctx.tor_prefixes):
         return
     tor_ips = {ip for ip, row in (ctx.anonymizers or {}).items() if row["Category"] == TOR}
     asns = {entry["ip"]: entry["asn"] for entry in ctx.profile.get("ips", []) if entry.get("asn")}
+    asns.update(ctx.bgp_origins or {})   # BGPDB's origin is the network that announces the IP: it wins over Iris
     lines, evidence, in_prefix = [], [], False
     for ip in sorted(_domain_ips(ctx) - tor_ips):
         try:

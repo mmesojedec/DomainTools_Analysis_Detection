@@ -1,7 +1,7 @@
 """
 Results toolbar: one row under the status line of every results page, shown once a run or dataset is loaded. It
 fine-tunes what the pages show from the data already collected, with no new lookups: the analysis window, the
-domains, a hostname focus, the record types, the alert severities and confidences, and the most used detection
+domains, the hosting network (BGPDB origin, VPNDB verdict), a hostname focus, the record types, the alert severities and confidences, and the most used detection
 thresholds. Each change re-runs the detection rules on the loaded data and updates every page.
 
 Every filter lives in session state, so the analysis is built once per app run, before the page draws, and keeps the
@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from config import THRESHOLD_SPECS
+from core import bgp
 from core.hostnames import focus_from_hostnames
 from core.intel_data import CONFIDENCE_ORDER, SEVERITY_ORDER
 from core.use_cases import history_period_days
@@ -52,6 +53,53 @@ def dh_key():
 
 def pdns_key():
     return f"view_pdns_types::{_marker()}"
+
+
+def asn_key():
+    return f"view_asns::{_marker()}"
+
+
+def vpndb_key():
+    return f"view_vpndb::{_marker()}"
+
+
+def _split(value):
+    return {d.strip() for d in str(value).split(",") if d.strip()}
+
+
+def network_options(collected):
+    """
+    ({ASN: label}, {ASN: domains}, {VPNDB verdict: domains}) of the loaded run: the usual BGP origin network of each
+    domain's hosting IPs (BGPDB) and the VPNDB verdict of each (VPN, Tor, Not anonymous, ...). Empty without that data.
+    """
+    labels, by_asn, by_verdict = {}, {}, {}
+    origins = getattr(collected, "bgp_origins", None)
+    if origins is not None and not origins.empty:
+        for _, row in bgp.main_origins(origins).iterrows():
+            labels.setdefault(row["Origin"], f"{row['Origin']} {row['AS Name']}".strip())
+            by_asn.setdefault(row["Origin"], set()).update(_split(row["Domains"]))
+    checked = getattr(collected, "anonymizers", None)
+    if checked is not None and not checked.empty and "Category" in checked:
+        for _, row in checked.iterrows():
+            if row["Category"]:
+                by_verdict.setdefault(str(row["Category"]), set()).update(_split(row["Domains"]))
+    return labels, by_asn, by_verdict
+
+
+def network_domains(collected, asns, verdicts):
+    """
+    The domains whose hosting matches the Network filter: any picked origin network AND any picked VPNDB verdict
+    (a group left empty does not filter). None when nothing is picked.
+    """
+    if not asns and not verdicts:
+        return None
+    _, by_asn, by_verdict = network_options(collected)
+    keep = None
+    for picked, index in ((asns, by_asn), (verdicts, by_verdict)):
+        if picked:
+            found = set().union(*(index.get(value, set()) for value in picked))
+            keep = found if keep is None else keep & found
+    return keep
 
 
 def filter_options(collected):
@@ -94,6 +142,10 @@ def filter_state(collected):
     """
     all_domains, all_dh, all_pdns = filter_options(collected)
     domains = _keep(domains_key(), all_domains, []) or all_domains
+    labels, _, by_verdict = network_options(collected)
+    matching = network_domains(collected, _keep(asn_key(), labels, []), _keep(vpndb_key(), by_verdict, []))
+    if matching is not None and any(d in matching for d in domains):   # no match: the filter is not applied
+        domains = [d for d in domains if d in matching]
     dh = _keep(dh_key(), all_dh, []) or all_dh
     pdns = _keep(pdns_key(), all_pdns, []) or all_pdns
     if not is_analyst():   # the simple mode keeps every record type
@@ -127,7 +179,7 @@ def _changed_thresholds():
 
 def _reset_filters(collected):
     state = st.session_state
-    for key in (domains_key(), dh_key(), pdns_key(), focus_key()):
+    for key in (domains_key(), dh_key(), pdns_key(), focus_key(), asn_key(), vpndb_key()):
         state[key] = []
     state[SEVERITY_KEY], state[CONFIDENCE_KEY] = list(SEVERITY_ORDER), list(CONFIDENCE_ORDER)
     for spec in THRESHOLD_SPECS:
@@ -175,6 +227,30 @@ def render_results_toolbar(collected, filters):
                     st.multiselect("Passive DNS record types", all_pdns, key=pdns_key(), placeholder="Every type")
                 if all_dh:
                     st.multiselect("Domain History record types", all_dh, key=dh_key(), placeholder="Every type")
+        labels, _, by_verdict = network_options(collected)
+        if labels or by_verdict:
+            picked = len(state.get(asn_key()) or []) + len(state.get(vpndb_key()) or [])
+            with st.popover(f"Network · {picked} picked" if picked else "Network · all", icon=":material/hub:",
+                            help="Only the domains hosted on chosen networks (BGPDB origin) or with a chosen VPNDB "
+                                 "verdict, on every page"):
+                if labels:
+                    st.multiselect("Origin network (BGPDB)", sorted(labels), key=asn_key(), format_func=labels.get,
+                                   placeholder="Every network",
+                                   help="The network that normally announces the domain's hosting IPs. A domain on "
+                                        "several networks is kept when any of them is picked")
+                if by_verdict:
+                    st.multiselect("VPNDB verdict", sorted(by_verdict), key=vpndb_key(), placeholder="Every verdict",
+                                   help="A domain is kept when any of its checked IPs has a picked verdict (VPN, "
+                                        "Tor, Residential proxy, Not anonymous, Not observed, ...)")
+                matching = network_domains(collected, state.get(asn_key()), state.get(vpndb_key()))
+                if matching is not None:
+                    shown = [d for d in (state[domains_key()] or all_domains) if d in matching]
+                    if shown:
+                        st.caption(f"{len(shown)} domain(s) match: {', '.join(shown[:8])}"
+                                   + (" …" if len(shown) > 8 else ""))
+                    else:
+                        st.warning("No selected domain matches both: the Network filter is not applied.")
+                st.caption("Both picked: a domain must match one network and one verdict.")
         narrowed = len(filters.severities) < len(SEVERITY_ORDER) or len(filters.confidences) < len(CONFIDENCE_ORDER)
         with st.popover("Alerts · filtered" if narrowed else "Alerts · all", icon=":material/warning:",
                         help="Alerts shown on Summary, Alerts, Domain profile and exports"):
@@ -193,11 +269,13 @@ def render_results_toolbar(collected, filters):
                           icon=":material/restart_alt:", type="tertiary", disabled=not changed)
                 navigation.link("settings", label="Every threshold")
         is_filtered = (state[domains_key()] or state[dh_key()] or state[pdns_key()] or state.get(focus_key())
+                       or state.get(asn_key()) or state.get(vpndb_key())
                        or narrowed or changed)
         if is_filtered:
             st.button("Reset filters", key="toolbar_reset", on_click=_reset_filters, args=(collected,),
                       icon=":material/filter_alt_off:", type="tertiary",
-                      help="Every domain, hostname, record type, severity and confidence, and the default thresholds")
+                      help="Every domain, hostname, network, record type, severity and confidence, and the default "
+                           "thresholds")
 
 
 def render_window_coverage(collected, window, run_options, created):

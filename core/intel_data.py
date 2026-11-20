@@ -292,7 +292,7 @@ MITRE_TACTICS = {
     "T1572": "Command and Control", "T1583": "Resource Development", "T1584": "Resource Development", "T1585": "Resource Development",
     "T1587": "Resource Development",
     "T1588": "Resource Development", "T1608": "Resource Development",
-    "T1562": "Defense Evasion", "T1552": "Credential Access", "T1048": "Exfiltration", "T1566": "Initial Access",
+    "T1562": "Defense Evasion", "T1552": "Credential Access", "T1557": "Credential Access", "T1048": "Exfiltration", "T1566": "Initial Access",
 }
 TACTIC_ORDER = ["Resource Development", "Initial Access", "Defense Evasion", "Credential Access", "Command and Control", "Exfiltration", "Other"]
 
@@ -351,6 +351,7 @@ RULE_METADATA = {
     "Recently Registered Origin Network": ("BGP Routing", "Medium"),
     "Low-Visibility or Single-Upstream Route": ("BGP Routing", "Low"),
     "Anonymizer Exit on Unstable Routing": ("BGP Routing", "High"),
+    "Unauthorized Origin Is a Tor Exit Network": ("BGP Routing", "Medium"),
     # Lookalikes
     "Homoglyph / IDN Brand Impersonation": ("Lookalike / Brand", "High"),
     "Typosquatting Lookalike": ("Lookalike / Brand", "Medium"),

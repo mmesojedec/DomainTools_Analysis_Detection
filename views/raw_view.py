@@ -143,6 +143,52 @@ def _render_vpndb(ds):
                                  f"_{str(row['Target']).replace('/', '_')}.json")
 
 
+def bgpdb_records(row):
+    """The records of one BGPDB answer (NDJSON as received, or the JSON list kept) as a table; control lines left out."""
+    from integrations.bgpdb import parse_ndjson
+    text = str(row.get("Response") or "")
+    try:
+        records = json.loads(text) if text.lstrip().startswith("[") else parse_ndjson(text)[0]
+    except ValueError:
+        records = []
+    if not isinstance(records, list):
+        records = []
+    frame = pd.json_normalize([r for r in records if isinstance(r, dict)], sep=".") if records else pd.DataFrame()
+    for column in frame.columns:
+        if frame[column].map(lambda v: isinstance(v, list)).any():
+            frame[column] = frame[column].map(_join_list)
+    return frame
+
+
+def _render_bgpdb(ds):
+    raw = getattr(ds, "bgp_raw", None)
+    if raw is None or raw.empty:
+        return
+    st.subheader("BGPDB Responses", help="Every BGPDB answer of the run as received, one row per lookup (ip, route, "
+                                         "asn, prefix). Select one to see its records as a table. Lookup queries → "
+                                         "BGPDB has the bgpdbq and curl commands to send them again; the BGP page reads "
+                                         "them as findings and visuals.")
+    view = raw[["Command", "Argument", "Status", "Records", "Detail"]]
+    event = st.dataframe(view, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                         key=selection_key("raw_bgpdb", raw["Command"] + " " + raw["Argument"].astype(str)))
+    rows = selected_rows(event, raw)
+    if not rows:
+        st.caption(f"{len(raw):,} BGPDB lookup(s). Select one to see its answer.")
+        return
+    row = raw.iloc[rows[0]]
+    st.markdown(f"**{row['Command']}** `{row['Argument']}`" + (f" · {row['URL']}" if row.get("URL") else ""))
+    records = bgpdb_records(row)
+    if records.empty:
+        st.caption("No records in this answer.")
+    else:
+        capped_table(records.astype(str), label="BGPDB records")
+    with st.expander("As received"):
+        st.code(str(row["Response"])[:200_000], language="json")
+    st.download_button("Download this answer", str(row["Response"]), key="raw_bgpdb_download",
+                       mime="application/x-ndjson",
+                       file_name=f"bgpdb_{row['Command']}_{str(row['Argument']).replace('/', '_')}.ndjson")
+
+
 def render_raw_lens(ds):
     st.subheader("Records",
                 help="Full raw logs with untruncated payloads and timezone-aligned timestamps.")
@@ -151,6 +197,7 @@ def render_raw_lens(ds):
     _render_domain_history(ds)
     _render_pdns(ds)
     _render_vpndb(ds)
+    _render_bgpdb(ds)
 
 
 CACHE_SOURCE_COLUMNS = ["Source", "Lookups", "From Cache", "Live", "Oldest Cached At", "Newest Cached At",
@@ -167,7 +214,9 @@ def cache_summary(statuses, lifetime, run_time=None):
     if not statuses:
         return pd.DataFrame(columns=CACHE_SOURCE_COLUMNS)
     df = pd.DataFrame(statuses).reindex(columns=["Source", "Target", "Status", "Detail", "Cached At"])
-    df = df[~df["Target"].astype(str).str.contains(" ") & (df["Status"] != "Error")]
+    # summary rows ("3 domain(s)") are not lookups; BGPDB targets are "<command> <argument>" lookups
+    summary_row = df["Target"].astype(str).str.contains(" ") & (df["Source"] != "BGPDB")
+    df = df[~summary_row & (df["Status"] != "Error")]
     if df.empty:
         return pd.DataFrame(columns=CACHE_SOURCE_COLUMNS)
     cached_at = pd.to_datetime(df["Cached At"], errors="coerce")

@@ -165,6 +165,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     candidates.update(ip for ip, row in anonymizer_ips.items() if ip in str(row["Domains"]).split(", "))   # IP targets
     bgp_frames = bgp_frames or {}
     bgp_found = bgp.findings(bgp_frames.get("origins"), bgp_frames.get("asns"), bgp_frames.get("routes"))
+    bgp_usual = bgp.main_origins(bgp_frames.get("origins"))
     if not candidates:
         return result
 
@@ -217,6 +218,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
             tor_networks=tor_networks,
             tor_prefixes=tor_prefixes,
             bgp_findings=bgp.for_domain(bgp_found, domain),
+            bgp_origins=bgp.origin_numbers(bgp.for_domain(bgp_usual, domain)),
             brands=tuple(brands or ()),
             official_domains=tuple(official_domains or ()),
             now=now,

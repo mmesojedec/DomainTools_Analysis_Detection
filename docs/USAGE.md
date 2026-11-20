@@ -103,7 +103,10 @@ is in [Pages](USER_GUIDE.md#pages).
 - **Domain profile** shows one domain on one screen: risk and DIF, *Why this score*, your verdict on the domain, an
   action row, and one card per source: **Registration** and **Hosting** (Iris Investigate: registrar and dates, current IPs with ASN,
   ISP and country, name servers) and **VPNDB** (which VPN or proxy provider operates behind each IP: every checked IP of the domain with
-  where it was seen, category, provider, confidence, sharing, IOC value, Tor role, network and country, exits first),
+  where it was seen, category, provider, confidence, sharing, IOC value, Tor role, network and country, exits first)
+  and **BGP routing** (BGPDB: the domain's IPs with their prefix, usual origin network and its RPKI / IRR status,
+  how many networks announced the prefix, RIR and Iris country, upstream; the origin networks' registration dates and
+  the routing findings, with links to the alerts and the BGP page),
   its alerts, latest DNS records, CNAME chains, newest certificates (with their JA4X and the JA4X worth a look) and latest Domain History changes, with links to
   the full pages. The action row has:
   - **Where else seen**: *Runs → Indicator Sightings* for the domain (local files, no API query);
@@ -294,11 +297,12 @@ the loaded run only; *Settings* keeps the defaults of the next run.
 | --- | --- |
 | **Show activity from** | The [analysis window](#2-analysis-window), with a date range for *Custom* |
 | **Domains** | Only these domains (and IP or CIDR targets) on every page. Empty: all of them |
+| **Network** (with BGPDB or VPNDB data) | Only the domains whose hosting IPs are announced by the picked **origin network** (BGPDB) and / or have the picked **VPNDB verdict** (VPN, Tor, Residential proxy, Not anonymous, Not observed, ...). Any picked value in a group matches; with both groups picked a domain must match each. Useful in a large run to isolate one hosting cluster, or the domains behind anonymizers, on every page. When no selected domain matches, the filter says so and is not applied |
 | **Hostnames** | A [hostname focus](#hostname-focus). Empty: every hostname |
 | **Record types** (Analyst mode) | Passive DNS and Domain History record types kept for the detection rules, risk scores, charts and Evidence records. Empty: every type |
 | **Alerts** | The severities and confidences shown on Summary, Alerts, Domain profile, the Hunt map and exports. Unified Risk still counts every alert |
 | **Detection** | The most used [detection thresholds](#4-detection-thresholds): *Min Risk Score*, *High-Risk Score Cutoff*, *Newly Registered Domain Age*, *Rapid IP Rotation Event Count*, *DGA Entropy Score*; **Reset to defaults**, and **Every threshold** opens *Settings → Detection thresholds* |
-| **Reset filters** | Shown once something is narrowed: every domain, hostname, record type, severity and confidence, and the default thresholds |
+| **Reset filters** | Shown once something is narrowed: every domain, network, hostname, record type, severity and confidence, and the default thresholds |
 
 Each control's label says what it holds, e.g. *Domains · 2 of 5*, *Alerts · filtered* or *Detection · 1 changed*.
 
@@ -557,6 +561,7 @@ cache (no request).
 | DomainTools Certificates | CertsQL for certificate search; JSON body for Certificate Events (hostname, IP, SHA-256, CT log) with the run's `start_time` | `curl` using `$DT_CERT_API_KEY` |
 | DNSDB Scout | Names and record type, e.g. `*.example.com`, type ANY (plus `example.com` when that lookup hit its limit); TXT / CAA / CNAME lookups with their type; CNAME chase steps as the exact name with type CNAME, A or AAAA; IPs as Rdata IP | `curl` to the DNSDB v2 API (one request per name) using `$DNSDB_API_KEY` |
 | VPNDB | Endpoint (`POST /bulk`, `GET /ip/{ip}`, `GET /ip/{ip}/history`, `GET /prefix/{cidr}`, `GET /prefix/{cidr}/addresses`, `GET /asn/{asn}`, `GET /tor`) and the path, or for a bulk request the IPs it sent, one per line | `curl` to the VPNDB API using `$VPNDB_API_KEY` |
+| BGPDB | The `bgpdbq` command, e.g. `bgpdbq ip 1.1.1.1`, `bgpdbq route 1.1.1.0/24 --limit=100`, `bgpdbq asn AS13335`, `bgpdbq prefix 1.1.0.0/20 --limit=200` (the limit the run used) | `bgpdbq … \| jq .` and the same request as `curl` to the BGPDB host (an API key from `$BGPDB_API_KEY`, HTTP auth from `$BGPDB_USER` / `$BGPDB_PASS`, when set up); DomainTools network or VPN needed |
 
 The `domaintools` commands use the CLI that comes with the DomainTools Python SDK (`domaintools_api` in
 `requirements.txt`). They pass `$DT_API_USERNAME` / `$DT_API_KEY`; when those are not set, the CLI reads `~/.dtapi`. The
@@ -833,6 +838,20 @@ the same as the `bgpdbq` tool's commands:
    (with VPNDB's known exits on them).
 7. **Responses**: every BGPDB answer as received (NDJSON) with its URL; select one for its curl command.
 
+Elsewhere in the app:
+- **Domain profile**: a *BGP routing* card per domain (its IPs, prefixes, origin networks and their age, routing
+  findings).
+- **Tor network**: every network the run saw (hosting from VPNDB and Iris; from BGPDB the origins, unauthorized
+  origins, upstreams on the AS paths and neighbouring origins) matched against the Tor exit networks, with *Seen as*.
+  *Hosted Among Tor Exits* takes the hosting network from BGPDB's origin when there is one, and a Tor-exit network that
+  announced a hosting prefix without authorization raises *Unauthorized Origin Is a Tor Exit Network*.
+- **Alerts → MITRE ATT&CK**: the BGP alerts map to T1557 (Adversary-in-the-Middle, Credential Access), T1583 and
+  T1090; the technique table names each technique and the rule categories it was detected from (*BGP Routing*).
+- **Risk**: the *BGP Routing* risk vector (radar and Unified Risk) for domains BGPDB answered for.
+- **Evidence → Records → BGPDB Responses**: every answer as a table of records, as received, and as a download;
+  **Evidence → Lookup queries → BGPDB**: each lookup as a `bgpdbq` and a curl command.
+- **Results toolbar → Network**: keep only the domains on chosen origin networks.
+
 The Summary's *Analysis Details* has a **BGP** block (IPs routed, prefixes, origin networks, routing findings, and a
 few sentences on who announces the hosting and the worst findings), DNS & Hosting a one-line summary, and each Hunt map
 box a BGP line. Export & report has *BGP routing per IP*, *BGP routing findings*, *BGP origins*, *AS paths*, *BGP
@@ -842,8 +861,13 @@ networks* and *Neighbouring prefixes*. How the findings are decided is in the
 Reading it right:
 - **RPKI decides**, IRR only when RPKI has nothing. *Not in RPKI / IRR* is common and not a finding on its own.
 - **30 days**: a prefix first seen on the first days of BGPDB's window is *at least that old*, never new.
-- **`/24+`** in a prefix means the more-specific announcements inside that block (often a leak, e.g. from a private
-  AS such as AS65001).
+- **`/24+`** in a prefix means the more-specific announcements inside that block.
+- **Orange = private AS at one collector.** A private or reserved AS number (64512–65534, 65535, 4200000000+) seen by
+  one or two route collectors is that collector's peer leaking its internal AS, not a hijack: shown in orange, never a
+  finding.
+- **Colours on the Routing map.** A flow takes the colour of its usual origin; a prefix box takes the colour of the
+  worst origin ever seen for it. A green flow into a red box means the usual origin is authorized but another network
+  announced the prefix at some point (the thin red link to it).
 - **CDN addresses are not looked up**: their routing is the CDN's, the same for every customer.
 
 ## Certificate inputs

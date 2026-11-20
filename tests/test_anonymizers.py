@@ -489,3 +489,25 @@ def test_tor_columns_left_empty_in_a_table_do_not_break_the_rules():
     alerts = detect_threat_flags(events, {"risk_score": 0}, anonymizers=rows).alerts
     assert "Domain on Residential Proxy Exit" in set(alerts["Threat Type"])
     assert "operator family" not in alerts.iloc[0]["Triggering IOCs"]
+
+
+def test_bgp_origins_meet_the_tor_exit_networks():
+    from core import bgp
+    CLOUDFLARE = {"prefix": "1.1.1.0/24", "origin": "AS13335", "first": "2026-10-21 00:06:54",
+                  "last": "2026-11-20 10:37:48", "count": 35482, "collectors": 65, "rpki_valid": True}
+    LEAK = {"prefix": "1.1.1.0/24", "first": "2026-11-13 23:03:10", "last": "2026-11-14 00:29:46", "count": 11,
+            "rpki_invalid_origin": True}
+    # hosting: BGPDB says AS60729 (a Tor exit network) announces the IP, though VPNDB's ASN is another network
+    table = _verdicts({"93.1.2.3": ("routed.com", {"Category": "Not anonymous", "ASN": 15169})})
+    tor_leak = {**LEAK, "origin": "AS60729", "collectors": 12}
+    origins = pd.DataFrame(bgp.origin_rows("93.1.2.3", {"routed.com"}, [{**CLOUDFLARE, "prefix": "93.1.2.0/24",
+                                                                         "origin": "AS60729"}])
+                           + bgp.origin_rows("1.1.1.1", {"hijacked.com"}, [CLOUDFLARE, tor_leak]),
+                           columns=bgp.ORIGIN_COLUMNS)
+    events = pd.DataFrame([_a("routed.com", "93.1.2.3", "2026-10-01"), _a("hijacked.com", "1.1.1.1", "2026-10-01")])
+    alerts = detect_threat_flags(events, {"risk_score": 0}, anonymizers=table, vpndb_context={"tor_overview": TOR},
+                                 bgp_frames={"origins": origins}).alerts
+    found = set(zip(alerts["Domain"], alerts["Threat Type"]))
+    assert ("routed.com", "Hosted Among Tor Exits") in found
+    assert ("hijacked.com", "Unauthorized Origin Is a Tor Exit Network") in found
+    assert ("routed.com", "Unauthorized Origin Is a Tor Exit Network") not in found

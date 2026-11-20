@@ -1,4 +1,5 @@
-"""Lookup Queries lens: every lookup the run made, as queries and commands to reuse in the DomainTools, DNSDB and VPNDB tools."""
+"""Lookup Queries lens: every lookup the run made, as queries and commands to reuse in the DomainTools, DNSDB, VPNDB and
+BGPDB tools."""
 import streamlit as st
 
 from core.lookup_queries import TOOLS, build_lookup_queries, one_line, request_counts, tool_bundle
@@ -22,6 +23,10 @@ TOOL_HELP = {
     "VPNDB": "Each VPNDB request the run made: the endpoint, the path to call (or, for a bulk request, the IPs it sent, "
              "one per line) and the curl command, with the key from $VPNDB_API_KEY. The answers are on Evidence → Records → "
              "VPNDB Responses",
+    "BGPDB": "Each BGPDB lookup the run made (ip, route, asn, prefix) as a `bgpdbq` command (the DomainTools bgpdbq "
+             "tool, reading ~/.bgpdbq.conf) and the same request as curl: the host comes from Settings → API "
+             "credentials, an API key from $BGPDB_API_KEY and HTTP auth from $BGPDB_USER / $BGPDB_PASS when used. "
+             "Needs the DomainTools network or VPN. The answers are on Evidence → Records → BGPDB Responses",
 }
 LANGUAGE = {"DomainTools Certificates": "sql", "IrisQL": "text", "CertsQL": "text"}
 TABLE_COLUMNS = ["Search", "Target", "Query", "Requests", "Cached", "Cached At", "Status", "Records"]
@@ -39,7 +44,7 @@ COLUMN_HELP = {
 
 def render_query_lens(collected, created=None):
     st.subheader("Lookup queries", help="Every lookup this run made, rebuilt as queries you can run again in the "
-                                     "DomainTools (Iris Investigate and IrisQL included), DNSDB and VPNDB tools to check or extend a finding. Paging is left out of the "
+                                     "DomainTools (Iris Investigate and IrisQL included), DNSDB, VPNDB and BGPDB tools to check or extend a finding. Paging is left out of the "
                                      "commands.")
     queries = build_lookup_queries(collected, created)
     if queries.empty:
@@ -51,7 +56,7 @@ def render_query_lens(collected, created=None):
 @st.fragment
 def _render_query_tables(queries, tools):
     """A fragment: picking a tool, filtering or selecting rows reruns only this part, not the whole app."""
-    st.subheader("Lookups by tool", help="IrisQL, CertsQL, DomainTools Iris, API, Certificates, DNSDB Scout and VPNDB. Pick a "
+    st.subheader("Lookups by tool", help="IrisQL, CertsQL, DomainTools Iris, API, Certificates, DNSDB Scout, VPNDB and BGPDB. Pick a "
                                          "tool, then select rows to copy only their queries and commands.")
     queries = queries.assign(Requests=request_counts(queries))
     counts = queries.groupby("Tool").size()

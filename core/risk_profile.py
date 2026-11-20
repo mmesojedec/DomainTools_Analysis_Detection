@@ -10,7 +10,8 @@ from core.helpers import extract_ip_addresses, safe_bool
 from core.intel_data import INFORMATIONAL_RULES
 from integrations.enrichment import unwrap_value
 
-VECTOR_COLUMNS = ["Domain Risk Score", "DNS Volatility", "Certificate Trust", "Email/Phish Posture", "App & C2 Footprint", "Infra Sprawl"]
+VECTOR_COLUMNS = ["Domain Risk Score", "DNS Volatility", "Certificate Trust", "Email/Phish Posture", "App & C2 Footprint", "Infra Sprawl",
+                  "BGP Routing"]
 
 # --- DIF codes (segment 1 hosting, 2 TLS, 3 identity & apps, 4 configuration hash) ---
 FLUX_CODES = {"P": "Parked / no resolved IPs", "S": "Static host (1-2 IPs)", "F": "Dynamic / fast-flux (3+ IPs)"}
@@ -54,11 +55,15 @@ VECTOR_RULES = {
     "App & C2 Footprint": ("T1071|T1008|T1048|T1090.003|T1572|T1583.003|Proxy Exit|Anonymizer Exit|Bare-IP|Payload|JA4X",
                            "C2-style findings, VPN / proxy / Tor hosting"),
     "Infra Sprawl": ("T1584.001|Sprawl|Nested|Wildcard|Cohort|Wave", "findings only"),
+    # only for domains whose hosting BGPDB answered for (else empty, and left out of the average)
+    "BGP Routing": ("BGP|Newly Announced Prefix|Recently Registered Origin Network|Single-Upstream Route|"
+                    "Unstable Routing", "routing findings only"),
 }
+ROUTING_VECTOR = "BGP Routing"
 # A vector counts an alert's severity weight times how sure the rule is: a Low-confidence High is not a High
 CONFIDENCE_FACTOR = {"High": 1.0, "Medium": 0.8, "Low": 0.5}
 MANY_IPS = 10   # passive DNS addresses above this add to DNS Volatility (2 points each, up to 20)
-BASE_WEIGHT, VECTOR_WEIGHT = 0.4, 1.5 / len(VECTOR_RULES)   # Unified Risk = 0.4 x base + 1.5 x the vectors' mean
+BASE_WEIGHT, VECTOR_FACTOR = 0.4, 1.5   # Unified Risk = 0.4 x base + 1.5 x the mean of the vectors that apply
 
 _IP_FIELDS = ["A", "IP", "A RECORD", "AAAA"]
 
@@ -156,8 +161,19 @@ def _apps_block_and_description(txt_joined):
     return block, desc
 
 
-def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map):
-    """Calculates unified risk vectors and generates 4-block DIF fingerprints per domain."""
+def vector_weight(profile):
+    """Each vector's share of Unified Risk: 1.5 / the number of vectors that apply (BGP Routing only with BGPDB data)."""
+    routing = profile.get(ROUTING_VECTOR) if hasattr(profile, "get") else None
+    count = len(VECTOR_RULES) - (0 if routing is not None and pd.notna(routing) else 1)
+    return VECTOR_FACTOR / count
+
+
+def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map, routed_domains=None):
+    """
+    Calculates unified risk vectors and generates 4-block DIF fingerprints per domain. `routed_domains`: the domains
+    whose hosting BGPDB answered for; only they get a BGP Routing vector (the others leave it empty, not 0).
+    """
+    routed_domains = set(routed_domains or ())
     t_df = t_df if t_df is not None else pd.DataFrame()
     r_df = r_df if r_df is not None else pd.DataFrame()
     s_df = s_df if s_df is not None else pd.DataFrame()
@@ -193,7 +209,12 @@ def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map):
 
         vec_sprawl = min(100, _max_severity(dom_alerts, VECTOR_RULES["Infra Sprawl"][0]))   # SAN counts: Mega-SAN rule
 
-        active_avg = (vec_dns + vec_certificate + vec_email + vec_c2 + vec_sprawl) / 5
+        vectors = [vec_dns, vec_certificate, vec_email, vec_c2, vec_sprawl]
+        vec_routing = min(100, _max_severity(dom_alerts, VECTOR_RULES[ROUTING_VECTOR][0])) \
+            if dom in routed_domains else None
+        if vec_routing is not None:
+            vectors.append(vec_routing)
+        active_avg = sum(vectors) / len(vectors)
         unified_score = min(100, max(base_score, int((base_score * BASE_WEIGHT) + (active_avg * 1.5))))
 
         # --- DIF block 1: hosting ---
@@ -228,6 +249,7 @@ def generate_digital_risk_profile(domains, t_df, r_df, s_df, p_df, enr_map):
             "Email/Phish Posture": vec_email,
             "App & C2 Footprint": vec_c2,
             "Infra Sprawl": vec_sprawl,
+            ROUTING_VECTOR: vec_routing if vec_routing is not None else float("nan"),
         })
     return pd.DataFrame(profiles)
 
@@ -278,14 +300,17 @@ def decode_profiles(profiles):
 def score_drivers(profile, alerts, limit=3):
     """
     What drove one domain's Unified Risk: [(points, text)], largest first. Points are each part's share of the score
-    (0.4 x the DomainTools risk score, 0.3 x each risk vector); a vector names its most severe matching alert.
+    (0.4 x the DomainTools risk score, 1.5 / the vectors that apply x each risk vector); a vector names its most
+    severe matching alert.
     When the DomainTools score alone is higher than the computed score, it sets the score and is the only driver.
     """
     base = float(profile.get("Domain Risk Score") or 0)
     dom_alerts = alerts[alerts["Domain"] == profile["Domain"]] if alerts is not None and not alerts.empty else pd.DataFrame()
     parts = [(base * BASE_WEIGHT, f"DomainTools risk score {base:.0f}")] if base else []
+    weight = vector_weight(profile)
     for vector, (pattern, otherwise) in VECTOR_RULES.items():
-        value = float(profile.get(vector) or 0)
+        value = profile.get(vector)
+        value = float(value) if value is not None and pd.notna(value) else 0.0
         if not value:
             continue
         matches = _matching_alerts(dom_alerts, pattern)
@@ -294,7 +319,7 @@ def score_drivers(profile, alerts, limit=3):
             why = f"{top['Threat Type']} ({top['Severity']})"
         else:
             why = otherwise
-        parts.append((value * VECTOR_WEIGHT, f"{vector}: {why}"))
+        parts.append((value * weight, f"{vector}: {why}"))
     computed = sum(points for points, _ in parts)
     if base and base >= computed:
         return [(round(base), f"DomainTools risk score {base:.0f} (higher than the telemetry score, so it sets the score)")]

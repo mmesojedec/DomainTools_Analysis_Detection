@@ -13,6 +13,8 @@ from urllib.parse import quote, unquote, urlencode
 import pandas as pd
 
 from config import (
+    BGPDB_NEIGHBOUR_LIMIT,
+    BGPDB_ROUTE_LIMIT,
     CAA_SUPPLEMENT_FETCH_LIMIT,
     CERT_CTL_LIMIT,
     CERT_EVENTS_LOOKBACK_DAYS,
@@ -29,6 +31,9 @@ from core.cert_inputs import hostname_search_query
 from core.certsql import commands as certsql_commands
 from core.helpers import is_ip_address
 from core.irisql import commands as irisql_commands
+from integrations.bgpdb import COMMANDS as BGPDB_COMMANDS
+from integrations.bgpdb import SOURCE as BGPDB_SOURCE
+from integrations.bgpdb import curl_command as bgpdb_curl
 from integrations.cache import FROM_CACHE
 from integrations.certificates import CERT_API_BASE_URL, build_search_queries, events_start_time
 from integrations.collector import ct_hashes
@@ -40,7 +45,8 @@ LOOKUP_SUFFIXES = (" Lookup", " Supplement")   # record-type lookups (" Suppleme
 
 QUERY_COLUMNS = ["Source", "Target", "Tool", "Search", "Query", "Command", "Status", "Records", "Cached", "Cached At",
                  "Pages"]
-TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "VPNDB"]
+TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "VPNDB",
+         "BGPDB"]
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 COUNT = re.compile(r"^(\d+) certificates$")
 COUNT_IPS = re.compile(r"^\d+ IP\(s\)$")
@@ -118,6 +124,19 @@ def _vpndb(status, base_url):
         return search, query, (f"curl -s -X POST {auth} -H 'Content-Type: application/json' {shlex.quote(url)} "
                                f"-d {shlex.quote(body)}")
     return search, path + (f"?{urlencode(params)}" if params else ""), f"curl -s {auth} {shlex.quote(url)}"
+
+
+def _bgpdb(target):
+    """
+    (search, query, command) for a BGPDB lookup logged as "ip 1.1.1.1" / "route 1.1.1.0/24" / "asn AS13335" /
+    "prefix 1.1.0.0/20": the bgpdbq command (the query) and the same request as curl, with the limit the run used.
+    """
+    command, _, argument = str(target).partition(" ")
+    if command not in BGPDB_COMMANDS or not argument:
+        return None
+    limit = {"route": BGPDB_ROUTE_LIMIT, "prefix": BGPDB_NEIGHBOUR_LIMIT}.get(command)
+    query = f"bgpdbq {command} {argument}" + (f" --limit={limit}" if limit else "")
+    return f"{command} lookup", query, f"{query} | jq .\n{bgpdb_curl(command, argument, limit)}"
 
 
 def _row(status, tool, search, query, command, target=None, pages=None):
@@ -225,6 +244,10 @@ def build_lookup_queries(collected, created=None):
             built = _vpndb(status, vpndb_url) if not status.get("Detail", "").startswith("No VPNDB key") else None
             if built:
                 rows.append(_row(status, "VPNDB", *built))
+        elif source == BGPDB_SOURCE:
+            built = _bgpdb(target) if not str(status.get("Detail", "")).startswith("BGPDB host not found") else None
+            if built:
+                rows.append(_row(status, "BGPDB", *built))
     return pd.DataFrame(rows, columns=QUERY_COLUMNS)
 
 

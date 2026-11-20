@@ -9,12 +9,13 @@ import streamlit as st
 from config import SEVERITY_WEIGHTS
 from core.export import build_report_html, build_report_markdown, dataset_iocs, to_stix_bundle
 from core.helpers import md_escape
-from core.intel_data import MITRE_TACTICS, SEVERITY_COLORS, SEVERITY_ORDER, TACTIC_ORDER
+from core.intel_data import MITRE_TACTICS, RULE_METADATA, SEVERITY_COLORS, SEVERITY_ORDER, TACTIC_ORDER
 from core.persistence import add_suppression, remove_suppression
 from core.triage import STATUS_HELP, STATUSES
 from views.common import chart, table
 
 _TECHNIQUE_RE = re.compile(r"\b(T\d{4})(?:\.(\d{3}))?\b")
+_TECHNIQUE_NAME_RE = re.compile(r"\b(T\d{4}(?:\.\d{3})?)\s*\(([^)]+)\)")
 
 
 @dataclass
@@ -97,12 +98,17 @@ def _render_heatmap(alerts):
 
 
 def _tactic_rows(alerts):
+    """One row per (alert, technique): its tactic, the technique's name and the rule category it was detected from
+    (BGP Routing, Certificates, ...: core.intel_data.RULE_METADATA)."""
     rows = []
     for _, row in alerts.iterrows():
-        for base, sub in _TECHNIQUE_RE.findall(str(row["MITRE ATT&CK"])):
+        text = str(row["MITRE ATT&CK"])
+        names = dict(_TECHNIQUE_NAME_RE.findall(text))
+        for base, sub in _TECHNIQUE_RE.findall(text):
             technique = f"{base}.{sub}" if sub else base
             rows.append({"Tactic": MITRE_TACTICS.get(base, "Other"), "Technique": technique,
-                         "Threat Type": row["Threat Type"], "Domain": row["Domain"]})
+                         "Name": names.get(technique, ""), "Threat Type": row["Threat Type"], "Domain": row["Domain"],
+                         "Detected From": RULE_METADATA.get(row["Threat Type"], ("Other",))[0]})
     return pd.DataFrame(rows)
 
 
@@ -118,9 +124,15 @@ def render_mitre_view(alerts):
         fig.update_layout(margin=dict(t=40, l=5, r=5, b=5))
         chart(fig, key="mitre_treemap", height=460)
     with col2:
-        matrix = rows.groupby(["Tactic", "Technique"]).agg(Alerts=("Threat Type", "size"), Domains=("Domain", "nunique")).reset_index()
+        matrix = rows.groupby(["Tactic", "Technique"]).agg(
+            Name=("Name", lambda v: next((n for n in v if n), "")), Alerts=("Threat Type", "size"),
+            Domains=("Domain", "nunique"),
+            **{"Detected From": ("Detected From", lambda v: ", ".join(sorted(set(v))))}).reset_index()
         matrix["Tactic"] = pd.Categorical(matrix["Tactic"], categories=TACTIC_ORDER, ordered=True)
-        table(matrix.sort_values(["Tactic", "Alerts"], ascending=[True, False]))
+        table(matrix.sort_values(["Tactic", "Alerts"], ascending=[True, False]), column_config={
+            "Detected From": st.column_config.Column(
+                "Detected from", help="The rule categories behind the technique's alerts: e.g. BGP Routing (BGPDB), Hosting & "
+                                      "DNS Providers (Iris, VPNDB), Certificates")})
 
 
 THREAT_TYPE_KEY = "flt_threat_type"   # Alerts page threat-type filter; links from other pages preset it

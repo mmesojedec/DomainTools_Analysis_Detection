@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from core import bgp
 from core.anonymizers import tor_tables
 from views.anonymizer_view import _empty
 from views.common import chart
@@ -16,6 +17,10 @@ HOW_TO_READ = (
     "carry Tor exit traffic. These are network-wide statistics, not verdicts on your domains.",
     "A warning appears if one of **your** domains is hosted on a network that also carries Tor exit traffic: it "
     "shares that network with anonymized traffic (alert *Hosted Among Tor Exits*).",
+    "Every network the run saw is matched against the Tor exit networks: the hosting networks (VPNDB, Iris) and, with "
+    "BGPDB, each network that announced the run's prefixes (with or without authorization), the upstreams on their "
+    "AS paths and the origins of neighbouring prefixes. *Seen as* tells which. A Tor exit network that announced one "
+    "of the run's prefixes without authorization raises *Unauthorized Origin Is a Tor Exit Network*.",
     "Whether a hosting IP **is** a Tor relay or exit is on the **VPNDB** page and each IP card (*Tor network* tab).",
     "The data comes from **VPNDB** (`/tor`): the Tor Project's relay list placed with VPNDB's routing and country "
     "tables. It is fetched once per run with the VPNDB check and does not count against the VPNDB quota.",
@@ -32,20 +37,61 @@ def render_tor_page(ds):
     _tor_network(ds)
 
 
-def run_tor_networks(ds, networks):
-    """The run's hosting networks (VPNDB and Iris ASNs) among the Tor exit networks, with the domains on them."""
-    if networks.empty or "asn" not in networks:
-        return pd.DataFrame()
-    used = {}
-    table = ds.anonymizers
-    for row in (table.to_dict("records") if not _empty(table) else []):
-        if pd.notna(row["ASN"]):
-            used.setdefault(int(row["ASN"]), set()).update(d.strip() for d in str(row["Domains"]).split(",") if d.strip())
+def _domains(value):
+    return {d.strip() for d in str(value).split(",") if d.strip()}
+
+
+def run_network_roles(ds):
+    """
+    {AS number: ({roles}, {domains})}: every network the run saw, with how: hosting (VPNDB / Iris ASN), and from
+    BGPDB the usual origin of a prefix, an unauthorized origin, an upstream on the AS paths and the origin of a
+    neighbouring prefix.
+    """
+    seen = {}
+
+    def add(asn, role, domains=()):
+        number = bgp.asn_number(asn) if not isinstance(asn, int) else asn
+        if number is not None:
+            roles, names = seen.setdefault(number, (set(), set()))
+            roles.add(role)
+            names.update(domains)
+
+    for row in (ds.anonymizers.to_dict("records") if not _empty(ds.anonymizers) else []):
+        if pd.notna(row.get("ASN")):
+            add(int(row["ASN"]), "Hosting (VPNDB)", _domains(row["Domains"]))
     for intel in (ds.ip_intel or {}).values():
         if intel.get("asn"):
-            used.setdefault(int(intel["asn"]), set()).update(intel.get("domains") or ())
-    hits = networks[networks["asn"].isin(set(used))].copy()
-    hits["Run domains"] = hits["asn"].map(lambda a: ", ".join(sorted(used[a])[:10]))
+            add(int(intel["asn"]), "Hosting (Iris)", intel.get("domains") or ())
+    origins = getattr(ds, "bgp_origins", None)
+    if not _empty(origins):
+        usual = bgp.main_origins(origins)
+        for _, row in usual.iterrows():
+            add(row["Origin"], "BGP origin", _domains(row["Domains"]))
+        for _, row in origins[origins["Status"] == bgp.UNAUTHORIZED].iterrows():
+            add(row["Origin"], "BGP unauthorized origin", _domains(row["Domains"]))
+    routes = getattr(ds, "bgp_routes", None)
+    if not _empty(routes):
+        for path in routes["Path"].astype(str):
+            for hop in [h.strip() for h in path.split("→") if h.strip()][:-1]:
+                add(hop, "BGP upstream / transit")
+    neighbours = getattr(ds, "bgp_neighbours", None)
+    if not _empty(neighbours):
+        for asn in neighbours["Origin"]:
+            add(asn, "BGP neighbouring prefix")
+    return seen
+
+
+def run_tor_networks(ds, networks):
+    """
+    The networks the run saw (hosting ASNs from VPNDB and Iris, and every AS BGPDB showed: origins, unauthorized
+    origins, upstreams, neighbours) that are among the Tor exit networks, with how the run saw them and its domains.
+    """
+    if networks.empty or "asn" not in networks:
+        return pd.DataFrame()
+    seen = run_network_roles(ds)
+    hits = networks[networks["asn"].isin(set(seen))].copy()
+    hits.insert(0, "Seen as", hits["asn"].map(lambda a: ", ".join(sorted(seen[a][0]))))
+    hits["Run domains"] = hits["asn"].map(lambda a: ", ".join(sorted(seen[a][1])[:10]))
     return hits
 
 
@@ -73,8 +119,15 @@ def _tor_network(ds):
     tables = tor_tables(overview)
     hits = run_tor_networks(ds, tables["Networks"])
     if not hits.empty:
-        st.warning(f"{len(hits)} of the run's hosting network(s) carry Tor exit traffic.")
-        st.dataframe(hits, hide_index=True, width="stretch")
+        hosting = hits["Seen as"].str.contains("Hosting|BGP origin|unauthorized", regex=True)
+        st.warning(f"{len(hits)} network(s) the run saw carry Tor exit traffic"
+                   + (f", {int(hosting.sum())} of them hosting (or announcing) the run's IPs." if hosting.any() else
+                      ": all of them only as transit or neighbours, not as the hosting network."))
+        st.dataframe(hits, hide_index=True, width="stretch", column_config={
+            "Seen as": st.column_config.Column("Seen as", help="How the run saw the network: hosting its IPs (VPNDB / "
+                                               "Iris ASN), announcing them (BGP origin), announcing them without "
+                                               "authorization, carrying the routes (upstream / transit) or announcing a "
+                                               "prefix next to them (neighbouring prefix)")})
     c_net, c_country = st.columns(2)
     for column, name, label in ((c_net, "Networks", "organization"), (c_country, "Countries", "country")):
         frame = tables[name]

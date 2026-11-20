@@ -133,8 +133,9 @@ is shown instead of the pages. A source whose DomainTools product the account do
 
 ## Unified Risk and risk vectors
 
-Each domain gets six risk vectors (0–100), shown in the **Digital Risk Vector Profile** radar chart. Five are
-built from the domain's alerts, and two of them also from raw telemetry. "Max severity" is the highest value of
+Each domain gets six risk vectors (0–100), plus **BGP Routing** when BGPDB answered for its hosting, shown in the
+**Digital Risk Vector Profile** radar chart. All but the DomainTools score are built from the domain's alerts, and two
+of them also from raw telemetry. "Max severity" is the highest value of
 [severity weight](#severity) × confidence among the domain's alerts that match the listed techniques or names. The
 confidence factor is 1.0 for High, 0.8 for Medium and 0.5 for Low, so a Low-confidence High alert counts as 35, not 70.
 Informational alerts (*Short-Lived Certificate*) are left out: short certificate lifetimes never raise a risk score.
@@ -147,9 +148,10 @@ Informational alerts (*Short-Lived Certificate*) are left out: short certificate
 | Email/Phish Posture | Max severity of T1566 / T1583.002 / T1585.002 / phishing / SPF / mail / lure alerts. TXT, SPF and MX record counts add nothing: SaaS verification records grow with legitimate use |
 | App & C2 Footprint | Max severity of T1071 / T1008 / T1048 / T1090.003 / T1572 / T1583.003 / proxy or anonymizer exit / bare-IP / payload / JA4X alerts |
 | Infra Sprawl | Max severity of T1584.001 / sprawl / nested / wildcard / cohort / wave alerts. SAN counts add nothing: the *Mega-SAN* rule covers them |
+| BGP Routing | Max severity of the [BGP routing alerts](#bgp-routing-rules) (origin conflict, unauthorized origin, new prefix, young network, thin route, anonymizer exit on unstable routing). Only for domains whose hosting IPs BGPDB answered for; for the others it is empty and left out of the average |
 
-**Unified Risk** = `min(100, max(base, 0.4 × base + 1.5 × average of the five behavioral vectors))`, where *base*
-is the DomainTools risk score. It never falls below the DomainTools score, and rises when the domain's own
+**Unified Risk** = `min(100, max(base, 0.4 × base + 1.5 × average of the behavioral vectors))`, where *base*
+is the DomainTools risk score and the behavioral vectors are the five above plus BGP Routing when it applies. It never falls below the DomainTools score, and rises when the domain's own
 telemetry and alerts are worse than the score suggests.
 
 ## DIF: Domain Infrastructure Fingerprint
@@ -387,6 +389,7 @@ current run.
 | Recently Registered Origin Network | Medium-High (under 90 days) / Medium (under a year) | Medium | T1583 (Acquire Infrastructure) | The origin AS of a hosting IP was registered at its RIR within the last year (BGPDB's RIR record). | Young networks host a large share of malicious infrastructure; established hosters rarely are. |
 | Low-Visibility or Single-Upstream Route | Low | Low | T1583 (Acquire Infrastructure) | The prefix of a hosting IP is seen by fewer than 10 route collectors, or its origin network has a single upstream and no downstream networks (BGPDB). | Context: small and bulletproof hosters often look like this, so do many legitimate small networks. |
 | Anonymizer Exit on Unstable Routing | High | High | T1090 (Proxy) | A hosting IP VPNDB names as a VPN, proxy or Tor exit sits on a prefix with an origin conflict, an unauthorized origin or a new announcement (BGPDB). | An anonymizer on unstable or unregistered space is rarely a mainstream service: likely the actor's own or a fly-by-night provider. |
+| Unauthorized Origin Is a Tor Exit Network | Medium-High | Medium | T1557 (Adversary-in-the-Middle) | A network that announced a hosting prefix without authorization (origin conflict or unauthorized origin, BGPDB) also carries Tor exit traffic: at least 0.5 % of it or 10+ exit addresses (VPNDB Tor overview). | The hijacking or squatting network welcomes Tor exits: privacy or bulletproof-style hosting, where traffic drawn by the announcement is hard to trace. |
 
 #### Certificates
 
@@ -560,7 +563,9 @@ The VPNDB rules follow VPNDB's own guidance on what an anonymizer IP is worth:
   domain's own address, a relay only forwards it. The exit dates from the Tor exit lists are checked against the
   domain's use of the IP (an address that became an exit after the domain left counts for nothing), and an exit set up
   in the last 30 days is called out. *Hosted Among Tor Exits* uses the free Tor overview: the domain's IP in a prefix
-  with Tor exits, or on a network carrying a real share of Tor exit traffic (0.5 % or 10+ exit addresses).
+  with Tor exits, or on a network carrying a real share of Tor exit traffic (0.5 % or 10+ exit addresses). The
+  network is BGPDB's usual origin of the IP when the run has one (the network that really announces it), else the
+  Iris or VPNDB ASN.
 - **What it means for the domain.** A website rarely points its DNS at an anonymizer exit. The compound rules weigh
   the context: a new registration on an exit (*Newly Registered Domain on Anonymizer Exit*), hosting that moved from
   an ordinary provider onto an exit (*Hosting Moved onto Anonymizer Exit*, often after a report or a block), and
@@ -590,6 +595,9 @@ history of about the last 30 days. The [BGP page](#pages) shows the result; the 
 - **Authorized or not.** RPKI decides when it has an answer (it is signed); IRR only when RPKI has none. *Valid*: the
   registry names this origin; *Unauthorized*: it names another one; *Not in RPKI / IRR*: nobody registered the prefix
   (common, not a finding on its own). A record can carry both an IRR match and an IRR mismatch: a match wins.
+- **Private AS at one collector.** A private or reserved origin AS (0, 23456, 64496–65535, 4200000000+) seen by at
+  most 2 route collectors is a collector peer leaking its internal AS number, not something the internet routed. It is
+  shown (orange, *Private AS (collector-local)*) but never counts as unauthorized or as a conflict.
 - **Origin conflict.** A prefix with its authorized origin and, at some point, another origin the registries name as
   invalid: a hijack or a route leak. High when the unauthorized announcement was seen in the last 7 days of the data.
   BGPDB writes announcements of more-specific prefixes inside a block as `1.2.3.0/24+`: they count as a conflict with
@@ -602,11 +610,20 @@ history of about the last 30 days. The [BGP page](#pages) shows the result; the 
 - **With VPNDB.** A VPN, proxy or Tor exit (VPNDB) on a prefix with a conflict, an unauthorized origin or a new
   announcement raises *Anonymizer Exit on Unstable Routing*: mainstream VPN providers announce stable, registered
   space. The BGP page's *VPNDB match* tab lists the exits with their routing and the origin networks that carry exits.
+- **With the Tor overview.** A network that announced a hosting prefix without authorization (an origin conflict or
+  an unauthorized usual origin) and that carries Tor exit traffic (0.5 % of it or 10+ exit addresses, VPNDB `/tor`)
+  raises *Unauthorized Origin Is a Tor Exit Network* (Medium-High, T1557): privacy or bulletproof-style hosting
+  drawing the traffic. The Tor network page matches every network BGPDB showed (origins, unauthorized origins,
+  upstreams, neighbouring origins) against the Tor exit networks; only an unauthorized origin is an alert, since a
+  transit or neighbouring network carrying Tor exits says little about the domain.
 
 ## MITRE ATT&CK mapping
 
 Each rule maps to one ATT&CK technique; the tactic is derived from the technique ID. The **MITRE ATT&CK** tab of the
-alert overview and the *ATT&CK Technique* grouping both use this mapping. **Rules** is how many detection rules map to
+alert overview and the *ATT&CK Technique* grouping both use this mapping. In the tab, each technique row names the
+technique and the rule categories it was detected from (e.g. *BGP Routing* for the BGPDB rules: T1557
+Adversary-in-the-Middle for origin conflicts and Tor-exit origins, T1583 for unauthorized, new and young routing,
+T1090 for anonymizer exits on unstable routing). **Rules** is how many detection rules map to
 the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows alert counts for the current run.
 
 | Tactic | Technique | Name(s) used by rules | Rules |
@@ -627,6 +644,7 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Resource Development | T1608.005 | Stage Capabilities: Link Target | 1 |
 | Initial Access | T1566.002 | Phishing: Spearphishing Link | 3 |
 | Defense Evasion | T1562.001 | Disable or Modify Tools | 1 |
+| Credential Access | T1557 | Adversary-in-the-Middle | 2 |
 | Command and Control | T1008 | Fallback Channels | 2 |
 | Command and Control | T1071.001 | Web Protocols / Shared C2 | 1 |
 | Command and Control | T1071.004 | App Layer Protocol: DNS; DNS C2 | 2 |
@@ -639,7 +657,6 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Command and Control | T1572 | Protocol Tunneling | 1 |
 | Command and Control | T1573.002 | Encrypted Channel | 1 |
 | Other | T1553.004 | Subvert Trust Controls: Install Root Certificate | 1 |
-| Other | T1557 | Adversary-in-the-Middle | 1 |
 
 Most domain-infrastructure behavior falls under **Resource Development** (the adversary acquiring and preparing
 domains, servers and certificates), with **Command and Control** for resolution, tunneling and proxy behavior.
@@ -1094,10 +1111,10 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | CertsQL | Examples to start from (dates counted from today), a CertsQL query on Certificate Search (same autocomplete as IrisQL, with dotted subfields), checked against the field catalog before sending, and the same search as a curl command and a Python script; results: a fingerprint card for each known or code-generated JA4X among them, matching certificates, the domains, IPs and hostnames they name and a breakdown; untick certificates to leave out, tick domains and IPs, pick a use case and analyze them as a new run. The ticked certificates go into the run (Source *CertsQL search*) for the domains they name, so the certificate that found a domain is in its analysis even when the domain's own certificate lookup does not return it |
 | Runs | *Recent runs*: the newest saved runs as a timeline, one card per target list or a table (one row per target list, or every run with *Show all runs*; filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open it in *Compare & trends*. *Compare & trends*: run details, compare any two runs, trends, one domain across runs, watched lists, manage runs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
 | Summary | From the top: hunt trail and KPIs; every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains); analysis details (linked counts, the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits; and the BGP row: IPs routed, prefixes, origin networks, routing findings, with a short description of who announces the hosting and the worst findings); linked domains; a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*); top alerts (pick one to open Alerts filtered to it); run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health); what's new since the last analysis with *Watch this list*; the use-case plan with checkboxes; the lookups of the last collection |
-| Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar domains / IPs in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
+| Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar domains / IPs in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB, BGP routing of its IPs from BGPDB: prefix, origin network and RPKI / IRR status, network age, routing findings), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons (with *Your Verdicts*), suppressions, run diff, DomainTools risk evidence; *Export detections, IOCs and reports* opens Export & report |
 | VPNDB | Which VPN or proxy provider operates behind an IP, prefix or ASN (each tab opens with *How to read this*): domain → provider → exit flow, domain × category heatmap, providers, exit countries, exposure timeline against VPNDB's weekly history, Iris cross-check (domain count, pivot value, disagreements), neighbouring ranges and hosting networks, other domains on dedicated exits (DNSDB) with *Analyze*, CIDR address grids and range cards; select any IP for its full card (verdict, whole VPNDB answer, history, where the run saw it, Tor share) |
-| Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when one of the run's hosting networks is among them |
+| Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when a network the run saw is among them, with *Seen as* (hosting from VPNDB / Iris; with BGPDB also origin, unauthorized origin, upstream / transit, neighbouring prefix) |
 | BGP | BGP routing of the hosting IPs from BGPDB (each tab opens with *How to read this*): *Overview* (routing findings, each hosting IP with its prefix, usual origin, RPKI / IRR, RIR and Iris country, upstream; select one for every origin, AS path and network, as curl commands), *Routing map* (domain → prefix → origin network → upstream Sankey, unauthorized flows in red, and the AS paths towards a prefix as a graph), *Origin timeline* (each prefix and network on its own row, authorized green, unauthorized red), *Networks* (RIR registration, age and visibility of the origin and upstream ASes), *Neighbouring prefixes* (the /20 around each prefix: the run's own networks, others, unauthorized), *VPNDB match* (exits and their routing, networks that carry exits), *Responses* (every BGPDB answer, as curl) |
 | DNS & Hosting | One-line VPNDB and BGP summaries, then four tabs (only the open one is drawn): *Timeline* (event scatter, lifespans, velocity, tempo), *Subdomains & IPs* (subdomains, IP clusters, Nexus overlap), *Web & TXT* (trackers, TXT fingerprints), *Campaign & hosting* (domain story timeline, infrastructure graph, clusters, hosting map, Domain ➔ ASN ➔ IP Sankey, CDN origin exposure, domain hopping) |
 | CNAME Chains | Every CNAME with its target service, full chain and outcome (resolves, dead end, loop); per-hostname table with CNAME history; chains filled in on demand and read from the analyzed domain; chain map boxed per domain with optional one node per hostname; chase results grouped by chain, most hostnames first; cross-domain links and link map; reverse CNAME (RDATA) related domains for chain targets or typed names; chase selected or all hostnames, up to 10 DNSDB queries per domain per click |
@@ -1105,7 +1122,7 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts, their BGP routing (prefixes, origin networks, routing alerts) and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure; *All pivots*: every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it, with *Analyze now* and *Find in Iris* |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
-| Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB answer as received (select one to see it as tables). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request) and `domaintools` CLI / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
+| Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB and BGPDB answer as received (select one to see it as tables; a BGPDB answer as one row per record, downloadable as NDJSON). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request, BGPDB lookups as `bgpdbq` commands) and `domaintools` CLI / `bgpdbq` / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), *Download hunt report (HTML)* of the hunt its run belongs to (no loading, no API query), rename and delete |
 | Export & report | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |

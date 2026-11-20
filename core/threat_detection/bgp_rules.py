@@ -7,6 +7,7 @@ import pandas as pd
 
 from core import bgp
 from core.anonymizers import ANONYMIZER_CATEGORIES
+from core.threat_detection.anonymizer_rules import TOR_NETWORK_EXITS, TOR_NETWORK_SHARE
 from core.threat_detection.context import MAX_IOC_LINES, evidence_record
 
 SEVERITY_ORDER = ("Critical", "High", "Medium-High", "Medium", "Low")
@@ -120,5 +121,34 @@ def rule_exit_on_unstable_routing(ctx):
         "\n".join(lines[:MAX_IOC_LINES]), flag="anonymizer_unstable_routing", evidence=evidence)
 
 
+def rule_unauthorized_origin_tor_network(ctx):
+    """
+    BGPDB + VPNDB Tor overview: a network that announced the domain's hosting prefix without authorization (an origin
+    conflict or an unauthorized usual origin) carries a real share of Tor exit traffic.
+    """
+    found = ctx.bgp_findings
+    if found is None or found.empty or not ctx.tor_networks:
+        return
+    hits = []
+    for _, row in found[found["Finding"].isin((bgp.CONFLICT, bgp.UNAUTHORIZED_ORIGIN))].iterrows():
+        entry = ctx.tor_networks.get(bgp.asn_number(row["ASN"]))
+        if entry and (entry.get("exitShare", 0) >= TOR_NETWORK_SHARE or entry.get("exitAddresses", 0) >= TOR_NETWORK_EXITS):
+            hits.append((row, entry))
+    if not hits:
+        return
+    lines = [f"{row['ASN']} {entry.get('organization', '')} announced {row['Prefix']} ({row['Finding']}): "
+             f"{entry.get('exitAddresses', 0)} Tor exit address(es), {entry.get('exitShare', 0):.2%} of Tor exit traffic"
+             for row, entry in hits]
+    evidence = [evidence_record(row["First Seen"] if pd.notna(row["First Seen"]) else None, "Tor exit network",
+                                f"{row['ASN']} {entry.get('organization', '')} announced {row['Prefix']}", row["ASN"])
+                for row, entry in hits]
+    ctx.add(
+        "Unauthorized Origin Is a Tor Exit Network", "Medium-High", "T1557 (Adversary-in-the-Middle)",
+        "A network that announced this domain's hosting prefix without authorization (BGPDB) also carries Tor exit "
+        "traffic (VPNDB Tor overview): privacy or bulletproof-style hosting, where traffic drawn by the announcement "
+        "is hard to trace.",
+        "\n".join(lines[:MAX_IOC_LINES]), flag="bgp_tor_origin", confidence="Medium", evidence=evidence)
+
+
 BGP_RULES = (rule_origin_conflict, rule_unauthorized_origin, rule_new_prefix, rule_new_origin_network,
-             rule_thin_route, rule_exit_on_unstable_routing)
+             rule_thin_route, rule_exit_on_unstable_routing, rule_unauthorized_origin_tor_network)

@@ -37,13 +37,18 @@ ALERT_COLUMN_CONFIG = {
 }
 
 
+def shown_vectors(profiles):
+    """The risk vectors with a value for some domain: BGP Routing only when BGPDB answered (older runs lack it)."""
+    return [c for c in VECTOR_COLUMNS if c in profiles.columns and profiles[c].notna().any()]
+
+
 def render_kpi_banner(profiles, high_risk_cutoff):
     if profiles.empty:
         return
     max_risk = profiles["Unified Risk"].max()
     high_risk_cnt = int((profiles["Unified Risk"] >= high_risk_cutoff).sum())
     tot_doms = len(profiles)
-    top_vector = profiles[VECTOR_COLUMNS].mean().idxmax()
+    top_vector = profiles[shown_vectors(profiles)].mean().idxmax()
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Max Digital Risk", f"{max_risk} / 100", delta="Critical" if max_risk >= high_risk_cutoff else "Low/Med",
@@ -63,9 +68,12 @@ def _render_profiles(profiles):
     col_rad, col_ledg = st.columns([1.2, 1.3])
     with col_rad:
         st.markdown("#### Digital Risk Vector Profile",
-                    help="Radar chart mapping domain risk across 6 dimensions.")
-        radar_melt = profiles.rename(columns={"Domain": "Domain / IP"}).melt(
-            id_vars=["Domain / IP"], value_vars=VECTOR_COLUMNS, var_name="Risk Vector", value_name="Score"
+                    help="Radar chart mapping domain risk across its dimensions; BGP Routing appears when BGPDB "
+                         "answered for the run's hosting IPs (a domain without BGPDB data shows 0 there).")
+        vectors = shown_vectors(profiles)
+        radar_melt = profiles.assign(**{c: profiles[c].fillna(0) for c in vectors}) \
+            .rename(columns={"Domain": "Domain / IP"}).melt(
+            id_vars=["Domain / IP"], value_vars=vectors, var_name="Risk Vector", value_name="Score"
         )
         fig = px.line_polar(radar_melt, r="Score", theta="Risk Vector", color="Domain / IP", line_close=True, range_r=[0, 100])
         fig.update_traces(fill="toself", opacity=0.6)

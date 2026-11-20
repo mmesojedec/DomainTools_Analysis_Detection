@@ -197,7 +197,8 @@ core/
                                new domain on an exit, exit shared by analyzed domains, hosted among exits; exit
                                history decides whether an exit counted while the domain used it)
     bgp_rules.py               BGP routing rules (origin conflict, unauthorized origin, new prefix, young network, thin
-                               route) and the VPNDB match (anonymizer exit on unstable routing)
+                               route), the VPNDB match (anonymizer exit on unstable routing) and the Tor match
+                               (unauthorized origin that is a Tor exit network)
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
     enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
@@ -228,7 +229,8 @@ views/                         One module per page + sidebar, alert tools, certi
   sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options); Run again;
                                API credential notice and the Enter API keys form
   welcome_view.py              First start: the disclaimer, then the API credentials (Settings can show it again)
-  results_toolbar.py           Results toolbar: window, domains, hostnames, record types, alert and threshold filters
+  results_toolbar.py           Results toolbar: window, domains, network (BGPDB origin, VPNDB verdict), hostnames, record types,
+                               alert and threshold filters
   home_view.py                 Start page (Targets box, Save offline copy and Analyze, use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
@@ -238,7 +240,8 @@ views/                         One module per page + sidebar, alert tools, certi
   summary_view.py              Summary: KPIs, domains, analysis details, linked domains, hunt pointer, top alerts, run statistics, what's new
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
-  profile_view.py              Domain profile: one domain on one screen, with an action row (sightings, IrisQL, CertsQL, copy)
+  profile_view.py              Domain profile: one domain on one screen (Iris, VPNDB and BGP routing cards), with an action row
+                               (sightings, IrisQL, CertsQL, copy)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
   alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools
   indicator_view.py            One indicator in focus (dialog): what the run knows about it, its alerts, sightings, next steps
@@ -249,8 +252,9 @@ views/                         One module per page + sidebar, alert tools, certi
   pivot_view.py                Hunt map → All pivots: shared values ranked by rarity, Find in Iris
   hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
   triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals
-  raw_view.py                  Evidence → Records, and the lookup status panel shown when a run returned no data
-  query_view.py                Evidence → Lookup queries: every lookup as a reusable query and command
+  raw_view.py                  Evidence → Records (VPNDB and BGPDB answers included), and the lookup status panel shown
+                               when a run returned no data
+  query_view.py                Evidence → Lookup queries: every lookup as a reusable query and command (bgpdbq for BGPDB)
   seed_view.py                 Certificate inputs: preview of the domains / IPs they resolve to, and their provenance
   history_cap.py               Domains whose Domain History stopped at Max changes: notice and Fetch the rest
   vpndb_page.py                VPNDB page (which VPN or proxy provider operates behind an IP, prefix or ASN): flow,
@@ -259,6 +263,7 @@ views/                         One module per page + sidebar, alert tools, certi
   bgp_page.py                  BGP page: routing findings and the hosting IPs, routing map (Sankey, AS-path graph), origin
                                timeline, networks, neighbouring prefixes, VPNDB match, responses; Summary / DNS lines
   tor_page.py                  Tor network page (Infrastructure): network-wide Tor statistics from VPNDB's /tor overview
+                               and every network the run saw (hosting, BGP origins, upstreams) among the Tor exit networks
   ip_card.py                   One IP in full: VPNDB verdict and whole answer, weekly history, where the run saw it,
                                Iris, its /24 and network, Tor share; fetches a full verdict on demand
   anonymizer_view.py           VPNDB building blocks shared by the pages: tables, verdict cards, links, CIDR range cards

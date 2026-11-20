@@ -30,7 +30,11 @@ IP_COLUMNS = ["IP", "Domains", "Prefix", "Origin", "AS Name", "Status", "Origins
 RAW_COLUMNS = ["Command", "Argument", "Status", "Records", "Detail", "URL", "Response"]
 
 VALID, UNAUTHORIZED, UNVERIFIED = "Valid", "Unauthorized", "Not in RPKI / IRR"
-STATUS_COLORS = {VALID: "#43a047", UNAUTHORIZED: "#e53935", UNVERIFIED: "#9e9e9e"}
+# A private or reserved AS number (RFC 6996 / RFC 7300) as origin, seen by at most LOCAL_COLLECTORS route collectors:
+# one collector peer leaking its own internal AS, not something the internet routed. Shown, never a finding.
+LOCAL_LEAK = "Private AS (collector-local)"
+LOCAL_COLLECTORS = 2
+STATUS_COLORS = {VALID: "#43a047", UNAUTHORIZED: "#e53935", UNVERIFIED: "#9e9e9e", LOCAL_LEAK: "#fb8c00"}
 
 # Findings (also the detection rules' names)
 CONFLICT = "BGP Origin Conflict (Possible Hijack)"
@@ -39,6 +43,7 @@ NEW_PREFIX = "Newly Announced Prefix"
 NEW_ASN = "Recently Registered Origin Network"
 THIN_ROUTE = "Low-Visibility or Single-Upstream Route"
 EXIT_ON_UNSTABLE = "Anonymizer Exit on Unstable Routing"
+TOR_ORIGIN = "Unauthorized Origin Is a Tor Exit Network"
 FINDINGS = (CONFLICT, UNAUTHORIZED_ORIGIN, NEW_PREFIX, NEW_ASN, THIN_ROUTE)
 # A finding about the prefix itself (not the network's age): what the VPNDB match calls unstable routing
 UNSTABLE = (CONFLICT, UNAUTHORIZED_ORIGIN, NEW_PREFIX)
@@ -98,6 +103,22 @@ def origin_status(irr, rpki):
     return UNVERIFIED
 
 
+def is_private_asn(asn):
+    """AS0, AS23456, 64496-65535 (documentation, private, reserved) and 4200000000+ (private 32-bit)."""
+    text = str(asn or "").upper().removeprefix("AS")
+    if not text.isdigit():
+        return False
+    number = int(text)
+    return number in (0, 23456) or 64496 <= number <= 65535 or number >= 4200000000
+
+
+def row_status(irr, rpki, origin, collectors):
+    """origin_status, except a private-AS origin barely seen (LOCAL_COLLECTORS) is a collector-local leak."""
+    if is_private_asn(origin) and int(collectors or 0) <= LOCAL_COLLECTORS:
+        return LOCAL_LEAK
+    return origin_status(irr, rpki)
+
+
 def prefix_network(prefix):
     """The network of a BGPDB prefix; "1.2.3.0/24+" (an entry for the more-specifics inside it) counts as the block."""
     try:
@@ -115,7 +136,8 @@ def origin_rows(ip, domains, records):
         irr, rpki = _validity(record, "irr"), _validity(record, "rpki")
         rir, rir_date, country = _rir(record.get("rir_prefix"))
         rows.append({"IP": ip, "Domains": ", ".join(sorted(domains)), "Prefix": record.get("prefix", ""),
-                     "Origin": _asn(record.get("origin")), "AS Name": "", "Status": origin_status(irr, rpki),
+                     "Origin": _asn(record.get("origin")), "AS Name": "",
+                     "Status": row_status(irr, rpki, record.get("origin"), record.get("collectors")),
                      "First Seen": _ts(record.get("first")), "Last Seen": _ts(record.get("last")),
                      "Updates": int(record.get("count") or 0), "Collectors": int(record.get("collectors") or 0),
                      "Core": int(record.get("core") or 0), "IRR": irr, "RPKI": rpki, "RIR": rir,
@@ -164,7 +186,8 @@ def neighbour_rows(covering, run_prefixes, run_origins, records):
         irr, rpki = _validity(record, "irr"), _validity(record, "rpki")
         _, rir_date, country = _rir(record.get("rir_prefix"))
         rows.append({"Covering Range": covering, "Run Prefix": ", ".join(sorted(run_prefixes)), "Prefix": prefix,
-                     "Origin": origin, "Same Origin": origin in run_origins, "Status": origin_status(irr, rpki),
+                     "Origin": origin, "Same Origin": origin in run_origins,
+                     "Status": row_status(irr, rpki, origin, record.get("collectors")),
                      "First Seen": _ts(record.get("first")), "Last Seen": _ts(record.get("last")),
                      "Collectors": int(record.get("collectors") or 0), "RIR Date": rir_date, "RIR Country": country})
     return rows
@@ -479,6 +502,20 @@ def for_domain(frame, domain):
     if frame is None or frame.empty or "Domains" not in frame.columns:
         return frame.iloc[0:0] if frame is not None else pd.DataFrame()
     return frame[frame["Domains"].astype(str).map(lambda v: domain in {d.strip() for d in v.split(",")})]
+
+
+def asn_number(asn):
+    """13335 for "AS13335" (None when not a number)."""
+    text = str(asn or "").upper().removeprefix("AS")
+    return int(text) if text.isdigit() else None
+
+
+def origin_numbers(usual):
+    """{ip: AS number} of the usual origin of each IP (rows of main_origins); the most specific prefix wins."""
+    if usual is None or usual.empty:
+        return {}
+    return {row["IP"]: asn_number(row["Origin"]) for _, row in _most_specific(usual).iterrows()
+            if asn_number(row["Origin"]) is not None}
 
 
 def domain_artifacts(origins):

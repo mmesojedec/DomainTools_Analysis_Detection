@@ -18,9 +18,15 @@ from views.common import chart, selected_rows, selection_key
 PAGE_TAB_KEY = "bgp_tab"
 TAGLINE = "Who announces the hosting IPs on the internet, since when, and whether the registries allow it."
 TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "Neighbouring prefixes", "VPNDB match", "Responses"]
-RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE]
+RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN]
 SEVERITY_BADGES = {"Critical": "red", "High": "red", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
-STATUS_BADGES = {bgp.VALID: "green", bgp.UNAUTHORIZED: "red", bgp.UNVERIFIED: "gray"}
+STATUS_BADGES = {bgp.VALID: "green", bgp.UNAUTHORIZED: "red", bgp.UNVERIFIED: "gray", bgp.LOCAL_LEAK: "orange"}
+# worst first: a link or prefix node takes the colour of the worst origin behind it
+STATUS_RANK = (bgp.UNAUTHORIZED, bgp.LOCAL_LEAK, bgp.UNVERIFIED, bgp.VALID)
+
+
+def _worse(a, b):
+    return min(a, b, key=lambda s: STATUS_RANK.index(s) if s in STATUS_RANK else len(STATUS_RANK))
 HOW_TO_READ = {
     "Overview": (
         "Every public hosting IP of the run (no CDN addresses) was looked up in BGPDB, the routing table history of "
@@ -34,14 +40,19 @@ HOW_TO_READ = {
     ),
     "Routing map": (
         "Left to right: your domain → the prefix of its IP → the network that announces it → the upstream network "
-        "that carries it (from the most-seen AS path). Red flows are announcements without authorization.",
+        "that carries it (from the most-seen AS path). A flow takes the colour of its usual origin: **green** = "
+        "authorized, **red** = without authorization, **grey** = not in RPKI / IRR.",
+        "A **prefix box** takes the colour of the worst origin ever seen for it, so a thin red link to another network "
+        "behind a green flow still shows. **Orange** = a private AS number (64512–65534, 65535, …) seen by one route "
+        "collector: that collector's peer leaking its internal AS, not a hijack and not a finding.",
         "Below: every AS path seen towards one prefix. The thicker the arrow, the more route collectors saw it; the "
         "origin is the last network on the right.",
     ),
     "Origin timeline": (
         "One row per prefix and network that announced it, from the first to the last time BGPDB saw it (a "
         "single announcement is drawn 8 hours wide so it shows; hover for the exact times).",
-        "**Green** = authorized origin, **red** = unauthorized. A short red bar on top of a long green one is what a "
+        "**Green** = authorized origin, **red** = unauthorized, **orange** = a private AS at one collector. A short "
+        "red bar on top of a long green one is what a "
         "hijack or route leak looks like.",
         "Bars starting on the first day of the data only mean *at least that old*.",
     ),
@@ -221,8 +232,12 @@ def _ip_card(ds, ip):
 # ---- Routing map ------------------------------------------------------------------------------------------------------
 
 def sankey_figure(origins, routes):
-    """Domain → prefix (its usual origin's colour) → every origin AS seen → upstream AS; unauthorized origins in red.
-    A "/24+" prefix stands for more-specific announcements inside the /24."""
+    """
+    Domain → prefix (its usual origin's colour) → every origin AS seen → upstream AS; unauthorized origins in red,
+    collector-local private-AS leaks in orange. A prefix node takes the colour of the worst origin seen for it, so a
+    thin red or orange link behind a green flow still shows. A "/24+" prefix stands for more-specific announcements
+    inside the /24.
+    """
     usual = bgp.main_origins(origins)
     upstream = bgp.main_upstreams(routes)
     labels, index, links = [], {}, {}
@@ -236,7 +251,7 @@ def sankey_figure(origins, routes):
     def link(a, b, status):
         key = (node(a), node(b))
         count, worst = links.get(key, (0, bgp.VALID))
-        links[key] = (count + 1, bgp.UNAUTHORIZED if bgp.UNAUTHORIZED in (worst, status) else status)
+        links[key] = (count + 1, _worse(worst, status) if count else status)
 
     for _, row in usual.iterrows():   # domain → prefix: one per IP, coloured by the usual origin
         for domain in str(row["Domains"]).split(","):
@@ -248,14 +263,20 @@ def sankey_figure(origins, routes):
         if upstream.get(row["Prefix"]):
             link(f"{row['Origin']} {row['AS Name']}".strip(), f"via {upstream[row['Prefix']]}", row["Status"])
     colors = {bgp.VALID: "rgba(67,160,71,0.45)", bgp.UNAUTHORIZED: "rgba(229,57,53,0.7)",
-              bgp.UNVERIFIED: "rgba(158,158,158,0.45)"}
+              bgp.UNVERIFIED: "rgba(158,158,158,0.45)", bgp.LOCAL_LEAK: "rgba(251,140,0,0.7)"}
+    prefix_status = {}
+    for _, row in origins.iterrows():
+        prefix = row["Prefix"]
+        prefix_status[prefix] = _worse(prefix_status.get(prefix, row["Status"]), row["Status"])
+    node_colors = [bgp.STATUS_COLORS.get(prefix_status[label], "#9e9e9e") if label in prefix_status else "#78909c"
+                   for label in labels]
     sources, targets, values, link_colors = [], [], [], []
     for (a, b), (count, status) in links.items():
         sources.append(a)
         targets.append(b)
         values.append(count)
         link_colors.append(colors.get(status, colors[bgp.UNVERIFIED]))
-    fig = go.Figure(go.Sankey(node={"label": labels, "pad": 12, "thickness": 14},
+    fig = go.Figure(go.Sankey(node={"label": labels, "pad": 12, "thickness": 14, "color": node_colors},
                               link={"source": sources, "target": targets, "value": values, "color": link_colors}))
     fig.update_layout(margin={"l": 10, "r": 10, "t": 10, "b": 10})
     return fig, len(labels)
@@ -271,7 +292,7 @@ def path_graph(routes, origins, asns, limit=25):
         for a, b in zip(hops, hops[1:]):
             edges[(a, b)] = edges.get((a, b), 0) + max(1, int(row["Collectors"]))
     nodes = {n for edge in edges for n in edge}
-    fill = {bgp.VALID: "#2e7d32", bgp.UNAUTHORIZED: "#c62828", bgp.UNVERIFIED: "#616161"}
+    fill = {bgp.VALID: "#2e7d32", bgp.UNAUTHORIZED: "#c62828", bgp.UNVERIFIED: "#616161", bgp.LOCAL_LEAK: "#ef6c00"}
     lines = ['digraph { graph [rankdir=LR, bgcolor="transparent", nodesep=0.2, ranksep=0.5]; '
              'node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fontcolor="white", '
              'color="#555555", fillcolor="#2f2f2f"]; edge [color="#9e9e9e", arrowsize=0.5];']
@@ -292,18 +313,23 @@ def _routing_map(ds):
     if _empty(ds.bgp_routes):
         st.caption("No AS paths in this run.")
         return
-    contested = set(ds.bgp_origins.loc[ds.bgp_origins["Status"] == bgp.UNAUTHORIZED, "Prefix"].astype(str).str.rstrip("+"))
+    def flagged(status):
+        return set(ds.bgp_origins.loc[ds.bgp_origins["Status"] == status, "Prefix"].astype(str).str.rstrip("+"))
+
+    contested, leaked = flagged(bgp.UNAUTHORIZED), flagged(bgp.LOCAL_LEAK)
     seen = ds.bgp_routes.groupby("Prefix")["Collectors"].sum()
     prefixes = sorted(seen.index, key=lambda p: (p not in contested, -seen[p]))
     prefix = st.selectbox("AS paths towards", prefixes, key="bgp_path_prefix",
-                          format_func=lambda p: p + ("  ⚠ unauthorized origin seen" if p in contested else ""),
+                          format_func=lambda p: p + ("  ⚠ unauthorized origin seen" if p in contested
+                                                     else "  · private-AS leak at one collector" if p in leaked else ""),
                           help="The prefixes of the run's IPs: those with an unauthorized origin first, then the most "
-                               "widely seen")
+                               "widely seen. A private-AS leak is a route collector's peer leaking its internal AS "
+                               "number: shown, but not a finding")
     routes = ds.bgp_routes[ds.bgp_routes["Prefix"] == prefix]
     st.graphviz_chart(path_graph(routes, ds.bgp_origins[ds.bgp_origins["Prefix"] == prefix], ds.bgp_asns),
                       width="content")
     st.caption(f"{len(routes)} path(s); the 25 most widely seen are drawn. Green: authorized origin, red: "
-               "unauthorized, grey: not in RPKI / IRR.")
+               "unauthorized, grey: not in RPKI / IRR, orange: a private AS seen at one route collector.")
 
 
 # ---- Origin timeline --------------------------------------------------------------------------------------------------

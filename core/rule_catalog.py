@@ -208,6 +208,12 @@ RULE_CATALOG = {
         "unauthorized origin or a new announcement (BGPDB).",
         "An anonymizer on unstable or unregistered space is rarely a mainstream service: likely the actor's own or "
         "a fly-by-night provider."),
+    "Unauthorized Origin Is a Tor Exit Network": (
+        "Medium-High", "T1557 (Adversary-in-the-Middle)",
+        "A network that announced a hosting prefix without authorization (origin conflict or unauthorized origin, "
+        "BGPDB) also carries Tor exit traffic: at least 0.5 % of it or 10+ exit addresses (VPNDB Tor overview).",
+        "The hijacking or squatting network welcomes Tor exits: privacy or bulletproof-style hosting, where traffic "
+        "drawn by the announcement is hard to trace."),
     # VPNDB (VPNDB key and the VPN / proxy / Tor check)
     "Domain on Tor Relay / Exit Node": ("High (exit) / Medium-High (relay)", "T1090.003 (Proxy: Multi-hop Proxy)",
                                         "An IP the domain resolves to (in the window, or now in Iris) exits Tor "
