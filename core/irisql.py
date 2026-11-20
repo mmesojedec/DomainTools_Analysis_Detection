@@ -96,22 +96,54 @@ def similar_query(target):
     return f'# IrisQL-1.0\nDOMAIN CONTAINS "{target.split(".")[0]}"'
 
 
-def network_query(value):
+# Iris Investigate refuses (HTTP 413) any query matching more than MAX_MATCHES domains, whatever page_size asks for;
+# these conditions narrow a query under it
+MAX_MATCHES = 10_000
+NARROWING = {
+    "Created in the last 30 days": 'CREATE_DATE WITHIN "The last 30 days"',
+    "Created in the last 7 days": 'CREATE_DATE WITHIN "The last 7 days"',
+    "First seen in the last 30 days": 'FIRST_SEEN WITHIN "The last 30 days"',
+    "Risk score above 70": "RISK_SCORE GREATER_THAN 70",
+    "Risk score above 90": "RISK_SCORE GREATER_THAN 90",
+}
+DEFAULT_NARROWING = ("Created in the last 30 days",)
+
+
+def narrow(query, labels):
+    """`query` with each NARROWING condition of `labels` ANDed on (conditions already in it are not repeated)."""
+    text = str(query or "").rstrip()
+    present = {line.strip().upper() for line in text.splitlines()}
+    for label in labels or ():
+        clause = NARROWING.get(label)
+        if clause and clause.upper() not in present:
+            text += f"\nAND\n{clause}"
+            present.add(clause.upper())
+    return text
+
+
+def network_query(value, narrowing=DEFAULT_NARROWING):
     """
     IrisQL for the domains Iris sees on a routing artifact: an origin network (`AS13335` → `asn matches "13335"`) or an
-    announced prefix (its first and last address, as similar_query). None for anything else.
+    announced prefix (its first and last address, as similar_query), narrowed by `narrowing` (NARROWING labels; by
+    default to domains created in the last 30 days, since a CDN or cloud network matches more than Iris returns).
+    None for anything else.
     """
     text = str(value or "").strip().upper().rstrip("+")
     if text.startswith("AS") and text[2:].isdigit():
-        return f'# IrisQL-1.0\nasn matches "{int(text[2:])}"'
-    return similar_query(text.lower()) if normalize_cidr(text.lower()) else None
+        query = f'# IrisQL-1.0\nasn matches "{int(text[2:])}"'
+    elif normalize_cidr(text.lower()):
+        query = similar_query(text.lower())
+    else:
+        return None
+    return narrow(query, narrowing)
 
 
 def error_hint(error):
     """What to do about an Iris answer that is about the query itself, or ''."""
     if TOO_MANY in str(error or ""):
-        return ("Iris returns nothing when more than 10,000 domains match. Narrow the query, e.g. add "
-                "`AND` / `CREATE_DATE WITHIN \"The last 30 days\"` or `AND` / `RISK_SCORE GREATER_THAN 75`.")
+        return (f"Iris refuses a query that matches more than {MAX_MATCHES:,} domains, whatever *Domains to fetch* "
+                "or `page_size` ask for: it never returns the first N of a larger match. Narrow the query with one of "
+                "the conditions below (or your own, e.g. `TLD IN`, `REGISTRAR`), then Search again.")
     if "not supported for this field" in str(error or ""):
         return "Each field takes its own operators; the warning above the Search button names the ones allowed."
     return ""

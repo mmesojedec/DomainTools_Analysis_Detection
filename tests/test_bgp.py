@@ -324,10 +324,14 @@ def test_exports_carry_networks_and_prefixes_as_context():
 
 
 def test_iris_queries_for_a_network_and_a_prefix():
-    from core.irisql import network_query
-    assert network_query("AS13335") == '# IrisQL-1.0\nasn matches "13335"'
-    assert 'ip greater_than_or_equal "185.199.108.0"' in network_query("185.199.108.0/24+")
+    from core.irisql import narrow, network_query, problems
+    assert network_query("AS13335") == '# IrisQL-1.0\nasn matches "13335"\nAND\nCREATE_DATE WITHIN "The last 30 days"'
+    assert network_query("AS13335", ()) == '# IrisQL-1.0\nasn matches "13335"'
+    assert 'ip greater_than_or_equal "185.199.108.0"' in network_query("185.199.108.0/24+", ())
     assert network_query("not a network") is None
+    both = network_query("AS16509", ["Created in the last 7 days", "Risk score above 70"])
+    assert both.count("\nAND\n") == 2 and not problems(both)
+    assert narrow(both, ["Risk score above 70"]) == both           # a condition is not added twice
 
 
 def test_a_collector_local_leak_alone_raises_no_finding():

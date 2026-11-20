@@ -11,11 +11,14 @@ from config import IRISQL_DEFAULT_RESULTS, IRISQL_MAX_RESULTS, IRISQL_PAGE_SIZE,
 from core.irisql import (
     EXAMPLES,
     HEADER,
+    NARROWING,
     SORT_FIELDS,
+    TOO_MANY,
     commands,
     domain_frame,
     error_hint,
     ip_frame,
+    narrow,
     normalize,
     problems,
     query_cost,
@@ -212,6 +215,19 @@ def render_irisql_page():
         _render_results(state)
 
 
+def _narrowing_buttons(query):
+    """After a too-many-matches answer: one button per NARROWING condition, adding it to the query (no search)."""
+    with st.container(horizontal=True, wrap=True):
+        for label in NARROWING:
+            if NARROWING[label].upper() in query.upper():
+                continue
+            if st.button(f"Add: {label}", key=f"irisql_narrow::{label}", type="tertiary", icon=":material/add:",
+                         help=f"Adds `AND` / `{NARROWING[label]}` to the query above; then Search (nothing is "
+                              "queried until you do)"):
+                set_query(QUERY_KEY, narrow(query, [label]))
+                st.rerun()
+
+
 def _render_results(state):
     result = state["result"]
     st.subheader("Results", help="The query these results came from is shown below; edit the query above and search "
@@ -222,6 +238,8 @@ def _render_results(state):
                                                          if result.data else ""))
         if hint := error_hint(result.error):
             st.info(hint, icon=":material/tips_and_updates:")
+        if TOO_MANY in str(result.error):
+            _narrowing_buttons(state["query"])
         if not result.data:
             return
     total = result.extras.get("total") or 0

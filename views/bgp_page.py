@@ -209,7 +209,7 @@ def _overview(ds, found, ips):
 
 def iris_pivot(ds, key):
     """Opens IrisQL with the domains Iris sees on one of the run's origin networks or announced prefixes."""
-    from core.irisql import network_query
+    from core.irisql import DEFAULT_NARROWING, MAX_MATCHES, NARROWING, network_query
     from views.irisql_view import QUERY_KEY as IRISQL_KEY  # the IrisQL page imports view helpers
     from views.query_editor import set_query
     usual = bgp.main_origins(ds.bgp_origins)
@@ -219,14 +219,19 @@ def iris_pivot(ds, key):
     options = {row["Origin"]: f"{row['Origin']} {row['AS Name']} (network)".replace("  ", " ")
                for _, row in networks.iterrows()}
     options.update({p.rstrip("+"): f"{p.rstrip('+')} (prefix)" for p in usual["Prefix"].astype(str)})
-    c_pick, c_go = st.columns([3, 1.4], vertical_alignment="bottom")
+    c_pick, c_narrow, c_go = st.columns([2.2, 2.2, 1.2], vertical_alignment="bottom")
     picked = c_pick.selectbox("Other domains in Iris on", list(options), format_func=options.get, key=f"{key}::iris",
                               help="Opens IrisQL with the domains Iris Investigate sees on this origin network (ASN) "
                                    "or on this prefix's addresses; edit the query, then Search (one Iris Investigate "
-                                   "query). Large networks (a CDN, a cloud) match more than Iris returns: narrow the "
-                                   "query, e.g. with CREATE_DATE or RISK_SCORE")
+                                   "query per page of results)")
+    narrowing = c_narrow.multiselect(
+        "Narrow to", list(NARROWING), default=list(DEFAULT_NARROWING), key=f"{key}::iris_narrow",
+        placeholder="No narrowing",
+        help=f"Iris refuses any query matching more than {MAX_MATCHES:,} domains (it never returns just the first "
+             "500): a CDN or cloud network (AS13335 Cloudflare, AS16509 AWS, ...) needs narrowing. A small prefix "
+             "(/24) or network usually does not: clear it there.")
     if c_go.button("Open in IrisQL", key=f"{key}::iris_go", icon=":material/manage_search:", type="tertiary"):
-        query = network_query(picked)
+        query = network_query(picked, narrowing)
         if query:
             set_query(IRISQL_KEY, query)
             navigation.go("irisql")

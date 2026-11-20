@@ -844,8 +844,8 @@ minutes. Lookups already in the cache still count.
 
 The **Overview** tab ends with **Other domains in Iris on**: pick one of the run's origin networks or prefixes and
 **Open in IrisQL** for the domains Iris sees there (`asn matches "13335"`, or the prefix's first and last address);
-edit, then **Search** (one Iris Investigate query). A CDN or cloud network matches more domains than Iris returns:
-narrow it, e.g. with `CREATE_DATE` or `RISK_SCORE`.
+edit, then **Search**. **Narrow to** adds conditions first, *Created in the last 30 days* by default: a CDN or cloud
+network matches far more than the 10,000 domains Iris accepts per query. Clear it for a small prefix or network.
 
 Elsewhere in the app:
 - **Domain profile**: a *BGP routing* card per domain (its IPs, prefixes, origin networks and their age, routing
@@ -1019,8 +1019,11 @@ without internet access.
 
    Absence is `FIELD EXISTS false`. Iris doesn't take CIDR ranges: list the IPs (`IP IN ["1.2.3.4", "1.2.3.5"]`) or
    use `IP GREATER_THAN_OR_EQUAL "1.2.3.0"` and `IP LESS_THAN_OR_EQUAL_TO "1.2.3.255"` on two lines with `AND` between them.
-   A query that matches more than 10,000 domains returns nothing (*Limit Exceeded Maximum 10000*), so narrow it, for
-   example with `CREATE_DATE WITHIN "The last 30 days"` or `RISK_SCORE GREATER_THAN 75`.
+   A query that matches more than 10,000 domains returns nothing (HTTP 413, *Maximum 10000 returned*), whatever
+   *Domains to fetch* or curl's `page_size` ask for: Iris never hands back the first 500 of a larger match. Narrow it,
+   for example with `CREATE_DATE WITHIN "The last 30 days"` or `RISK_SCORE GREATER_THAN 75`. After that answer the
+   results area offers **Add: Created in the last 30 days / 7 days**, **First seen in the last 30 days** and **Risk
+   score above 70 / 90**: each adds the condition to the query (nothing is searched until you click Search).
 
    Common mistakes are flagged before anything is sent: no condition, `AND` at the start or end, two conditions
    on one line, or a `WITHIN` value that isn't `"The last N days"` (or weeks, months, years); Iris answers those with
@@ -1028,7 +1031,8 @@ without internet access.
    the version line. `SSL_DURATION` takes its value in quotes (`SSL_DURATION GREATER_THAN "365"`). `MISC_EMAIL`,
    `HISTORICAL_EMAIL` and `HISTORICAL_FREE_TEXT` are suggested, but their operators aren't checked: Iris decides.
 2. Set **Domains to fetch** (default 500, at most 5,000). Pages of 500 are requested until that many, one Iris
-   Investigate query each. Set **Sort by** (Iris sorts before paging, so it decides which domains you get when more
+   Investigate query each. It limits what is fetched from a query Iris accepts (up to 10,000 matches), not how many
+   may match. Set **Sort by** (Iris sorts before paging, so it decides which domains you get when more
    match), and **Pre-select the riskiest** (default 10).
 3. Click **Search**. The same search within the cache lifetime costs no query. *The same search outside the app*
    gives it as a DomainTools Python SDK command (the `domaintools` command line), a curl command and a Python script,
