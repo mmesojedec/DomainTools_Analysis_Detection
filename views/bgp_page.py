@@ -487,7 +487,28 @@ def _vpndb(ds, found, ips):
     else:
         st.dataframe(networks, hide_index=True, width="stretch",
                      column_config={"Registered": st.column_config.DateColumn(format="YYYY-MM-DD")})
-    navigation.link("vpndb", label="VPNDB page", icon=":material/vpn_lock:")
+    _vpndb_jump(networks, exits)
+
+
+def _vpndb_jump(networks, exits):
+    """Opens the VPNDB page filtered to the networks and exits above (its banner clears the filter)."""
+    from views.vpndb_page import FOCUS_KEY  # the VPNDB page links back here
+    asns = sorted(set(networks["ASN"])) if not networks.empty else []
+    ips = sorted(set(exits["IP"])) if not exits.empty else []
+    if not asns and not ips:
+        navigation.link("vpndb", label="VPNDB page", icon=":material/vpn_lock:")
+        return
+    shown = ", ".join(asns[:4]) + (f" +{len(asns) - 4}" if len(asns) > 4 else "")
+    label = " · ".join(part for part in (f"{len(asns)} network(s): {shown}" if asns else "",
+                                         f"{len(ips)} exit IP(s)" if ips else "") if part)
+    c_jump, c_all = st.columns([2, 1])
+    navigation.jump_button("vpndb", "Open VPNDB filtered to these", {FOCUS_KEY: {"asns": asns, "ips": ips,
+                                                                             "label": label}},
+                           button_key="bgp_vpndb_focus", container=c_jump, icon=":material/filter_alt:",
+                           type="tertiary", help=f"The VPNDB page with every tab narrowed to {label}; its banner "
+                                                 "clears the filter")
+    navigation.jump_button("vpndb", "VPNDB page (everything)", {FOCUS_KEY: None}, button_key="bgp_vpndb_all",
+                           container=c_all, icon=":material/vpn_lock:", type="tertiary")
 
 
 # ---- Responses --------------------------------------------------------------------------------------------------------

@@ -159,6 +159,40 @@ def _render_bgp(ds, domain):
         navigation.link("bgp", label="Routing map and timeline (BGP page)", container=c_page)
 
 
+def _render_similar(ctx, domain):
+    """The run's domains built most like this one, and look-alikes in earlier saved runs (no API query)."""
+    from core import similarity as sim
+    from views.similarity_view import THRESHOLD_KEY, current_weights, scored, similar_earlier
+    with st.container(border=True):
+        st.markdown("**Similar domains** · built like this one (hosting, DNS, certificates, registration, naming)",
+                    help="Infrastructure similarity, not attribution: read the shared values. Hunt → Domain "
+                         "similarity has every pair, the clusters and the weights.")
+        if "/" in domain:
+            st.caption("Not for CIDR targets.")
+            return
+        feats, counts, pairs = scored(ctx, current_weights())
+        threshold = st.session_state.get(THRESHOLD_KEY, sim.DEFAULT_THRESHOLD)
+        mine = pairs[(pairs["Domain A"] == domain) | (pairs["Domain B"] == domain)] if not pairs.empty else pairs
+        mine = mine[mine["Similarity %"] >= threshold] if not mine.empty else mine
+        if mine.empty:
+            st.caption(f"No domain of this run is {threshold} % similar or more.")
+        else:
+            other = mine.apply(lambda r: r["Domain B"] if r["Domain A"] == domain else r["Domain A"], axis=1)
+            st.dataframe(mine.assign(Domain=other.map(unicode_label))[["Domain", "Similarity %", "Rare Shared",
+                                                                       "Shared Values"]].head(8),
+                         hide_index=True, width="stretch", column_config={
+                             "Similarity %": st.column_config.ProgressColumn("Similarity", format="%.0f %%",
+                                                                             min_value=0, max_value=100)})
+        if domain in feats:
+            earlier = similar_earlier(domain, feats[domain], counts, st.session_state.get("run_created"))
+            if not earlier.empty:
+                st.markdown("**In earlier runs**")
+                st.dataframe(earlier.head(5), hide_index=True, width="stretch", column_config={
+                    "Similarity %": st.column_config.ProgressColumn("Similarity", format="%.0f %%", min_value=0,
+                                                                    max_value=100)})
+        navigation.link("similarity", label="Every pair, clusters and weights (Domain similarity)")
+
+
 def _render_actions(domain):
     """One row of next moves for the domain: where else it was seen, IrisQL / CertsQL searches, a copyable name."""
     from views.certsql_view import QUERY_KEY as CERTSQL_KEY  # the query pages import this page's helpers
@@ -249,6 +283,7 @@ def render_profile(ctx):
         if not ds.pdns_utc.empty else set()
     _render_vpndb(ds, domain, set(ips["IP"].astype(str)) if not ips.empty else set(), window_ips)
     _render_bgp(ds, domain)
+    _render_similar(ctx, domain)
 
     st.subheader("Alerts")
     if ranked.empty:

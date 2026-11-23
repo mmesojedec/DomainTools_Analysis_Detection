@@ -68,7 +68,13 @@ from views.query_view import render_query_lens
 from views.quota_banner import render_quota_banners
 from views.raw_view import render_cache_panel, render_raw_lens, render_status_panel
 from views.recent_view import render_recent_page, render_recent_teaser
-from views.results_toolbar import filter_alerts, filter_state, render_results_toolbar, render_window_coverage
+from views.results_toolbar import (
+    CURRENT_PAGE_KEY,
+    filter_alerts,
+    filter_state,
+    render_results_toolbar,
+    render_window_coverage,
+)
 from views.risk_view import render_risk_lens
 from views.seed_view import render_seed_preview, render_seed_provenance, render_seed_query_step
 from views.settings_view import brand_watchlist, render_settings
@@ -86,6 +92,7 @@ from views.sidebar import (
     run_options,
     show_pending_toast,
 )
+from views.similarity_view import render_similarity_page
 from views.sources_view import render_data_sources
 from views.ssl_view import render_ssl_lens
 from views.summary_view import render_summary
@@ -737,6 +744,7 @@ PAGE_FUNCTIONS = {
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
+    "similarity": data_page(lambda: render_similarity_page(CTX)),
     "hunt_tree": lambda: ((render_status_chip(), render_toolbar()) if CTX.ds is not None else None,
                           render_hunt_map(CTX.timezone, CTX)),
     "sources": data_page(page_sources),
@@ -752,13 +760,14 @@ PAGE_FUNCTIONS = {
 
 
 TOOLBAR_PAGES = {"summary", "profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "certs", "hostnames", "triage",
-                 "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
+                 "similarity", "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
 
 
 def main():
     global CTX
     init_state()
     nav = navigation.build(PAGE_FUNCTIONS, is_analyst())
+    st.session_state[CURRENT_PAGE_KEY] = navigation.current_key(nav)   # the results toolbar's page-specific filters
     render_logo()
     install_copy_fallback()
     show_pending_toast()

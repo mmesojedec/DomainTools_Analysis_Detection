@@ -874,9 +874,9 @@ def _render_group_lifetimes(off):
     lifetimes = group_lifetimes(load_settings())
     names = {seconds: label for label, seconds in CACHE_LIFETIMES.items() if seconds}
     options = [None, *names]
-    st.markdown("**Per source**", help="How long each source's results are reused. Domain History changes rarely "
-                "(7 days by default); VPNDB verdicts change often (6 hours). The others follow the cache lifetime "
-                "above. With the cache off, every source is off.")
+    st.markdown("**Per source**", help="How long each source's results are reused. VPNDB verdicts and BGPDB routing "
+                "change often (6 hours by default); the others follow the cache lifetime above. Domain History "
+                "changes rarely: 7 days there saves Domain History quota. With the cache off, every source is off.")
     changed, columns = {}, st.columns(2)
     for index, (group, label) in enumerate(CACHE_GROUPS.items()):
         current = lifetimes[group] if lifetimes[group] in options else None
@@ -894,8 +894,18 @@ def rerun_app_if_requested():
         st.rerun()
 
 
+EMPTY_TARGETS_KEY = "start_targets_empty"   # Analyze clicked with an empty Targets box: the Start page says so
+
+
 def start_analyze(source_key):
-    """Start page *Analyze* callback: its target box becomes the targets, and the next app run analyzes them."""
+    """
+    Start page *Analyze* callback: its target box becomes the targets, and the next app run analyzes them. The button
+    is always enabled (a text area only sends its text when it loses focus, and the click does that), so an empty box
+    is caught here instead.
+    """
+    if not str(st.session_state.get(source_key) or "").strip():
+        st.session_state[EMPTY_TARGETS_KEY] = True
+        return
     st.session_state[TARGETS_KEY] = st.session_state.get(source_key, "")
     st.session_state[SAVE_OFFLINE_KEY + "_run"] = bool(st.session_state.get(SAVE_OFFLINE_KEY))
     st.session_state[DATA_MODE_KEY] = LIVE_MODE

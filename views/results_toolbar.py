@@ -15,10 +15,11 @@ import streamlit as st
 
 from config import THRESHOLD_SPECS
 from core import bgp
+from core.helpers import md_escape
 from core.hostnames import focus_from_hostnames
 from core.intel_data import CONFIDENCE_ORDER, SEVERITY_ORDER
 from core.use_cases import history_period_days
-from core.window import CUSTOM_RANGE
+from core.window import CUSTOM_RANGE, DEFAULT_WINDOW
 from views import navigation
 from views.idn_display import display_name
 from views.sidebar import _hostname_options, focus_key, is_analyst, render_analysis_window, run_again
@@ -181,6 +182,7 @@ def _reset_filters(collected):
     state = st.session_state
     for key in (domains_key(), dh_key(), pdns_key(), focus_key(), asn_key(), vpndb_key()):
         state[key] = []
+    state.pop(VPNDB_FOCUS_KEY, None)
     state[SEVERITY_KEY], state[CONFIDENCE_KEY] = list(SEVERITY_ORDER), list(CONFIDENCE_ORDER)
     for spec in THRESHOLD_SPECS:
         state[spec.state_key] = spec.default
@@ -268,14 +270,87 @@ def render_results_toolbar(collected, filters):
                 st.button("Reset to defaults", key="toolbar_reset_thresholds", on_click=_reset_thresholds,
                           icon=":material/restart_alt:", type="tertiary", disabled=not changed)
                 navigation.link("settings", label="Every threshold")
-        is_filtered = (state[domains_key()] or state[dh_key()] or state[pdns_key()] or state.get(focus_key())
-                       or state.get(asn_key()) or state.get(vpndb_key())
-                       or narrowed or changed)
-        if is_filtered:
-            st.button("Reset filters", key="toolbar_reset", on_click=_reset_filters, args=(collected,),
-                      icon=":material/filter_alt_off:", type="tertiary",
-                      help="Every domain, hostname, network, record type, severity and confidence, and the default "
-                           "thresholds")
+        focus = state.get(VPNDB_FOCUS_KEY)
+        if focus and current_page() == "vpndb":
+            with st.popover("BGP focus · on", icon=":material/hub:",
+                            help="Set by the BGP page's VPNDB match: every VPNDB tab shows only these networks "
+                                 "and exits"):
+                st.markdown(focus.get("label") or "Origin networks from the BGP page")
+                if focus.get("asns"):
+                    st.caption("Networks: " + ", ".join(focus["asns"]))
+                if focus.get("ips"):
+                    st.caption("Exit IPs: " + ", ".join(focus["ips"][:20]) + (" …" if len(focus["ips"]) > 20 else ""))
+                st.button("Clear BGP focus", key="toolbar_clear_focus", on_click=_clear_vpndb_focus,
+                          icon=":material/filter_alt_off:", type="tertiary")
+    render_active_filters(collected, filters)
+
+
+VPNDB_FOCUS_KEY = "vpndb_focus"   # views.vpndb_page.FOCUS_KEY: set by the BGP page, applies on the VPNDB page
+CURRENT_PAGE_KEY = "current_page"   # the page key app.py is drawing (set before the toolbar)
+
+
+def current_page():
+    return st.session_state.get(CURRENT_PAGE_KEY)
+
+
+def _clear_vpndb_focus():
+    st.session_state.pop(VPNDB_FOCUS_KEY, None)
+
+
+def active_filters(collected, filters, state=None, page=None):
+    """
+    [(name, text)] for every filter that narrows the pages now: a non-default window, domains, network, hostnames,
+    record types, alert levels, changed thresholds and (on the VPNDB page) the BGP focus. Empty: nothing narrowed.
+    """
+    state = st.session_state if state is None else state
+    all_domains, all_dh, all_pdns = filter_options(collected)
+    found = []
+    window = state.get("analysis_window") or DEFAULT_WINDOW
+    if window != DEFAULT_WINDOW:
+        picked = state.get("analysis_window_range")
+        found.append(("Window", f"{picked[0]} → {picked[1]}" if window == CUSTOM_RANGE and isinstance(picked, (list, tuple))
+                      and len(picked) == 2 else window))
+    if 0 < len(filters.domains) < len(all_domains):
+        found.append(("Domains", f"{len(filters.domains)} of {len(all_domains)}: " + ", ".join(
+            display_name(d) for d in filters.domains[:4]) + (" …" if len(filters.domains) > 4 else "")))
+    labels, _, _ = network_options(collected)
+    networks = [labels.get(a, a) for a in state.get(asn_key()) or []] + list(state.get(vpndb_key()) or [])
+    if networks:
+        found.append(("Network", ", ".join(networks[:4]) + (" …" if len(networks) > 4 else "")))
+    hosts = [h for hosts in (filters.host_focus or {}).values() for h in hosts]
+    if hosts:
+        found.append(("Hostnames", ", ".join(hosts[:4]) + (" …" if len(hosts) > 4 else "")))
+    kept = len(filters.dh_types) + len(filters.pdns_types)
+    if kept < len(all_dh) + len(all_pdns):
+        found.append(("Record types", f"{kept} of {len(all_dh) + len(all_pdns)}"))
+    if len(filters.severities) < len(SEVERITY_ORDER) or len(filters.confidences) < len(CONFIDENCE_ORDER):
+        found.append(("Alerts", " · ".join(part for part in (
+            ", ".join(filters.severities) if len(filters.severities) < len(SEVERITY_ORDER) else "",
+            "confidence " + ", ".join(filters.confidences) if len(filters.confidences) < len(CONFIDENCE_ORDER) else "")
+            if part) or "none"))
+    changed = [spec.label for spec in THRESHOLD_SPECS
+               if state.get(spec.state_key, spec.default) != spec.default]
+    if changed:
+        found.append(("Detection", f"{len(changed)} threshold(s) changed: " + ", ".join(changed[:3])
+                      + (" …" if len(changed) > 3 else "")))
+    focus = state.get(VPNDB_FOCUS_KEY)
+    if focus and (page or current_page()) == "vpndb":
+        found.append(("Filtered from BGP", focus.get("label") or "origin networks"))
+    return found
+
+
+def render_active_filters(collected, filters):
+    """One line under the toolbar naming every filter in force, with Reset filters; nothing when none is."""
+    found = active_filters(collected, filters)
+    if not found:
+        return
+    with st.container(border=True, horizontal=True, vertical_alignment="center", key="active_filters"):
+        st.markdown(":material/filter_alt: **Filters applied:** "
+                    + " · ".join(f"**{name}:** {md_escape(text)}" for name, text in found))
+        st.button("Reset filters", key="toolbar_reset", on_click=_reset_filters, args=(collected,),
+                  icon=":material/filter_alt_off:", type="tertiary",
+                  help="Every domain, network, hostname, record type, severity and confidence, the default "
+                       "thresholds and the BGP focus (the analysis window stays)")
 
 
 def render_window_coverage(collected, window, run_options, created):

@@ -53,17 +53,19 @@ def _expiry(seconds):
 
 
 def cache_text(row, lifetime=None, now=None):
-    """How many of the row's lookups came from the lookup cache, how old they are and when the first one expires."""
+    """How many of the row's lookups came from the lookup cache, how old they are, when the first one expires and how
+    long the source keeps results (VPNDB and BGPDB 6 hours by default, the others the cache lifetime)."""
     lifetime = _lifetime(row, lifetime)
     now = time.time() if now is None else now
     fetched = [at for _, at in row.cache_hits]
     if not fetched:
         return f":violet[{row.cached:,} from cache]"
     oldest = min(fetched)
+    kept = f" (this source keeps results {age_text(lifetime)})" if lifetime else ""
     if row.cached == 1:
-        return f":violet[from cache]: fetched {age_text(now - oldest)} ago, {_expiry(oldest + lifetime - now)}"
+        return f":violet[from cache]: fetched {age_text(now - oldest)} ago, {_expiry(oldest + lifetime - now)}{kept}"
     return (f":violet[{row.cached:,} from cache]: up to {age_text(now - oldest)} old, "
-            f"first {_expiry(oldest + lifetime - now)}")
+            f"first {_expiry(oldest + lifetime - now)}{kept}")
 
 
 def cache_table(rows, lifetime=None, now=None):

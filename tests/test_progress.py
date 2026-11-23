@@ -106,9 +106,11 @@ def test_cached_results_say_how_old_they_are_and_when_they_expire():
     for target, at in (("a.com", 1_000), ("b.com", 4_600)):
         progress.advance("history", FetchResult("Domain History", target, note="From cache (1 h old)", cached_at=at))
     row = rows(progress)["history"]
-    assert cache_text(row, lifetime=86_400, now=8_200) == ":violet[2 from cache]: up to 2 h old, first expires in 22 h"
+    assert cache_text(row, lifetime=86_400, now=8_200) == ":violet[2 from cache]: up to 2 h old, first expires in 22 h " \
+        "(this source keeps results 1 d)"
     row.cached, row.cache_hits = 1, row.cache_hits[1:]
-    assert cache_text(row, lifetime=86_400, now=8_200) == ":violet[from cache]: fetched 1 h ago, expires in 23 h"
+    assert cache_text(row, lifetime=86_400, now=8_200) == ":violet[from cache]: fetched 1 h ago, expires in 23 h " \
+        "(this source keeps results 1 d)"
     table = cache_table(progress.snapshot(), lifetime=3_600, now=8_000)
     assert table[["Target", "Expires"]].values.tolist() == [["a.com", "expired"], ["b.com", "in 3 min"]]
 

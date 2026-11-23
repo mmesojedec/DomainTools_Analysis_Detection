@@ -41,7 +41,7 @@ types, alert severities and detection thresholds, applied at once to the loaded 
 | **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
 | **Overview** | *Summary* · *Domain profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
-| **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* |
+| **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* · *Domain similarity* |
 | **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
 | **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: case report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
 | **Settings** | *Settings*: tabs *Collection options*, *Detection thresholds*, *Brands & allowlist*, *Storage & cache*, *API credentials* · *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) · *Documentation*: these guides |
@@ -128,7 +128,8 @@ is in [Pages](USER_GUIDE.md#pages).
    without a key is not queried until you add one under *Settings → API credentials*.
 1. **Start**: pick the use case that matches your question (optional), e.g. *Subdomain takeover check*.
 2. **Targets**: enter the targets (domains, IPs or certificates) in the Targets box on the Start page, check the
-   options line in the sidebar (change them under *Settings* if needed) and click **Analyze**. Or load a saved dataset on **Data →
+   options line in the sidebar (change them under *Settings* if needed) and click **Analyze**: paste and click
+   straight away, no need to click outside the box first. Or load a saved dataset on **Data →
    Saved datasets**. Don't have the targets yet? Open **IrisQL** or **CertsQL** from the menu, search, and analyze
    the domains you pick.
 3. **Summary** opens: read the key numbers, then **Open the Hunt map** (Analyst mode) and work through **What to check next**; each
@@ -232,7 +233,7 @@ global defaults:
 | Certificate API | Certificate inputs: pre-selected targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
 | Iris Investigate | — | — | No options: current hosting, registration, the DomainTools risk score, website and trackers are fetched for every domain. |
 | All sources | Cache lifetime | 1 day | How long a successful lookup is reused: Off, 30 minutes, 6 hours, 1 day, 7 days or 30 days. The same domain, name, record type and limit looked up again, in this or a later run and also after an app restart, costs no API query: passive DNS (DNSDB) and its TXT / CAA / CNAME lookups, CNAME chases and reverse lookups, IP pivots, certificate searches and events, Domain History, Iris Investigate (per batch of domains, with the risk scores) and VPNDB. Results are kept in `dt_cache/` (local, git-ignored); *Settings → Storage & cache* shows how many and their size. The Data sources page notes *From cache (age old)* with its **Cached At** time, and *Evidence → Lookup queries* lists them with their query and command, counts them as reused from the cache (no API request) and shows **Cached at**. Failed lookups are never cached. Saved in `dt_settings.json`. |
-| All sources | Per source | Domain History 7 days, VPNDB 6 hours, the others *Same as cache lifetime* | *Settings → Storage & cache*: each source group (passive DNS, Iris Investigate, Domain History, certificates, VPNDB) can keep its results for its own lifetime: longer for data that changes rarely, shorter for data that changes often. With the cache lifetime *Off*, every source is off. The run's checklist and *Cached details* count each result's expiry with its source's lifetime. Saved in `dt_settings.json`. |
+| All sources | Per source | VPNDB and BGPDB 6 hours, the others (Domain History included) *Same as cache lifetime* | *Settings → Storage & cache*: each source group (passive DNS, Iris Investigate, Domain History, certificates, VPNDB, BGPDB) can keep its results for its own lifetime: longer for data that changes rarely, shorter for data that changes often. The collection progress names each source's lifetime (*this source keeps results 1 d*). Domain History changes rarely: setting it to 7 days there saves Domain History quota. With the cache lifetime *Off*, every source is off. The run's checklist and *Cached details* count each result's expiry with its source's lifetime. Saved in `dt_settings.json`. |
 | All sources | Clear cache | – | *Settings → Storage & cache*: deletes every cached lookup now, without running anything, so the next Analyze queries every source again. It also applies with an offline dataset (CNAME chases and reverse lookups use the cache). To refresh one run only, use **Re-run with fresh lookups** on the Data sources page (below). |
 | All sources | Cached details (*Data sources* page) | – | How much of the run came from the lookup cache: cache lifetime, lookups from the cache vs queried live, age of the oldest cached result, when the first result expires, and the cache size on disk, plus one row per source (lookups, from cache, queried live, oldest / newest *Cached at*, first expiry, time left). **Re-run with fresh lookups** analyzes the same targets again with that run's collection settings, querying every source and refreshing their cache entries (other targets' cache is kept); **Re-run (use cache)** does the same but reuses what is still cached, like **Analyze**. **Retry N failed lookup(s)** re-runs the same way: the lookups that worked come from the cache, so only the failed ones query the APIs (it needs the cache on). Offline datasets re-run with their recorded settings. Certificate inputs are not searched again; their derived domains and IPs are re-run. |
 
@@ -302,7 +303,12 @@ the loaded run only; *Settings* keeps the defaults of the next run.
 | **Record types** (Analyst mode) | Passive DNS and Domain History record types kept for the detection rules, risk scores, charts and Evidence records. Empty: every type |
 | **Alerts** | The severities and confidences shown on Summary, Alerts, Domain profile, the Hunt map and exports. Unified Risk still counts every alert |
 | **Detection** | The most used [detection thresholds](#4-detection-thresholds): *Min Risk Score*, *High-Risk Score Cutoff*, *Newly Registered Domain Age*, *Rapid IP Rotation Event Count*, *DGA Entropy Score*; **Reset to defaults**, and **Every threshold** opens *Settings → Detection thresholds* |
-| **Reset filters** | Shown once something is narrowed: every domain, network, hostname, record type, severity and confidence, and the default thresholds |
+| **BGP focus** (VPNDB page) | Shown when the BGP page's *Open VPNDB filtered to these* set it: the networks and exit IPs every VPNDB tab is narrowed to, with **Clear BGP focus** |
+
+Once something is narrowed, a **Filters applied** line under the toolbar names each filter in force (e.g. *Window:
+Last 90 days · Domains: 1 of 5: example.com · Network: AS13335 · Filtered from BGP: 2 network(s)*) with **Reset
+filters**: every domain, network, hostname, record type, severity and confidence, the default thresholds and the BGP
+focus (the analysis window stays).
 
 Each control's label says what it holds, e.g. *Domains · 2 of 5*, *Alerts · filtered* or *Detection · 1 changed*.
 
@@ -363,6 +369,27 @@ common name, issuer, validity and source. *Named* means the certificate lists th
 the hostname through `*.parent`. Select rows in the inventory to show only those hostnames' certificates; with nothing
 selected it lists the certificates of every hostname shown. The hashes can be copied in one block for a lookup in
 another tool, and the links are exported as *Certificate hashes by hostname* (see [Export & report](#export--report)).
+
+#### Domain similarity
+
+**Hunt → Domain similarity** scores how alike every pair of the run's domains is built (hosting, DNS, certificates,
+registration, naming, DIF parts, risk shape), weighting each shared value by how rare it is; no API query. How the
+score works is in the [User Guide](USER_GUIDE.md#domain-similarity).
+
+1. Set **Match at least (%)** (default 60) and **Rare shared values, at least** (default 1). **Group weights** changes
+   how much each group counts (*Defaults*, *Save as default*).
+2. **Pairs**: the pairs that pass, with *Similarity*, *Rare shared*, the groups that *Matched* (60 %+) and *Differs*
+   (below 30 %), the *Shared values* (rarest first) and each group's %.
+3. **Matrix**: a domain × domain heatmap, clusters first (60 domains at most).
+4. **Clusters**: groups that are alike on average above the threshold, with their most shared values and a graph whose
+   edges carry the pair %.
+5. **Earlier runs**: pick a domain for the domains of your saved runs that look like it (40 % by default), with the run.
+6. **Learn weights**: with 10+ pairs of two Malicious domains and 10+ pairs of a Malicious and a Benign domain (your
+   verdicts), learned weights next to the current ones; **Use the learned weights** applies them for the session.
+
+The **Domain profile** has a *Similar domains* card (this run's look-alikes above the threshold, and those in earlier
+runs), and the Alerts page's DIF table a **Closest DIF** column. Runs of more than 300 domains compare the 300
+riskiest.
 
 #### Subdomain Triage
 
@@ -835,7 +862,10 @@ the same as the `bgpdbq` tool's commands:
 5. **Neighbouring prefixes**: per /20 around a prefix, the prefixes of the run's own networks (leads), of others, and
    unauthorized ones. Aggregates of /20 or larger (a carrier's /9) have no neighbourhood.
 6. **VPNDB match**: the run's VPN / proxy / Tor exits with their routing, and the origin networks that carry exits
-   (with VPNDB's known exits on them).
+   (with VPNDB's known exits on them). **Open VPNDB filtered to these** opens the VPNDB page with every tab narrowed
+   to those networks and exit IPs: the toolbar shows a **BGP focus** control and *Filters applied* says *Filtered from
+   BGP*; **Clear BGP focus** or **Reset filters** shows everything again. **VPNDB page (everything)** opens it
+   unfiltered.
 7. **Responses**: every BGPDB answer as received (NDJSON) with its URL; select one for its curl command.
 
 When the BGPDB host does not answer (off the DomainTools network or VPN), the stage stops after 3 lookups in a row

@@ -84,3 +84,24 @@ def test_window_coverage_offers_a_run_again_when_the_window_reaches_past_the_fet
     at.session_state["window"] = "Last 7 days"
     at.run(timeout=30)
     assert not at.button
+
+
+def test_active_filters_name_every_narrowing_in_force():
+    import pandas as pd
+
+    from config import THRESHOLD_SPECS
+    from integrations.collector import CollectedData
+    from views.results_toolbar import ViewFilters, active_filters, asn_key, vpndb_key
+    data = CollectedData(targets=["a.com", "b.com", "c.com"])
+    data.pdns = pd.DataFrame([{"Domain": d, "Field": "A", "Value": "1.2.3.4"} for d in ("a.com", "b.com", "c.com")])
+    spec = THRESHOLD_SPECS[0]
+    state = {"analysis_window": "Last 90 days", asn_key(): [], vpndb_key(): ["VPN"], spec.state_key: spec.default + 1,
+             "vpndb_focus": {"label": "2 network(s): AS1, AS2"}}
+    filters = ViewFilters(domains=["a.com"], dh_types=[], pdns_types=["A"], severities=["High"])
+    found = dict(active_filters(data, filters, state=state, page="vpndb"))
+    assert found["Window"] == "Last 90 days" and found["Domains"].startswith("1 of 3")
+    assert found["Network"] == "VPN" and found["Alerts"] == "High" and found["Detection"].startswith("1 threshold")
+    assert found["Filtered from BGP"] == "2 network(s): AS1, AS2"
+    assert "Filtered from BGP" not in dict(active_filters(data, filters, state=state, page="summary"))
+    clean = ViewFilters(domains=["a.com", "b.com", "c.com"], pdns_types=["A"])
+    assert active_filters(data, clean, state={"analysis_window": "Last 30 days"}, page="summary") == []

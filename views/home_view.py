@@ -18,7 +18,7 @@ from core.use_cases import (
     plan_lines,
 )
 from views import navigation
-from views.sidebar import SAVE_OFFLINE_KEY, TARGETS_KEY, apply_use_case, start_analyze
+from views.sidebar import EMPTY_TARGETS_KEY, SAVE_OFFLINE_KEY, TARGETS_KEY, apply_use_case, start_analyze
 
 START_TARGETS_KEY = "start_targets"
 _PREFIXES = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
@@ -85,9 +85,10 @@ def render_home(has_data, render_recent):
         st.text_area("Targets: domains, IPs or certificates (one per line)", key=START_TARGETS_KEY, height=180,
                      placeholder="example.com\n203.0.113.7\ncn:login.example.com", help=TARGETS_HELP)
         with st.container(horizontal=True, vertical_alignment="center"):
+            # never disabled: pasted text only reaches the app when the box loses focus, which this click does
             st.button("Analyze", type="primary", icon=":material/play_arrow:", key="start_analyze",
                       on_click=start_analyze, args=(START_TARGETS_KEY,),
-                      disabled=not str(st.session_state.get(START_TARGETS_KEY) or "").strip())
+                      help="Paste or type the targets, then click: no need to click outside the box first")
             navigation.link("irisql", label="Find targets with IrisQL", icon=":material/manage_search:")
             navigation.link("certsql", label="Find targets with CertsQL", icon=":material/badge:")
             navigation.link("recent", label="Runs & Sightings", icon=":material/schedule:")
@@ -96,6 +97,9 @@ def render_home(has_data, render_recent):
                              "re-analyzed later with a different window, thresholds or filters without API calls. "
                              "Large DNSDB limits produce large datasets. You can also save a run afterwards: *Save "
                              "offline copy* on the status line at the top of every page.")
+        if st.session_state.pop(EMPTY_TARGETS_KEY, False):
+            st.warning("Enter at least one domain, IP or certificate in the Targets box first.",
+                       icon=":material/edit_note:")
     render_recent()
     saved = load_settings()
     overrides, active = saved.get(OVERRIDES_SETTING) or {}, st.session_state.get("use_case")

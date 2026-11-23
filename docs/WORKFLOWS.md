@@ -178,7 +178,7 @@ can return HTTP 503). All HTTP lookups also retry on rate limits and server erro
 calls (Iris Investigate, Domain History, Account): after 2 s and 4 s on HTTP 429 / 5xx or a connection error. The SDK
 also spaces its calls to each product's per-minute limit. Successful lookups are cached on disk, so re-running the
 same targets, or a new run that repeats a domain, costs no API query for them: for the *Cache lifetime* (default
-1 day), or a source's own lifetime (Domain History 7 days, VPNDB and BGPDB 6 hours by default; Settings → Storage &
+1 day), or a source's own lifetime (VPNDB and BGPDB 6 hours by default; Settings → Storage &
 cache).
 
 ## Passive DNS logic

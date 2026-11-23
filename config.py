@@ -100,7 +100,7 @@ FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups
 CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
                 "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB",
                 "bgpdb": "BGPDB (BGP routing)"}
-CACHE_GROUP_DEFAULTS = {"history": 604800, "vpndb": 21600, "bgpdb": 21600}   # changes rarely: 7 days; changes often: 6 hours
+CACHE_GROUP_DEFAULTS = {"vpndb": 21600, "bgpdb": 21600}   # change often: 6 hours; the others follow the cache lifetime
 # cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache)
 CACHE_LIFETIMES = {"Off": 0, "30 minutes": 1800, "6 hours": 21600, "1 day": 86400, "7 days": 604800,
                    "30 days": 2592000}

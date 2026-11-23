@@ -201,7 +201,7 @@ Limits (generated from `config.py`):
 | `CERT_RETRY_PAUSE_SECONDS` | 5 | pause before failed certificate lookups are retried once, one at a time |
 | `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Storage & cache) |
 | `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB, bgpdb: BGPDB (BGP routing) | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
-| `CACHE_GROUP_DEFAULTS` | history: 604,800, vpndb: 21,600, bgpdb: 21,600 | changes rarely: 7 days; changes often: 6 hours |
+| `CACHE_GROUP_DEFAULTS` | vpndb: 21,600, bgpdb: 21,600 | change often: 6 hours; the others follow the cache lifetime |
 | `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache) |
 
 ## Other built-in values

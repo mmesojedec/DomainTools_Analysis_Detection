@@ -339,3 +339,18 @@ def test_a_collector_local_leak_alone_raises_no_finding():
             "last": "2026-11-10 01:00:00", "count": 3, "collectors": 1}
     frame = pd.DataFrame(bgp.origin_rows("52.213.114.9", {"aws.example"}, [leak]), columns=bgp.ORIGIN_COLUMNS)
     assert bgp.findings(frame, now=NOW).empty
+
+
+def test_vpndb_focus_keeps_the_networks_and_exits_from_bgp():
+    from core.anonymizers import focus_tables
+    frames = {"anonymizers": pd.DataFrame([{"IP": "1.1.1.1", "ASN": 13335.0}, {"IP": "2.2.2.2", "ASN": 60729},
+                                           {"IP": "3.3.3.3", "ASN": 15169}]),
+              "exit_weeks": pd.DataFrame([{"IP": "2.2.2.2"}, {"IP": "3.3.3.3"}]),
+              "exit_neighbours": None,
+              "neighbour_ranges": pd.DataFrame([{"CIDR": "2.2.2.0/24", "Hosting IPs": "2.2.2.2"},
+                                                {"CIDR": "3.3.3.0/24", "Hosting IPs": "3.3.3.3"}]),
+              "hosting_asns": pd.DataFrame([{"ASN": 60729}, {"ASN": 15169}])}
+    out = focus_tables(frames, asns=["AS60729"], ips=["1.1.1.1"])
+    assert sorted(out["anonymizers"]["IP"]) == ["1.1.1.1", "2.2.2.2"]
+    assert list(out["exit_weeks"]["IP"]) == ["2.2.2.2"] and list(out["neighbour_ranges"]["CIDR"]) == ["2.2.2.0/24"]
+    assert list(out["hosting_asns"]["ASN"]) == [60729] and out["exit_neighbours"] is None

@@ -555,6 +555,43 @@ def tor_context(overview, ip, asn=None, country=None):
     return found
 
 
+def _asn_label(value):
+    """"AS60729" for 60729, 60729.0, "60729" or "as60729"; "" for nothing."""
+    text = str(value if value is not None else "").strip().upper().removeprefix("AS").split(".")[0]
+    return f"AS{text}" if text.isdigit() else ""
+
+
+def focus_tables(frames, asns=(), ips=()):
+    """
+    The VPNDB frames of a run narrowed to a focus (the BGP page's VPNDB match): the checked IPs on one of `asns` or
+    listed in `ips`, and what belongs to them: their weekly history, their dedicated-exit neighbours, the /24s around
+    them and the VPNDB verdicts of those networks. `frames`: {"anonymizers", "exit_weeks", "exit_neighbours",
+    "neighbour_ranges", "hosting_asns"}; frames without the columns used are returned as they are.
+    """
+    asns = {_asn_label(a) for a in asns or ()} - {""}
+    ips = {str(ip) for ip in ips or ()}
+    out = dict(frames)
+    table = frames.get("anonymizers")
+    kept = set(ips)
+    if table is not None and not table.empty and "IP" in table.columns:
+        on_network = table["ASN"].map(_asn_label).isin(asns) if "ASN" in table.columns else False
+        mask = on_network | table["IP"].astype(str).isin(ips)
+        out["anonymizers"] = table[mask].reset_index(drop=True)
+        kept |= set(table.loc[mask, "IP"].astype(str))
+    for name in ("exit_weeks", "exit_neighbours"):
+        frame = frames.get(name)
+        if frame is not None and not frame.empty and "IP" in frame.columns:
+            out[name] = frame[frame["IP"].astype(str).isin(kept)].reset_index(drop=True)
+    ranges = frames.get("neighbour_ranges")
+    if ranges is not None and not ranges.empty and "Hosting IPs" in ranges.columns:
+        out["neighbour_ranges"] = ranges[ranges["Hosting IPs"].astype(str).map(
+            lambda v: bool(kept & {x.strip() for x in v.replace(";", ",").split(",")}))].reset_index(drop=True)
+    networks = frames.get("hosting_asns")
+    if networks is not None and not networks.empty and "ASN" in networks.columns:
+        out["hosting_asns"] = networks[networks["ASN"].map(_asn_label).isin(asns)].reset_index(drop=True)
+    return out
+
+
 ANSWER_LIST_KEYS = ("results", "addresses", "weeks", "networks", "attribution", "relays")   # rows of an answer
 
 

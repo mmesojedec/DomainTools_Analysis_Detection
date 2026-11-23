@@ -189,6 +189,7 @@ core/
   timezone.py                  Timezone shifting for display frames
   dataset.py                   Builds filtered, merged, timezone-shifted frames for the views
   risk_profile.py              Unified risk vectors and their drivers, Domain Infrastructure Fingerprints (DIF) and their decoding
+  similarity.py                Infrastructure similarity: features, rarity weights, pair scores, clusters, MinHash/LSH over saved runs, learned weights
   threat_detection/
     engine.py                  detect_threat_flags(): per-domain contexts, rule execution, alert merging, ThreatResult
     context.py                 DomainContext, alert builder and structured evidence shared by all rules
@@ -255,6 +256,7 @@ views/                         One module per page + sidebar, alert tools, certi
   pivot_view.py                Hunt map → All pivots: shared values ranked by rarity, Find in Iris
   hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
   triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals
+  similarity_view.py           Domain similarity page: pair %, threshold, matrix, clusters, earlier runs, learned weights
   raw_view.py                  Evidence → Records (VPNDB and BGPDB answers included), and the lookup status panel shown
                                when a run returned no data
   query_view.py                Evidence → Lookup queries: every lookup as a reusable query and command (bgpdbq for BGPDB)

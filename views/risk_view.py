@@ -10,6 +10,7 @@ from core.helpers import md_escape
 from core.persistence import add_suppression
 from core.risk_profile import DIF_SEGMENTS, VECTOR_COLUMNS, decode_profiles
 from core.rule_catalog import COLUMN_GUIDE, CONFIDENCE_LEVELS, SEVERITY_LEVELS, rule_catalog_frame
+from core.similarity import closest_dif
 from core.timezone import apply_tz_shift
 from core.triage import STATUS_COLORS, STATUS_HELP, STATUSES, load_triage, rule_feedback, set_status
 from views import navigation
@@ -88,9 +89,14 @@ def _render_profiles(profiles):
             "**DIF** is a composite infrastructure signature summarizing each domain's hosting architecture, TLS certificate "
             "profile, and cloud service footprint. Identical DIFs across distinct root domains expose shared campaign infrastructure."
         )
+        closest = closest_dif(profiles)
         ledger = profiles[["Domain", "Unified Risk", "Base Domain Risk Score", "DIF Fingerprint", "DIF Breakdown"]] \
+            .assign(**{"Closest DIF": profiles["Domain"].map(closest).fillna("")}) \
             .sort_values("Unified Risk", ascending=False).rename(columns={"Domain": "Domain / IP"})
         table(ledger, column_config={
+            "Closest DIF": st.column_config.TextColumn(
+                "Closest DIF", help="The other domain's DIF sharing the most readable parts (flux, server, validation, "
+                                    "CA, key, apps; the hash is ignored). Hunt → Domain similarity compares far more"),
             "Unified Risk": st.column_config.ProgressColumn("Unified Risk", format="%d", min_value=0, max_value=100),
             "Base Domain Risk Score": st.column_config.NumberColumn("Base Risk", format="%d"),
             "DIF Fingerprint": st.column_config.TextColumn("DIF Fingerprint", help="[Hosting]_[TLS]_[Apps]_[ConfigHash]"),

@@ -155,12 +155,52 @@ is the DomainTools risk score and the behavioral vectors are the five above, plu
 their mean. It never falls below the DomainTools score, and rises when the domain's own
 telemetry and alerts are worse than the score suggests.
 
+## Domain similarity
+
+An exact DIF match is rare even for one operator: the configuration hash changes with the IP count, the certificate
+names or a TXT record. **Hunt → Domain similarity** compares domains far more loosely: each pair gets a 0–100 %
+**infrastructure similarity** with the reasons. No API query: it reads the loaded run and your saved runs.
+
+| Group | Default weight | Compares |
+| --- | --- | --- |
+| Hosting | 25 | IPs, their /24 (IPv6 /48), the origin network (BGPDB, else the Iris ASN), the announced prefix |
+| DNS | 20 | Name servers and their domain, MX hosts, TXT apps |
+| Certificates | 20 | CA family, validation level, key type and size, JA4X, public key, certificate hash |
+| Registration | 10 | Registrar, TLD, creation dates within 3 days (within 30 days: half) |
+| Naming | 15 | The first label's shape, letters `l` / digits `n` / hyphens (`xwfa3ak.cc` → `llllnll.cc`), and shared 3-letter pieces |
+| DIF | 5 | The readable DIF parts that match (flux, server, validation, CA, key, apps); the hash is ignored |
+| Risk shape | 5 | Cosine similarity of the risk vectors: how risky, not how built, so it counts little |
+
+- **Set groups** (hosting, DNS, certificates) count each shared value by its **rarity**, `1 / (1 + log10(n))` with
+  *n* the domains that have it: the largest of Iris's count (domains on an IP or name server), the run and every saved
+  run. A value on one domain weighs 1, on 1,000 domains 0.25. A CDN address, a cloud or DDoS-protection network
+  (Cloudflare, AWS, Google, Akamai, ...) and a free mass CA (Let's Encrypt, ZeroSSL, ...) weigh 0.1. The group score is
+  the mean of the weighted overlap over both domains' values and over the smaller domain's values, so a domain with a
+  larger footprint that holds the other's rare values still scores high.
+- The **pair %** is the weighted mean of the groups **both** domains have data for; pairs with fewer than 2 such groups
+  are not scored. **Rare shared** counts shared values on 50 domains or fewer (no CDN, cloud network or mass CA).
+- **Match at least (%)** (default 60) and **Rare shared values, at least** (default 1) pick the similar pairs; the
+  second keeps popular providers from making a match on their own.
+- **Clusters** use average linkage: the two groups whose pairs are most alike on average merge while that average is at
+  or above the threshold.
+- **Earlier runs**: every saved run's domains are indexed by MinHash (64 hashes, 16 bands) over the artifacts runs keep
+  (IPs and their /24, name servers, MX, prefixes, networks, JA4X, certificates) and the name shape; candidates are
+  rescored with the same rarity-weighted overlap (default threshold 40 %).
+- **Learned weights**: with at least 10 pairs of two domains you marked **Malicious** (analysed together: taken as one
+  campaign) and 10 pairs of a Malicious and a **Benign** domain, a logistic regression of that label on each group's
+  similarity gives new weights (negative coefficients count 0, scaled to 100). It is an approximation: check the
+  training accuracy and the pairs before using them.
+- It measures **infrastructure similarity, not attribution**: bulletproof hosting or a shared phishing kit can make
+  unrelated operators look alike.
+
 ## DIF: Domain Infrastructure Fingerprint
 
 A DIF summarizes how a domain is set up, in four segments: `Hosting_TLS_Identity&Apps_ConfigHash`, for example
 `F-CF_DVLE-R2048_EM_3fa91c`. The **Infrastructure Fingerprints (DIF)** table shows each domain's fingerprint and
 a plain-language **DIF Breakdown**. **Decode DIF fingerprints** opens a window with every fingerprint in the run
-decoded segment by segment, a **Same DIF As** column, and the code reference below.
+decoded segment by segment, a **Same DIF As** column, and the code reference below. **Closest DIF** names the other
+domain's DIF sharing the most readable parts (e.g. *6/6 parts*: only the hash differs); [Domain
+similarity](#domain-similarity) compares far more than the DIF.
 
 | Segment | Format | Example | Read as |
 | --- | --- | --- | --- |
@@ -1138,6 +1178,7 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts, their BGP routing (prefixes, origin networks, routing alerts) and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure; *All pivots*: every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it, with *Analyze now* and *Find in Iris* |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
+| Domain similarity | Infrastructure similarity of the run's domains as a % per pair with the reasons: threshold and minimum rare shared values, group weights, *Pairs*, *Matrix* (heatmap), *Clusters* (average linkage, with a graph), *Earlier runs* (look-alikes in saved runs) and *Learn weights* (from your verdicts); see [Domain similarity](#domain-similarity) |
 | Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB and BGPDB answer as received (select one to see it as tables; a BGPDB answer as one row per record, downloadable as NDJSON). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request, BGPDB lookups as `bgpdbq` commands) and `domaintools` CLI / `bgpdbq` / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), *Download hunt report (HTML)* of the hunt its run belongs to (no loading, no API query), rename and delete |
 | Export & report | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |

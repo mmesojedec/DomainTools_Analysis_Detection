@@ -3,6 +3,7 @@ VPNDB page: which VPN or proxy provider operates behind an IP, prefix or ASN. Wh
 a heatmap, providers and countries, an exposure timeline against VPNDB's weekly history, the Iris Investigate cross-check,
 the ranges and networks around the hosting, the other domains on dedicated exits (DNSDB) and the CIDR targets.
 """
+import dataclasses
 import ipaddress
 
 import pandas as pd
@@ -16,6 +17,7 @@ from core.anonymizers import (
     crosscheck,
     dedicated_exit,
     exit_during_use,
+    focus_tables,
     shared_exit,
     use_intervals,
 )
@@ -105,6 +107,7 @@ def render_vpndb_page(ds):
     if ds.bgp_origins is not None and not ds.bgp_origins.empty:
         navigation.link("bgp", label="BGP routing of these IPs (BGPDB): see its VPNDB match tab",
                         icon=":material/hub:")
+    ds = _apply_focus(ds)
     table = ds.anonymizers
     if _empty(table) and _empty(ds.prefixes):
         st.info("No VPNDB verdicts in this run. Add a VPNDB key under Settings → API credentials and keep *Check "
@@ -117,6 +120,21 @@ def render_vpndb_page(ds):
         with tab:
             how_to_read(name)
             render(ds)
+
+
+FOCUS_KEY = "vpndb_focus"   # {"asns", "ips", "label"}: set by the BGP page's VPNDB match; shown and cleared in the
+                            # results toolbar (views.results_toolbar: BGP focus, Filters applied, Reset filters)
+FOCUS_FRAMES = ("anonymizers", "exit_weeks", "exit_neighbours", "neighbour_ranges", "hosting_asns")
+
+
+def _apply_focus(ds):
+    """The dataset narrowed to the focus the BGP page set (every tab follows it); the toolbar shows and clears it."""
+    focus = st.session_state.get(FOCUS_KEY)
+    if not focus:
+        return ds
+    narrowed = focus_tables({name: getattr(ds, name, None) for name in FOCUS_FRAMES},
+                            focus.get("asns"), focus.get("ips"))
+    return dataclasses.replace(ds, **{name: frame for name, frame in narrowed.items() if frame is not None})
 
 
 def how_to_read(tab):
