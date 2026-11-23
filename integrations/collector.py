@@ -9,6 +9,7 @@ import pandas as pd
 
 from config import (
     BGPDB_MAX_IPS,
+    BGPDB_RESOLVE_MAX_IPS,
     CAA_SUPPLEMENT_FETCH_LIMIT,
     CERT_API_MAX_WORKERS,
     CERT_RETRY_PAUSE_SECONDS,
@@ -22,6 +23,10 @@ from config import (
     DOMAIN_HISTORY_MAX_CHANGES,
     PIVOT_IP_RECORD_LIMIT,
     PIVOT_IPS_PER_DOMAIN,
+    RESOLVE_DEFAULT_QUERIES,
+    RESOLVE_RECORD_LIMIT,
+    RESOLVE_TREE_DAYS,
+    RESOLVE_TREE_LIMIT,
     SEED_DEFAULT_TARGETS,
     SEED_MAX_CERTIFICATES,
     TXT_SUPPLEMENT_FETCH_LIMIT,
@@ -34,6 +39,16 @@ from core.cname import CHASE_COLUMNS, QUERY_LIMIT, build_cname_map, chase_plan, 
 from core.helpers import classify_targets, is_cidr, is_ip_address
 from core.network_intel import cdn_for_ip, explode_ip_events, is_public_ip
 from core.pdns_features import add_event_gaps
+from core.resolver import (
+    LOOKUP_COLUMNS,
+    RESOLVE_TYPES,
+    build_index,
+    build_tree,
+    discovered_domains,
+    discovery_marker,
+    lookup_rows,
+    merge_lookups,
+)
 from integrations import bgpdb, progress
 
 # the stages and helpers live in their own modules; their names stay importable from here
@@ -101,6 +116,8 @@ class CollectedData:
     pdns_coverage: dict = field(default_factory=dict)
     cname_chases: pd.DataFrame = field(default_factory=pd.DataFrame)   # one row per chased CNAME target (chase_cname)
     cname_rdata: pd.DataFrame = field(default_factory=pd.DataFrame)    # reverse CNAME lookups (core.cname.rdata_rows)
+    resolutions: pd.DataFrame = field(default_factory=pd.DataFrame)    # DNSDB lookups of the DNS tree (core.resolver)
+    resolution_routing: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB origins of its addresses
     anonymizers: pd.DataFrame = field(default_factory=pd.DataFrame)    # VPNDB verdict per hosting IP (core.anonymizers)
     prefixes: pd.DataFrame = field(default_factory=pd.DataFrame)       # VPNDB verdict per CIDR target (PREFIX_COLUMNS)
     prefix_addresses: pd.DataFrame = field(default_factory=pd.DataFrame)   # addresses VPNDB reached in each CIDR
@@ -751,6 +768,221 @@ def restore_cached_chases(collected, log=None):
                 f"Restored {len(run.chases)} CNAME chase(s) from the lookup cache ({run.cached} cached lookups, no "
                 "query)", len(run.chases))
     return len(run.chases)
+
+
+RESOLVE_SOURCE = "DNSDB Resolve"
+
+
+@dataclass
+class ResolveRun:
+    """Outcome of one Resolve click: the lookups (core.resolver.LOOKUP_COLUMNS, old and new), and what they cost."""
+    lookups: pd.DataFrame
+    queries: int = 0       # DNSDB queries made
+    cached: int = 0        # lookups served from the cache (free)
+    left: int = 0          # names still to look up when the budget ran out
+    looked: int = 0        # names looked up by this click
+    discovered: int = 0    # domains whose current tree was discovered by this click
+    cut_off: int = 0       # of those, discoveries still cut off at the record limit
+
+
+def tree_since(now=None, days=RESOLVE_TREE_DAYS):
+    """Epoch seconds `days` before today (UTC midnight, so a day's discoveries share their cache entries)."""
+    today = (now or pd.Timestamp.now("UTC")).normalize()
+    return int((today - pd.Timedelta(days=days)).timestamp())
+
+
+def discover_trees(domains, log, max_queries, fresh=False, since=None):
+    """
+    The current DNS tree of each domain, as DNSDB knows it: `*.domain` (every record type) last seen within
+    RESOLVE_TREE_DAYS. A busy domain's main passive DNS lookup is cut off at its limit, mostly by old records, and
+    misses current names; this time-fenced lookup does not. When it is still cut off, one lookup per record type
+    follows. Returns (lookup rows with a discovery_marker per domain, queries, cached lookups).
+    """
+    since = since or tree_since()
+    is_cached = getattr(fetch_dnsdb_history, "is_cached", lambda *args: False)
+    rows, queries, cached = [], 0, 0
+
+    def fetch(domain, rrtype):
+        nonlocal queries, cached
+        if queries >= max_queries and (fresh or not is_cached(domain, RESOLVE_TREE_LIMIT, rrtype, True, since)):
+            return None
+        result = replace(fetch_dnsdb_history(domain, RESOLVE_TREE_LIMIT, rrtype, True, since), source=RESOLVE_SOURCE)
+        log.record(result)
+        hit = FROM_CACHE in str(result.note or "")
+        cached, queries = cached + hit, queries + (not hit)
+        return result
+
+    for domain in domains:
+        result = fetch(domain, "ANY")
+        if result is None:
+            break
+        if not result.ok:
+            continue
+        when = pd.to_datetime(result.cached_at if result.cached_at is not None else time.time(), unit="s")
+        complete = not result.truncated
+        found = lookup_rows(domain, result.data, when, result.cached_at is not None, lookup=f"*.{domain}")
+        if not complete:      # cut off: one lookup per record type, each with its own limit
+            complete = True
+            for rrtype in RESOLVE_TYPES:
+                part = fetch(domain, rrtype)
+                if part is None or not part.ok:
+                    complete = False
+                    continue
+                complete = complete and not part.truncated
+                found += lookup_rows(domain, part.data, when, part.cached_at is not None,
+                                     lookup=f"*.{domain}/{rrtype}")
+        rows += found + [discovery_marker(domain, complete, when, result.cached_at is not None)]
+    return rows, queries, cached
+
+
+def resolve_tree(pdns, domains, coverage, lookups, log, max_queries=RESOLVE_DEFAULT_QUERIES, fresh=False,
+                 max_rounds=10):
+    """
+    Resolves the DNS tree of `domains` (core.resolver): in rounds, looks up in DNSDB (exact name, every record type)
+    the names the tree reaches outside the collected passive DNS (CNAME, MX and NS targets, SPF includes, the domains of
+    dead targets), until none is left, `max_rounds` is reached or `max_queries` DNSDB queries are spent; cached
+    lookups are free. `fresh`: every name again with fresh DNSDB lookups instead of the cache (a re-resolve).
+    """
+    current = pd.DataFrame(columns=LOOKUP_COLUMNS) if fresh else lookups
+    is_cached = getattr(fetch_dnsdb_history, "is_cached", lambda *args: False)
+    queries = cached = looked = left = 0
+    done = set()
+    with refreshing() if fresh else nullcontext():
+        # first the domains' current trees (what a cut-off main lookup missed), then what they point to
+        names = [d for d in domains if d and "/" not in str(d) and not is_ip_address(d)]
+        todo_trees = [d for d in names if fresh or d not in discovered_domains(current)]
+        tree_rows, queries, cached = discover_trees(todo_trees, log, max_queries, fresh)
+        trees = pd.DataFrame(tree_rows, columns=LOOKUP_COLUMNS)
+        discovered = discovered_domains(trees)
+        cut_off = int(((trees["Type"].fillna("") == "") & (trees["Value"] == "cut off")).sum()) if not trees.empty else 0
+        if not trees.empty:
+            current = merge_lookups(current, trees)
+        for _ in range(max_rounds):
+            _, todo = build_tree(build_index(pdns, current, coverage, domains), domains)
+            todo = [name for name in todo if name not in done]
+            free = [] if fresh else [name for name in todo if is_cached(name, RESOLVE_RECORD_LIMIT, "ANY", False)]
+            paid = [name for name in todo if name not in free]
+            batch = free + paid[:max(0, max_queries - queries)]
+            left = len(todo) - len(batch)
+            if not batch:
+                break
+            done.update(batch)
+            results = _parallel(batch, lambda name: fetch_dnsdb_history(name, RESOLVE_RECORD_LIMIT, "ANY", False))
+            rows = []
+            for name, result in zip(batch, results):
+                result = replace(result, source=RESOLVE_SOURCE)
+                log.record(result)
+                hit = FROM_CACHE in str(result.note or "")
+                cached, queries = cached + hit, queries + (not hit)
+                if not result.ok:
+                    continue    # stays "Not resolved yet": the next click tries again
+                when = pd.to_datetime(result.cached_at if result.cached_at is not None else time.time(), unit="s")
+                rows += lookup_rows(name, result.data, when, hit)
+                looked += 1
+            current = merge_lookups(current, pd.DataFrame(rows, columns=LOOKUP_COLUMNS))
+    if fresh:
+        current = merge_lookups(lookups, current)
+    return ResolveRun(current.reset_index(drop=True), queries, cached, left, looked, len(discovered), cut_off)
+
+
+@dataclass
+class RoutingRun:
+    """Outcome of BGPDB lookups of resolved addresses: their origin rows (core.bgp.ORIGIN_COLUMNS), old and new."""
+    origins: pd.DataFrame
+    looked: int = 0        # addresses looked up
+    cached: int = 0        # lookups served from the cache
+    left: int = 0          # addresses not looked up (over the limit, or the host stopped answering)
+    stopped: bool = False  # BGPDB did not answer
+    raw: pd.DataFrame = None   # the answers as received (core.bgp.RAW_COLUMNS), for Responses and Evidence
+
+    def keep_raw(self, collected, ds=None):
+        """Adds the answers to the run's BGPDB answers (the BGP page's Responses, Evidence → BGPDB Responses)."""
+        if self.raw is None or self.raw.empty:
+            return
+        old = getattr(collected, "bgp_raw", None)
+        frames = [f for f in (old, self.raw) if f is not None and not f.empty]
+        merged = pd.concat(frames, ignore_index=True).drop_duplicates(["Command", "Argument"], keep="last") \
+            .reset_index(drop=True)
+        collected.bgp_raw = merged
+        if ds is not None:
+            ds.bgp_raw = merged
+
+
+def route_ips(ips, existing, log, max_ips=BGPDB_RESOLVE_MAX_IPS, cached_only=False):
+    """
+    BGPDB `ip` lookups of `ips` (the DNS resolution's addresses): prefix, origin, RPKI / IRR and visibility of each,
+    added to `existing` origin rows. `cached_only`: only addresses whose lookup is in the cache (no query). Stops when
+    the host does not answer (only reachable on the DomainTools network).
+    """
+    from core import bgp
+    existing = existing if existing is not None and not existing.empty else pd.DataFrame(columns=bgp.ORIGIN_COLUMNS)
+    if not bgpdb.load_bgpdb_host() or not ips:
+        return RoutingRun(existing, left=len(ips))
+    if cached_only:
+        is_cached = getattr(bgpdb.lookup_ip, "is_cached", lambda *args: False)
+        ips = [ip for ip in ips if is_cached(ip)]
+    batch = list(ips)[:max_ips]
+    breaker = bgpdb.Breaker()
+    results = _parallel(batch, lambda ip: breaker.call(
+        lambda *args: _safe_call(bgpdb.lookup_ip, bgpdb.SOURCE, f"ip {ip}", *args), f"ip {ip}", ip))
+    rows, raw, looked, cached = [], [], 0, 0
+    for ip, result in zip(batch, results):
+        if str(result.error or "").startswith("BGPDB stopped"):
+            continue
+        _bgp_logged(log, raw, result, "ip", ip)
+        if not result.ok:
+            continue
+        looked += 1
+        cached += result.cached_at is not None
+        # an address BGPDB knows no announcement for keeps an empty row: looked up, nothing announced
+        rows += bgp.origin_rows(ip, (), result.data) or [{"IP": ip, "Prefix": "", "Origin": "", "Updates": 0,
+                                                          "Collectors": 0}]
+    if breaker.tripped:
+        log.record(FetchResult(bgpdb.SOURCE, "remaining lookups skipped", error=bgpdb.STOPPED.format(count=breaker.limit)))
+    new = pd.DataFrame(rows, columns=bgp.ORIGIN_COLUMNS)
+    origins = pd.concat([existing[~existing["IP"].isin(set(new["IP"]))], new], ignore_index=True) \
+        if not new.empty else existing
+    raw = pd.DataFrame(raw, columns=bgp.RAW_COLUMNS)
+    raw["Detail"] = ("DNS resolution · " + raw["Detail"].astype(str)).str.rstrip(" ·")
+    return RoutingRun(origins.reset_index(drop=True), looked, cached, len(ips) - looked, breaker.tripped, raw)
+
+
+def restore_cached_resolutions(collected, log=None):
+    """
+    Replays the Resolve lookups still in the lookup cache (no query: a budget of 0), so a new run or a loaded dataset
+    shows the DNS tree resolved as far as it was before. Returns how many names were restored.
+    """
+    if collected.pdns is None or collected.pdns.empty:
+        return 0
+    run = resolve_tree(collected.pdns, list(collected.targets), collected.pdns_coverage, collected.resolutions,
+                       StatusLog(), max_queries=0)
+    if run.looked:
+        collected.resolutions = run.lookups
+        if log is not None:
+            log.add(RESOLVE_SOURCE, f"{run.looked} name(s)", "OK",
+                    f"Restored {run.looked} DNS resolution lookup(s) from the lookup cache (no query)", run.looked)
+    return run.looked + restore_cached_routing(collected)
+
+
+def resolution_ips(collected, coverage=None):
+    """The public addresses of the collected data's DNS tree that have no BGPDB routing yet."""
+    from core.resolver import routed_set, tree_ips
+    tree, _ = build_tree(build_index(collected.pdns, collected.resolutions, coverage or collected.pdns_coverage,
+                                     list(collected.targets)), list(collected.targets))
+    known = routed_set(getattr(collected, "bgp_origins", None), collected.resolution_routing)
+    return [ip for ip in tree_ips(tree) if ip not in known]
+
+
+def restore_cached_routing(collected):
+    """BGPDB routing of the tree's addresses still in the lookup cache (no query); returns how many were restored."""
+    ips = resolution_ips(collected)
+    if not ips:
+        return 0
+    run = route_ips(ips, collected.resolution_routing, StatusLog(), cached_only=True)
+    if run.looked:
+        collected.resolution_routing = run.origins
+        run.keep_raw(collected)
+    return run.looked
 
 
 def reverse_cnames(names, analyzed_domains, log):

@@ -30,7 +30,7 @@ from core.self_signed import self_signed_certificates
 from integrations.enrichment import extract_iris_profile
 
 SECTION_LABELS = {"profiles": "Domain profiles", "summary": "Summary", "bgp": "BGP", "vpndb": "VPNDB", "tor": "Tor network",
-                  "cname": "CNAME chains", "certs": "Certificates", "triage": "Subdomain triage", "dns": "DNS & hosting",
+                  "cname": "CNAME chains", "resolution": "DNS resolution", "certs": "Certificates", "triage": "Subdomain triage", "dns": "DNS & hosting",
                   "sources": "Data sources"}
 ALERT_COLUMNS = ["Severity", "Domain", "Threat Type", "Confidence", "Category", "MITRE ATT&CK", "Status"]
 MAX_ROWS = 300            # rows per table in the Detailed report (the report level may lower or lift it)
@@ -190,6 +190,17 @@ def _attention_items(ctx):
             yield ("Medium", f"{dead['Hostname'].nunique()} CNAME dead end(s)",
                    ", ".join(dead["Hostname"].astype(str).unique()[:10]), "cname")
 
+    def dangling():
+        from core import resolver as res
+        tree = res.dataset_tree(ds)[0]
+        rows = tree[tree["Status"] == res.DANGLING] if not tree.empty else tree
+        labels = {"NS": "NS record(s): zone takeover", "MX": "MX record(s): mail interception",
+                  "CNAME": "CNAME(s): subdomain takeover", "TXT": "SPF include(s): mail spoofing"}
+        for (kind, severity), group in rows.groupby(["Type", "Severity"], sort=False):
+            yield (severity, f"{len(group)} dangling {labels.get(kind, kind)}",
+                   ", ".join(f"{n} → {', '.join(d)}" for n, d in zip(group["Name"], group["Dangling"]))[:300],
+                   "resolution")
+
     def certificates():
         if _empty(ds.ssl):
             return
@@ -235,7 +246,8 @@ def _attention_items(ctx):
             yield ("Low", f"{len(rows)} lookup(s) failed or stopped at a limit: the data may be incomplete", sources,
                    "sources")
 
-    for build in (verdicts, risky, new_alerts, routing, exits, cnames, certificates, lifecycle, triage, linked, gaps):
+    for build in (verdicts, risky, new_alerts, routing, exits, dangling, cnames, certificates, lifecycle, triage, linked,
+                  gaps):
         area(build)
     return sorted(items, key=lambda item: SEVERITY_RANK.get(item[0], 9))
 
@@ -412,6 +424,44 @@ def section_profiles(b, ctx):
 def _e(text):
     from core.report_html import e
     return e(text)
+
+
+CERT_PROFILES = {"high": 3, "detailed": 10}    # certificates profiled per level (the Complete report: all)
+
+
+def section_cert_profiles(b, ctx):
+    from core import cert_profile as cp
+    b.section("Certificate profiles", "The run's certificates that stand out most (by their most severe flag, then "
+                                      "newest), each field by field: the field map of its X.509 structure, the flags "
+                                      "and the certificates related to it.")
+    certs = cp.certificates(ctx.ds.ssl)
+    if certs.empty:
+        b.note("No certificate in the analysis window.")
+        return
+    limit = CERT_PROFILES.get(ctx.level.key)
+    ranked = cp.riskiest(certs, limit=limit)
+    if limit and len(certs) > limit:
+        b.note(f"The {limit} of {len(certs):,} certificates that stand out most.")
+    for cert in ranked.to_dict("records"):
+        related = cp.related_certificates(cert, certs)
+        found = cp.flags(cert, related=related)
+        b.heading(cp.label(cert))
+        b.cards([("Domains", cp.text(cert.get("Domains"))), ("Issuer", cp.text(cert.get("Issuer Org"))
+                                                            or cp.text(cert.get("Issuer"))),
+                 ("Validation", cp.text(cert.get("Validation Level")).upper()),
+                 ("Key", f"{cp.text(cert.get('Public Key Algo'))} {cp.text(cert.get('Public Key Bits'))}".strip()),
+                 ("Flags", len(found))])
+        if found.empty:
+            b.text("Nothing stands out in this certificate.")
+        else:
+            b.table(found)
+        b.dot(cp.field_map(cert, found))
+        if b.detail:
+            fields = cp.field_rows(cert)
+            b.table(fields[fields["Value"] != ""], columns=["Section", "Field", "Value"], exact=True)
+        if not related.empty:
+            b.subheading("Related certificates")
+            b.table(related, max_rows=MAX_ROWS)
 
 
 def section_alerts(b, ctx, top=50):
@@ -676,6 +726,54 @@ def section_cname(b, ctx):
         b.table(links, max_rows=MAX_ROWS)
 
 
+def section_resolution(b, ctx):
+    from core import resolver as res
+    from views.resolver_view import tree_graph
+    b.section("DNS resolution", "The analyzed domains' DNS tree (passive DNS) resolved record by record to IP "
+                                "addresses: CNAME chains, MX and NS hosts, SPF includes. A dangling record points to a "
+                                "name that resolves nowhere: whoever claims it receives what points to it.")
+    tree, todo, routing = res.dataset_tree(ctx.ds)
+    if tree.empty:
+        b.note("No current A, AAAA, CNAME, MX, NS or SPF record in the passive DNS of the analysis window.")
+        return
+    counts = res.summary(tree)
+    b.cards([("Names", counts["Names"]), ("Records", counts["Records"]), ("Resolve to IPs", counts["Resolves"]),
+             ("Dangling", counts["Dangling"]), ("Stale", counts["Stale"]), ("Critical", counts["Critical"]), ("High", counts["High"]),
+             ("Not resolved yet", counts["Pending"]), ("With warnings", counts["Warnings"])])
+    if todo:
+        b.callout(f"{len(todo):,} name(s) were not looked up in DNSDB yet (DNS resolution page → Resolve): records that "
+                  "reach them are Not resolved yet, and could be dangling too.")
+    shown = res.display(tree)
+    dangling = shown[shown["Status"] == res.DANGLING]
+    b.heading(f"Dangling records ({len(dangling):,})")
+    b.note(res.DANGLING_DEFINITION)
+    if dangling.empty:
+        b.text("No dangling record found.")
+    else:
+        b.table(dangling, columns=["Severity", "Domain", "Name", "Type", "Dangling", "Service", "Reason", "Last Seen"],
+                max_rows=MAX_ROWS)
+    stale = shown[shown["Status"] == res.STALE]
+    if not stale.empty:
+        b.subheading(f"Stale records ({len(stale):,}): target missing, but not claimable")
+        b.table(stale, columns=["Domain", "Name", "Type", "Stale", "Service", "Reason", "Last Seen"], max_rows=MAX_ROWS)
+    other = tree[tree["Status"] != res.RESOLVES]
+    if not other.empty:
+        b.subheading("Graph: dangling and unresolved records")
+        b.dot(tree_graph(other, limit=40 if b.detail else 15))
+    warned = shown[shown["Warnings"] != ""]
+    if not warned.empty:
+        b.subheading("Warnings")
+        b.table(warned, columns=["Domain", "Name", "Type", "Records", "Warnings"], max_rows=MAX_ROWS)
+    if b.detail:
+        b.subheading("Resolution tree")
+        b.table(shown, columns=["Severity", "Domain", "Name", "Type", "Status", "Records", "Targets", "IPv4", "IPv6",
+                                "Origins", "Path", "Last Seen"], max_rows=MAX_ROWS)
+    origins = res.origins(tree, routing)
+    if not origins.empty:
+        b.subheading("Origin networks (BGPDB: RPKI / IRR, visibility)")
+        b.table(origins, max_rows=MAX_ROWS)
+
+
 def section_certs(b, ctx):
     from views.ssl_view import san_treemap_records
     ds = ctx.ds
@@ -708,6 +806,12 @@ def section_certs(b, ctx):
         if not _empty(summary):
             b.subheading("JA4X")
             b.table(summary, max_rows=MAX_ROWS)
+    if b.detail:
+        from core import cert_profile as cp
+        breakdown = cp.field_breakdown(cp.certificates(ds.ssl))
+        if not breakdown.empty:
+            b.subheading("Field breakdown: how often each field is filled, common and rare values")
+            b.table(breakdown, exact=True)
     b.subheading("Certificates")
     b.table(unique, columns=["Domain", "Common Name", "Issuer", "Validation Level", "Not Before", "Not After",
                              "Public Key Algo", "Public Key Bits", "SAN Count", "Source", "Hash"], max_rows=MAX_ROWS)

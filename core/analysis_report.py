@@ -45,6 +45,8 @@ SECTIONS = [
                                               "shared infrastructure, weekly activity, lifecycle and data health"),
     Section("profiles", "Overview", "Domain profiles", "Risk radar, DIF fingerprints and a card per domain "
                                                        "(registration, hosting, routing, VPNDB, alerts)"),
+    Section("cert_profiles", "Overview", "Certificate profiles", "The certificates that stand out most, field by field: "
+                                                                 "field map, flags, related certificates"),
     Section("alerts", "Overview", "Alerts", "Alert heatmap, ATT&CK treemap and techniques, Iris risk components, the "
                                             "alerts by severity"),
     Section("dns", "Infrastructure", "DNS & hosting", "IPs, hosting networks, name servers, MX, TXT apps and how they "
@@ -53,6 +55,8 @@ SECTIONS = [
     Section("tor", "Infrastructure", "Tor network", "Tor exits among the hosting IPs and the networks that carry them"),
     Section("bgp", "Infrastructure", "BGP", "Routing findings, announced prefixes, origins and upstreams"),
     Section("cname", "Infrastructure", "CNAME chains", "CNAMEs and the services they point to"),
+    Section("resolution", "Infrastructure", "DNS resolution", "The DNS tree resolved to IP addresses (CNAME, MX, NS, "
+                                                               "SPF) and its dangling records"),
     Section("certs", "Infrastructure", "Certificates", "Certificates by issuer and over time, self-signed, JA4X"),
     Section("hunt_map", "Hunt", "Hunt map", "The runs of the hunt and the values they followed"),
     Section("hostnames", "Hunt", "Hostname inventory", "Hostnames with their flags"),

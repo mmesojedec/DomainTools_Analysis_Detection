@@ -39,8 +39,8 @@ types, alert severities and detection thresholds, applied at once to the loaded 
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick; watch a query for new domains |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
 | **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
-| **Overview** | *Summary* · *Domain profile* · *Alerts* |
-| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
+| **Overview** | *Summary* · *Domain profile* · *Certificate profile* · *Alerts* |
+| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *DNS resolution* · *Certificates* |
 | **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* · *Domain similarity* |
 | **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
 | **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: analysis report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
@@ -533,6 +533,94 @@ The detections built on the chains (dangling CNAME, takeover-prone service, dyna
 retargeted CNAME, long chain / loop, CNAME target shared by several analyzed domains) are explained in
 [CNAME chains](USER_GUIDE.md#cname-chains) in the User Guide. The service lists are in `core/intel_data.py`.
 
+#### Certificate profile
+
+The **Certificate profile** page (*Overview*) shows one certificate of the run, field by field. Pick a domain and a
+certificate (newest first). Other places open a certificate here: *Newest in Certificate profile* on the Domain
+profile, the Certificates page's *Field breakdown* tab and the related certificates below.
+
+- **Summary**: issuer, validation level (DV / OV / EV), how long it is valid, days to expiry, key, the most severe
+  flag, its domains and sources.
+- **Flags**: what stands out, most severe first. The checks cover:
+  - JA4X on a built-in C2 list, or a code-generated layout;
+  - self-signed;
+  - weak key (RSA under 2048, EC under 256), SHA-1 or MD5 signature;
+  - CA:TRUE on a host certificate;
+  - expired, expiring within 14 days, or not valid yet;
+  - longer than the 398-day limit for publicly trusted certificates, or very short;
+  - publicly trusted without embedded SCTs;
+  - code-signing or "any" extended key usage;
+  - wildcard, more than 50 SANs, or IP addresses in the SANs;
+  - a public key reused by other certificates.
+- **Field map**: the certificate's structure as a graph, with one table per section (subject, issuer, validity,
+  public key, extensions, subject alternative names, signature and fingerprints) and a row per field with its value.
+  Flagged fields take the flag's colour, and so does their section's title. Empty fields are grey, so you see what
+  the certificate lacks. The JA4X card explains how it was generated.
+- **All fields**: every field grouped by section (*Only filled fields* on by default), and its SANs split into the
+  analyzed domains and other names. The other names are leads to related infrastructure.
+- **Related certificates**: the run's certificates with the same public key, the same notable or rare JA4X (a CA's
+  usual layout is not a relation), the exact SAN set or the common name. Open any of them.
+- **Where seen**: the certificate's CT log entries, observations and hostname events, and the alerts that cite it.
+
+The Certificates page's **Field breakdown** tab does the same across every certificate. For each field it shows how
+often it is filled, how many distinct values it has, the most common one, and the **rare values** only one
+certificate has: an odd issuer unit, subject country or extension OID. Hashes and serial numbers are unique by
+design and left out. The analysis report has a *Certificate profiles* section (Overview): 3 certificates in the High
+level overview, 10 in the Detailed report and all in the Complete report, the ones that stand out most first, each
+with its field map and flags. The Detailed and Complete reports' Certificates section adds the field breakdown, and
+the data export has *Certificate profiles* (every certificate once, every field, its flags).
+
+#### DNS resolution
+
+The **DNS resolution** page works like DomainTools' Super Resolver, from DNSDB. It takes the analyzed domains' DNS
+tree, meaning every current name passive DNS knows. It resolves each current A, AAAA, CNAME, MX, NS and SPF record
+down to IP addresses: CNAME chains, mail and name server hosts, and SPF `include:` / `redirect=` domains. It then
+flags the **dangling** records, the ones that point to a name that resolves nowhere.
+
+1. The page first resolves what the collected passive DNS already knows (no query). Records that reach names outside
+   it are *Not resolved yet*.
+2. **Resolve the DNS tree** first discovers each domain's **current tree**. It runs one DNSDB `*.domain` lookup that
+   keeps only records seen in the last 90 days, and one lookup per record type when that one is still cut off at
+   10,000 records. A busy domain's main passive DNS lookup fills its record limit with old records and misses current
+   names: domaintools.com's stopped at 5,000 and left out most subdomains and A records. Then it looks the names the
+   tree reaches up in DNSDB, one exact name at a time, round after round. It also looks up the domain of every dead
+   target, to see whether that domain still exists. Until then, records that reach unknown names are *Not resolved
+   yet*, and the Dangling DNS tab says so: they may well be dangling. One click spends at most the queries
+   chosen under *DNSDB queries* (25 to 500). Cached lookups are free, and runs and loaded datasets restore them.
+   *Re-resolve (skip cache)* repeats every lookup.
+3. When a BGPDB host is set, the same click then looks up the **routing** of the addresses the lookups reached: one
+   BGPDB `ip` lookup each (up to 300 per click; no DomainTools API quota, but BGPDB is only reachable on the
+   DomainTools network). *Look up the routing of N resolved address(es)* does it on its own. The run's hosting IPs
+   already have theirs from the BGP stage.
+4. Read the tabs:
+   - **Dangling DNS**: *Dangling DNS records point to resources that don't exist or are unclaimed. Attackers could
+     claim these resources to serve malicious content under your domain.* Each dangling record has its severity,
+     the dead target, the service and why it matters. Critical: the target's domain has no current DNS record (anyone
+     may register it), or the target is on a takeover-prone service. Below them, the **stale records**: targets that
+     don't exist either but nobody else can claim, to clean up.
+   - **Resolution tree**: every record with its status, targets, addresses and path. Filter it by record type,
+     status or text, and download it as CSV.
+   - **Graph**: domain → records → targets → addresses, dangling in red.
+   - **Origins**: the networks announcing the addresses, like the Super Resolver's origins. Per network: the names,
+     IPs and prefixes that reach it, its addresses by RPKI / IRR status (valid, unauthorized, not registered) and its
+     least visible route. Below it, every address with its prefix, origin, RPKI, IRR, other origins seen and route
+     collectors.
+
+   Each record also shows its addresses' origins and routing. A warning is added when an address is announced by an
+   origin RPKI or the IRR does not authorize, by more than one origin, or by a route fewer than 5 route collectors see
+   (the Super Resolver's reachability). Internal addresses and **bogons** (reserved space not routable on the
+   internet, a private or reserved origin AS, a reserved prefix) are flagged too.
+
+**Certificate validation records**: a CNAME left behind after a certificate was issued, such as
+`<hash>.admin.domaintools.com → <hash>.comodoca.com` (Sectigo), points to a name that never resolves. The Super
+Resolver lists it as dangling; the app lists it as a **Stale record**: the target is on the certificate authority's
+own domain, so nobody else can claim it. Remove it. Sectigo / Comodo, AWS ACM and DigiCert validation targets are
+recognized. A missing name of the analyzed domain itself is a stale record too.
+
+Dangling NS, MX and SPF records, CNAMEs to lapsed domains and internal IPs in public DNS raise alerts (DNS resolution
+rules). They also show in *Needs attention* and in the report's *DNS resolution* section; the data export has the whole
+tree. Passive DNS shows what was seen, not what answers now: confirm a dangling record with a live lookup before acting.
+
 #### All pivots
 
 The **All pivots** tab of the **Hunt map** (Hunt menu) lists every value in the run's Iris Investigate records that other domains can share, with
@@ -640,8 +728,8 @@ app's menu:
 | Part | Sections |
 | --- | --- |
 | High level | At a glance: key numbers (alerts per severity, highest risk, high-risk domains, distinct DIFs, primary threat driver, verdicts), the most severe findings, VPNDB and BGP highlights, linked domains · Needs attention: the critical and high alerts per domain, then everything else to act on, most severe first (domains marked Malicious or Suspicious, high-risk domains, new alerts, BGP findings, VPN / proxy / Tor exits, takeover-prone and dead-end CNAMEs, self-signed certificates, new or expiring domains and certificates, suspicious subdomains, strongly linked domains, failed lookups), each linking to its section |
-| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
-| Infrastructure | DNS & hosting (hosting map and Domain → ASN → IP flow, change events, IP map, query volume, infrastructure graph and clusters, domain hopping, TXT apps) · VPNDB · Tor network · BGP (findings, hosting IPs, routing map, origin timeline, AS paths, networks, VPNDB match, neighbours) · CNAME chains · Certificates |
+| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Certificate profiles (the certificates that stand out most: field map, flags, all fields, related certificates) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
+| Infrastructure | DNS & hosting (hosting map and Domain → ASN → IP flow, change events, IP map, query volume, infrastructure graph and clusters, domain hopping, TXT apps) · VPNDB · Tor network · BGP (findings, hosting IPs, routing map, origin timeline, AS paths, networks, VPNDB match, neighbours) · CNAME chains · DNS resolution (dangling records, graph, warnings, resolution tree, origins) · Certificates |
 | Hunt | Hunt map (when the run belongs to a saved hunt) · Hostname inventory · Subdomain triage · Domain similarity (pairs, matrix, clusters with their shared indicators) |
 | Supporting evidence | Every active detection with its threat logic, triggering IOCs and evidence records · Data sources |
 | Appendices | IOCs ranked by severity, as many as the type and *IOCs listed* allow · All lookups (as queries, CLI and curl commands; off by default) |
@@ -910,7 +998,11 @@ the same as the `bgpdbq` tool's commands:
    to those networks and exit IPs: the toolbar shows a **BGP focus** control and *Filters applied* says *Filtered from
    BGP*; **Clear BGP focus** or **Reset filters** shows everything again. **VPNDB page (everything)** opens it
    unfiltered.
-7. **Responses**: every BGPDB answer as received (NDJSON) with its URL; select one for its curl command.
+7. **Resolved addresses**: the addresses the [DNS resolution](#dns-resolution) reached beyond the hosting IPs (CNAME,
+   MX and NS targets, SPF hosts), with the records that reach them and their prefix, origin, RPKI, IRR, other origins
+   and route collectors; unauthorized and barely visible first, as CSV. They are looked up on the DNS resolution page.
+8. **Responses**: every BGPDB answer as received (NDJSON) with its URL, the DNS resolution's included (their Detail
+   starts with *DNS resolution*); select one for its curl command. *Evidence → BGPDB Responses* has the same answers.
 
 When the BGPDB host does not answer (off the DomainTools network or VPN), the stage stops after 3 lookups in a row
 without an answer: the rest are skipped with one row on Data sources (*BGPDB stopped*), so the run loses seconds, not

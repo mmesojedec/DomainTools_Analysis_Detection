@@ -21,6 +21,7 @@ Most of these explanations are also available inside the app: **Detection reason
 - [MITRE ATT&CK mapping](#mitre-attck-mapping)
 - [Infrastructure clusters and domain hopping](#infrastructure-clusters-and-domain-hopping)
 - [CNAME chains](#cname-chains)
+- [DNS resolution](#dns-resolution)
 - [Detection thresholds](#detection-thresholds)
 - [Run history, alert lifecycle and trends](#run-history-alert-lifecycle-and-trends)
 - [JA4X: how certificates were generated](#ja4x-how-certificates-were-generated)
@@ -502,6 +503,7 @@ current run.
 | Flash/Burst Campaign | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Over 1,000 queries on a record alive 7 days or less and no longer seen, above pDNS Burst Density (a record that is merely new does not count). | Short, intense query bursts match spam blasts and botnet check-ins. |
 | Query Volume Anomaly | Medium | Low | T1071.004 (App Layer Protocol: DNS) | Daily pDNS volume with a robust z-score above Query Volume Anomaly (100+ queries). | Sudden traffic spikes point to campaign activity; counts are approximate. |
 | Deeply Nested Subdomains | Medium | Low | T1584.001 (Compromise Infrastructure) | Hostnames 3 or more labels deeper than the domain, not counting service labels (_domainkey, _acme-challenge, ...). | Deep nesting is used for domain shadowing on compromised DNS accounts. |
+| Internal IP Address in Public DNS | Low | High | T1590.002 (Gather Victim Network Information: DNS) | A current A or AAAA record of a public name points to an internal address (RFC 1918, loopback, link-local, ULA) or a bogon (reserved space not routable on the internet: 0.0.0.0/8, 100.64.0.0/10, documentation, 240.0.0.0/4, ...). | Context: it maps the internal network for anyone, and names on internal addresses can serve DNS rebinding. |
 | CNAME Retargeted to Another Provider | Medium | Low | T1584.001 (Compromise Infrastructure: Domains) | A hostname's current CNAME points to a different registrable domain than its earlier one, and the new target is external and not a CDN. | Repointed subdomains are how takeovers and compromised DNS accounts show up; also normal during migrations, so check the new provider. |
 | Long CNAME Chain / Loop | Medium (Medium-High for a loop) | Low | T1090 (Proxy) | A current CNAME chain of at least Long CNAME Chain Min Hops CNAMEs, a chain stopped at the step limit, or a loop. | Layered redirects hide the final hosting and let operators swap it without touching the visible name. |
 | Name Server Churn | Medium | Medium | T1584.002 (Compromise Infrastructure: DNS Server) | Three or more name server providers within 30 days (parking name servers not counted). | Abusive domains move DNS repeatedly to stay ahead of takedowns. |
@@ -528,6 +530,10 @@ current run.
 | --- | --- | --- | --- | --- | --- |
 | Suspicious / Offshore Name Server | Medium-High | Medium | T1583.001 (Acquire Infrastructure) | Name server at a dynamic, free, or bulletproof DNS provider. | These providers ignore abuse reports and are favored for malicious domains. |
 | Dangling CNAME (Subdomain Takeover Risk) | Critical (High when no target is on a takeover-prone service) | Medium | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME whose chain (collected passive DNS, then the DNSDB chase) ends at a name with no A, AAAA or CNAME record. Critical and High confidence when the target is on a takeover-prone service (S3, Azure, Heroku, GitHub Pages, Shopify, ...). | A dangling CNAME lets anyone who claims the target resource serve content, phishing pages or cookies-stealing scripts on the organization's own subdomain. |
+| Dangling NS Record (Zone Takeover Risk) | Critical (High when the name server's domain is still registered) | Medium | T1584.002 (Compromise Infrastructure: DNS Server) | A current NS record whose name server resolves nowhere in DNSDB (DNS resolution). Critical when the name server's own domain has no current DNS record either (it may be unregistered). | Whoever claims a dangling name server answers for the whole zone: every name, mail and certificate of it. |
+| Dangling MX Record (Mail Interception Risk) | Critical (High when the mail server's domain is still registered) | Medium | T1584.001 (Compromise Infrastructure: Domains) | A current MX record whose mail server resolves nowhere in DNSDB (DNS resolution). Critical when the mail server's own domain has no current DNS record either. | Whoever claims the mail server's name receives the domain's mail, password resets included. |
+| Dangling SPF Include (Mail Spoofing Risk) | High (Medium when the included domain is still registered) | Medium | T1584.001 (Compromise Infrastructure: Domains) | A current SPF record includes a domain that has no SPF record in DNSDB (DNS resolution). High when the included domain has no current DNS record at all. | Whoever registers the included domain can publish an SPF record that authorizes their servers to send mail as this domain. |
+| CNAME to Lapsed Domain (Takeover Risk) | Critical | High | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME whose target resolves nowhere and whose target's domain has no current DNS record in DNSDB (DNS resolution): it may be unregistered or lapsed. | Anyone who registers the lapsed domain serves the organization's subdomain: phishing, cookies, certificates. |
 | Unverified CNAME to Takeover-Prone Service | Medium | Low | T1584.001 (Compromise Infrastructure: Domains) | A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the per-domain chase budget, or the lookup failed). | Same takeover exposure as a dangling CNAME, but unconfirmed: chase it in the CNAME Chains lens. |
 | CNAME to Dynamic DNS / Tunnel Service | High | Medium | T1568 (Dynamic Resolution) | Any CNAME in the analysis window to a dynamic DNS or tunnel service (Duck DNS, No-IP, ngrok, Cloudflare quick tunnels, localtunnel, ...). | These names follow a home or attacker machine or expose a local service; legitimate organizations rarely point their subdomains there, attackers use them for C2 and short-lived phishing. |
 | CNAME to Free Hosting Platform | Medium (High when the hostname has a phishing word, brand or embedded domain) | Low | T1583.006 (Acquire Infrastructure: Web Services) | A current CNAME from the domain to a free hosting platform it does not belong to (pages.dev, workers.dev, Vercel, Netlify, Firebase, ...). High when the hostname also shows a Subdomain Triage name signal. | Free platforms give attackers disposable, reputable-looking hosting behind a trusted name. |
@@ -595,6 +601,11 @@ current run.
 - **CNAME rules** read the [CNAME chains](#cname-chains). *Dangling CNAME* needs a chase result, so it only fires
   for chased chains (*Chase CNAMEs* in the CNAME Chains page); unchased takeover-prone
   targets are reported as *Unverified CNAME to Takeover-Prone Service* instead.
+- **DNS resolution rules** read the [DNS resolution](#dns-resolution) tree. Dangling NS, MX and SPF records and
+  *CNAME to Lapsed Domain* need the targets looked up (*Resolve* on the DNS resolution page), except targets under
+  an analyzed domain whose passive DNS lookup was complete. Stale records (a dead target under the analyzed domain
+  itself, a certificate validation leftover) are not claimable and raise no alert. *Internal IP Address in Public DNS*
+  also covers bogon addresses.
 - Reference lists in `core/intel_data.py` (CDN ranges, parking providers, hosting watchlist, impersonated brands,
   takeover-prone services, ...) are curated snapshots; review and extend them for your environment. Every list, with
   its entries and the detections that use it, is in [Built-in lists](REFERENCE.md#built-in-lists).
@@ -696,8 +707,8 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 27 |
 | Resource Development | T1583.003 | Acquire Infrastructure: Virtual Private Server | 3 |
 | Resource Development | T1583.006 | Acquire Infrastructure: Web Services | 1 |
-| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 9 |
-| Resource Development | T1584.002 | Compromise Infrastructure: DNS Server | 1 |
+| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 12 |
+| Resource Development | T1584.002 | Compromise Infrastructure: DNS Server | 2 |
 | Resource Development | T1584.008 | Compromise Infrastructure: Network Devices | 1 |
 | Resource Development | T1585.002 | Acquire Email Accounts; Establish Accounts: Email Accounts | 2 |
 | Resource Development | T1587.003 | Develop Capabilities: Digital Certificates | 2 |
@@ -721,6 +732,7 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Command and Control | T1572 | Protocol Tunneling | 1 |
 | Command and Control | T1573.002 | Encrypted Channel | 1 |
 | Other | T1553.004 | Subvert Trust Controls: Install Root Certificate | 1 |
+| Other | T1590.002 | Gather Victim Network Information: DNS | 1 |
 
 Most domain-infrastructure behavior falls under **Resource Development** (the adversary acquiring and preparing
 domains, servers and certificates), with **Command and Control** for resolution, tunneling and proxy behavior.
@@ -811,6 +823,60 @@ Shared final addresses and links through CDNs are shown in the page but do not r
 or any name you type (`rdata/name/{target}/CNAME`), and lists their number and domains. Analyzed domains found this way join the links above and the
 detection; other domains are listed as **Related domains**, leads for the same operator when the target is
 dedicated, ordinary neighbours when it is a shared parking or hosting service.
+
+## DNS resolution
+
+The **DNS resolution** page (*Infrastructure*) does what DomainTools' Super Resolver does, from DNSDB: it takes the
+analyzed domains' DNS tree (every name the passive DNS lookup `*.domain` returned) and resolves every current record
+until IP addresses, then flags the **dangling** records found on the way.
+
+- **Current records**: per name and record type, the values seen within a day of the newest one, if that is within
+  90 days of the newest record of the run. Older names are left out (they no longer resolve).
+- **Resolved**: A and AAAA give the addresses; a CNAME is followed through its chain (the newest of CNAME and A /
+  AAAA wins at each name); MX and NS records through their hosts; SPF records (TXT `v=spf1`) through their
+  `include:` and `redirect=` domains (each one's own SPF record), `a:` and `mx:` hosts and `ip4:` / `ip6:` ranges.
+- **Resolve** first discovers each domain's current tree: DNSDB `*.domain` limited to records seen in the last 90
+  days (per record type when still cut off), because a busy domain's main lookup is cut off by old records and misses
+  current names. It then looks up in DNSDB, one exact name at a time (every record type), the names the tree reaches
+  outside the collected passive DNS, round after round, and the domain of every dead target. One click spends at most the chosen
+  number of DNSDB queries (25 to 500); lookups from the cache are free, and a run or loaded dataset restores the cached
+  ones without a query. *Re-resolve (skip cache)* looks every name up again.
+- **Dangling DNS records point to resources that don't exist or are unclaimed. Attackers could claim these resources
+  to serve malicious content under your domain.** Only a target that doesn't exist *and* can be claimed makes a record
+  dangling: its domain may be unregistered, it is on a takeover-prone service, or it is an external name nobody is
+  known to hold.
+- **Status** of each record: *Resolves*, *Dangling* (a target doesn't exist and can be claimed), *Stale record* (a
+  target doesn't exist but nobody else can claim it: a certificate validation leftover on the CA's own domain, or a
+  missing name of the analyzed domain itself; clean it up, not a takeover risk), *Not resolved yet* (a target was not
+  looked up), *Loop* or *No address (CDN)* (a CDN edge DNSDB has no address for: not dangling).
+- A name counts as resolving nowhere only when the data can say so: it was looked up, or it lies under an analyzed
+  domain whose passive DNS lookup was complete (not cut off at the limit).
+
+**Severity of a dangling record**
+
+| Dangling target | Severity |
+| --- | --- |
+| Its domain has no current DNS record (may be unregistered: anyone can register it) | Critical (High for an SPF include) |
+| On a takeover-prone service (S3, Azure, Heroku, GitHub Pages, ...) | Critical |
+| NS, CNAME or MX host that resolves nowhere, domain still registered | High |
+| SPF include without an SPF record, domain still registered | Medium |
+
+Not dangling, listed as *Stale record* with no severity: a missing name of the analyzed domain itself, and a
+certificate validation (DCV) target of Sectigo / Comodo, AWS ACM or DigiCert (left behind after issuance, on the CA's
+own domain).
+
+**Warnings**, *Low*: an internal address in public DNS (RFC 1918, loopback, link-local, ULA) and a **bogon** (an
+address or SPF range in reserved space not routable on the internet: 0.0.0.0/8, 100.64.0.0/10, documentation ranges,
+multicast, 240.0.0.0/4). With BGPDB routing, a bogon origin (a private or reserved AS number) or bogon prefix is
+flagged too, next to the other BGP findings on an address. The tabs show the **Dangling DNS** records with the reason, the
+whole **Resolution tree** (filters by type, status and text; CSV download), a **Graph** (domain → records → targets →
+addresses, dangling in red) and the **Origins**: the networks announcing the tree's addresses, with their RPKI / IRR
+status and visibility. Routing comes from BGPDB: the BGP stage covers the run's hosting IPs, and the other resolved
+addresses are looked up after *Resolve* (or with *Look up the routing*; up to 300 per click, only on the DomainTools
+network). A record's addresses get a warning when RPKI or the IRR does not authorize their origin, when several
+origins announce them, or when fewer than 5 route collectors see the route. The findings raise the [DNS resolution rules](#detection-catalogue) and appear in *Needs attention* and
+the *DNS resolution* section of the analysis report. Passive DNS shows what was seen, not what answers now: confirm a
+dangling record with a live lookup before acting on it.
 
 ## Detection thresholds
 
@@ -1183,13 +1249,15 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | Runs | *Recent runs*: the newest saved runs as a timeline, one card per target list or a table (one row per target list, or every run with *Show all runs*; filter, alerts and new-alerts toggles), what changed, the risk trend and the indicators each run shares with other target lists; run again, load the offline copy or open it in *Compare & trends*. *Compare & trends*: run details, compare any two runs, trends, one domain across runs, watched lists, manage runs. *Indicator Sightings*: where an IP, domain, name server, MX, certificate hash, JA4X, tracker code or email was observed across saved runs and offline datasets, over time; with nothing entered, the indicators shared across your target lists. A shared indicator opens its sightings, a sighting picks its run (local files, no API query) |
 | Summary | From the top: hunt trail and KPIs; every domain with its verdict, risk drivers and VPNDB exits (select one for its profile; Unicode form of internationalized domains); analysis details (linked counts, the VPNDB row: IPs checked, VPN / proxy, residential proxy and Tor exits; and the BGP row: IPs routed, prefixes, origin networks, routing findings, with a short description of who announces the hosting and the worst findings); linked domains; a short *Hunt* box (open alerts, steps and leads, with *Open the Hunt map*); top alerts (pick one to open Alerts filtered to it); run statistics (alerts by category, shared infrastructure, weekly activity, lifecycle, data health); what's new since the last analysis with *Watch this list*; the use-case plan with checkboxes; the lookups of the last collection |
 | Domain profile | One domain: risk and DIF, why this score, your verdict, an action row (*Where else seen*, *Similar domains / IPs in IrisQL*, *Its certificates in CertsQL*, *Copy*), one card per source (registration and hosting from Iris Investigate, VPN / proxy / Tor verdicts of its IPs from VPNDB, BGP routing of its IPs from BGPDB: prefix, origin network and RPKI / IRR status, network age, routing findings), alerts, latest DNS records per type, CNAME chains, newest certificates, latest Domain History changes |
+| Certificate profile | One certificate field by field: summary (issuer, validation, validity, expiry, key, worst flag), flags (C2 / code-generated JA4X, self-signed, weak key, SHA-1 / MD5, CA:TRUE, expired or expiring, over 398 days, no SCTs, unusual EKU, wildcard, SAN sprawl, IP SANs, reused key), a field map of its X.509 structure (one table per section, flagged fields coloured, empty ones grey), every field and its SANs (analyzed vs other names), related certificates (same key, notable JA4X, SAN set or common name) and where it was seen (CT logs, observations, hostname events, citing alerts) |
 | Alerts | KPIs, risk radar, DIF table and decoder, alert heatmap and ATT&CK view, grouped alerts with related events and a triage status per group, detection reasons (with *Your Verdicts*), suppressions, run diff, DomainTools risk evidence; *Export detections, IOCs and reports* opens Export & report |
 | VPNDB | Which VPN or proxy provider operates behind an IP, prefix or ASN (each tab opens with *How to read this*): domain → provider → exit flow, domain × category heatmap, providers, exit countries, exposure timeline against VPNDB's weekly history, Iris cross-check (domain count, pivot value, disagreements), neighbouring ranges and hosting networks, other domains on dedicated exits (DNSDB) with *Analyze*, CIDR address grids and range cards; select any IP for its full card (verdict, whole VPNDB answer, history, where the run saw it, Tor share) |
 | Tor network | Network-wide Tor statistics provided through VPNDB (`/tor`): relays and exits, the networks and countries that carry Tor exit traffic, exit prefixes, and a warning when a network the run saw is among them, with *Seen as* (hosting from VPNDB / Iris; with BGPDB also origin, unauthorized origin, upstream / transit, neighbouring prefix) |
-| BGP | BGP routing of the hosting IPs from BGPDB (each tab opens with *How to read this*): *Overview* (routing findings, each hosting IP with its prefix, usual origin, RPKI / IRR, RIR and Iris country, upstream; select one for every origin, AS path and network, as curl commands), *Routing map* (domain → prefix → origin network → upstream Sankey, unauthorized flows in red, and the AS paths towards a prefix as a graph), *Origin timeline* (each prefix and network on its own row, authorized green, unauthorized red), *Networks* (RIR registration, age and visibility of the origin and upstream ASes), *Neighbouring prefixes* (the /20 around each prefix: the run's own networks, others, unauthorized), *VPNDB match* (exits and their routing, networks that carry exits), *Responses* (every BGPDB answer, as curl) |
+| BGP | BGP routing of the hosting IPs from BGPDB (each tab opens with *How to read this*): *Overview* (routing findings, each hosting IP with its prefix, usual origin, RPKI / IRR, RIR and Iris country, upstream; select one for every origin, AS path and network, as curl commands), *Routing map* (domain → prefix → origin network → upstream Sankey, unauthorized flows in red, and the AS paths towards a prefix as a graph), *Origin timeline* (each prefix and network on its own row, authorized green, unauthorized red), *Networks* (RIR registration, age and visibility of the origin and upstream ASes), *Neighbouring prefixes* (the /20 around each prefix: the run's own networks, others, unauthorized), *VPNDB match* (exits and their routing, networks that carry exits), *Resolved addresses* (the DNS resolution's addresses beyond the hosting IPs: the records reaching them, prefix, origin, RPKI / IRR, route collectors), *Responses* (every BGPDB answer, the DNS resolution's included, as curl) |
 | DNS & Hosting | One-line VPNDB and BGP summaries, then four tabs (only the open one is drawn): *Timeline* (event scatter, lifespans, velocity, tempo), *Subdomains & IPs* (subdomains, IP clusters, Nexus overlap), *Web & TXT* (trackers, TXT fingerprints), *Campaign & hosting* (domain story timeline, infrastructure graph, clusters, hosting map, Domain ➔ ASN ➔ IP Sankey, CDN origin exposure, domain hopping) |
 | CNAME Chains | Every CNAME with its target service, full chain and outcome (resolves, dead end, loop); per-hostname table with CNAME history; chains filled in on demand and read from the analyzed domain; chain map boxed per domain with optional one node per hostname; chase results grouped by chain, most hostnames first; cross-domain links and link map; reverse CNAME (RDATA) related domains for chain targets or typed names; chase selected or all hostnames, up to 10 DNSDB queries per domain per click |
-| Certificates | Six tabs, only the open one drawn: *Overview* (the security & hygiene summary on top, then SAN sprawl, up to 15 certificates per domain and 12 SANs each with the rest grouped; Sankey flow; CA distribution; data sources; wildcards), *Self-Signed* (rated Critical to Low, with the reasons and what to do), *Validity & keys* (validity, keys, key reuse), *JA4X & C2* ([JA4X](#ja4x-how-certificates-were-generated): known tools, how common, pivot to CertsQL; bare-IP certificates), *Issuers & policies* (geography and organizations, EKU, policy OIDs, CAA) and *CT logs* |
+| DNS resolution | The DNS tree resolved like the Super Resolver: every current A, AAAA, CNAME, MX, NS and SPF record followed to IP addresses; *Resolve the DNS tree* looks up names outside the collected passive DNS in DNSDB (25 to 500 queries per click, cached lookups free); dangling records with severity and reason; resolution tree with filters and CSV; graph; BGPDB routing of every resolved address (prefix, origin, RPKI / IRR, visibility) and origin networks |
+| Certificates | Seven tabs, only the open one drawn: *Field breakdown* (per X.509 field: how often filled, distinct, most common and rare values, opening a certificate in the Certificate profile); *Overview* (the security & hygiene summary on top, then SAN sprawl, up to 15 certificates per domain and 12 SANs each with the rest grouped; Sankey flow; CA distribution; data sources; wildcards), *Self-Signed* (rated Critical to Low, with the reasons and what to do), *Validity & keys* (validity, keys, key reuse), *JA4X & C2* ([JA4X](#ja4x-how-certificates-were-generated): known tools, how common, pivot to CertsQL; bare-IP certificates), *Issuers & policies* (geography and organizations, EKU, policy OIDs, CAA) and *CT logs* |
 | Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts, their BGP routing (prefixes, origin networks, routing alerts) and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure; *All pivots*: every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it, with *Analyze now* and *Find in Iris* |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |

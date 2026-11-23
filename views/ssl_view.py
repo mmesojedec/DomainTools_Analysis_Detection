@@ -69,7 +69,8 @@ CERT_FOCUS_KEY = "cert_focus"   # a certificate or JA4X the page is narrowed to 
 CERT_TAB_KEY = "cert_tab"   # the selected tab; other pages open one with navigation.open_tab
 SELF_SIGNED_TAB = "Self-Signed"
 JA4X_TAB = "JA4X & C2"
-CERT_TABS = ["Overview", SELF_SIGNED_TAB, "Validity & keys", JA4X_TAB, "Issuers & policies", "CT logs"]
+CERT_TABS = ["Overview", SELF_SIGNED_TAB, "Validity & keys", JA4X_TAB, "Issuers & policies", "CT logs",
+             "Field breakdown"]
 
 
 TREEMAP_CERTS = 15   # certificates drawn per target domain in the SAN treemap; the rest are one box
@@ -817,6 +818,40 @@ def _focused(ds):
     return focused
 
 
+def _render_field_breakdown(ds):
+    """Every certificate field across the run's certificates: how often filled, distinct values, rare values."""
+    from core import cert_profile as cp
+    from views.cert_profile_view import open_button
+    certs = cp.certificates(ds.ssl)
+    st.markdown("#### Field breakdown", help="Per X.509 field across the run's certificates (each counted once): how "
+                                             "often the Certificate API filled it, how many distinct values it has, the "
+                                             "most common one and values only one certificate has.")
+    explainer("Reading the field breakdown", """
+* **Filled %** low on a field most CAs fill (organization for OV / EV, SCTs, key IDs): certificates made by hand or by a tool.
+* **Rare values** are the outliers worth a look: an issuer unit, subject country, extension OID or EKU only one certificate has.
+* **Distinct** 1 on a field such as issuer or key size: one source made every certificate (a campaign often looks like this).
+* Hashes, serial numbers and fingerprints are unique per certificate by design and are left out.
+""")
+    if certs.empty:
+        st.info("No certificate in the analysis window.")
+        return
+    breakdown = cp.field_breakdown(certs)
+    bars = breakdown.assign(Name=breakdown["Section"] + " · " + breakdown["Field"])
+    fig = px.bar(bars, x="Filled %", y="Name", color="Section", orientation="h", range_x=[0, 100],
+                 title=f"How often each field is filled ({len(certs):,} certificates)", labels={"Name": ""})
+    fig.update_yaxes(categoryorder="array", categoryarray=list(reversed(bars["Name"])))   # the certificate's order
+    chart(fig, height=max(360, 22 * len(breakdown) + 120))
+    st.dataframe(breakdown, hide_index=True, width="stretch",
+                 column_config={"Filled %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d %%"),
+                                "Rare values": st.column_config.TextColumn(width="large")})
+    c_pick, c_open = st.columns([3, 1], vertical_alignment="bottom")
+    labels = {row["Hash"]: cp.label(row) for row in certs.to_dict("records")}
+    picked = c_pick.selectbox("Look at one certificate field by field", list(labels), format_func=labels.get,
+                              key="cert_breakdown_pick")
+    if picked:
+        open_button(picked, key="cert_breakdown_open", container=c_open)
+
+
 def render_ssl_lens(ds, threats, thresholds):
     st.header("Certificates", help="Cryptographic and X.509 telemetry across active and historical certificates.")
     if ds.ssl.empty:
@@ -837,6 +872,7 @@ def render_ssl_lens(ds, threats, thresholds):
         [lambda: _render_geo(unique_certs), lambda: _render_eku(unique_certs), lambda: _render_policies(unique_certs),
          lambda: _render_caa(ds, unique_certs)],
         [lambda: _render_ct_logs(ds, unique_certs)],
+        [lambda: _render_field_breakdown(ds)],
     ]
     for tab, parts in zip(tabs, renderers):   # only the open tab is drawn
         if tab.open is not False:

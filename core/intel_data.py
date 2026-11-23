@@ -320,6 +320,12 @@ RULE_METADATA = {
     # CNAME chains
     "Dangling CNAME (Subdomain Takeover Risk)": ("Hosting & DNS Providers", "Medium"),
     "Unverified CNAME to Takeover-Prone Service": ("Hosting & DNS Providers", "Low"),
+    # DNS resolution (dangling records)
+    "Dangling NS Record (Zone Takeover Risk)": ("Hosting & DNS Providers", "Medium"),
+    "Dangling MX Record (Mail Interception Risk)": ("Hosting & DNS Providers", "Medium"),
+    "Dangling SPF Include (Mail Spoofing Risk)": ("Hosting & DNS Providers", "Medium"),
+    "CNAME to Lapsed Domain (Takeover Risk)": ("Hosting & DNS Providers", "High"),
+    "Internal IP Address in Public DNS": ("DNS Behavior", "High"),
     "CNAME to Dynamic DNS / Tunnel Service": ("Hosting & DNS Providers", "Medium"),
     "CNAME to Free Hosting Platform": ("Hosting & DNS Providers", "Low"),
     "CNAME Retargeted to Another Provider": ("DNS Behavior", "Low"),

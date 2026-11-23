@@ -43,6 +43,8 @@ class Dataset:
     ip_intel: dict = field(default_factory=dict)
     pdns_coverage: dict = field(default_factory=dict)
     cname_chases: pd.DataFrame = field(default_factory=pd.DataFrame)   # DNSDB CNAME chases (run + CNAME Chains lens)
+    resolutions: pd.DataFrame = field(default_factory=pd.DataFrame)    # DNSDB lookups of the DNS tree (DNS resolution)
+    resolution_routing: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB origins of its addresses
     cname_rdata: pd.DataFrame = field(default_factory=pd.DataFrame)    # reverse CNAME lookups (CNAME Chains lens)
     anonymizers: pd.DataFrame = field(default_factory=pd.DataFrame)    # VPNDB verdict per hosting IP (core.anonymizers)
     prefixes: pd.DataFrame = field(default_factory=pd.DataFrame)       # VPNDB verdict per CIDR target
@@ -173,6 +175,10 @@ def build_dataset(collected, selected_domains, dh_fields, pdns_fields, timezone,
     ds.cname_chases = chases if chases is not None else pd.DataFrame()
     rdata = getattr(collected, "cname_rdata", None)
     ds.cname_rdata = rdata if rdata is not None else pd.DataFrame()
+    resolutions = getattr(collected, "resolutions", None)
+    ds.resolutions = resolutions if resolutions is not None else pd.DataFrame()
+    routing = getattr(collected, "resolution_routing", None)
+    ds.resolution_routing = routing if routing is not None else pd.DataFrame()
     ds.anonymizers = for_domains(getattr(collected, "anonymizers", None), selected_domains).reset_index(drop=True)
     raw = getattr(collected, "vpndb_raw", None)   # the run's answers, whatever the view filter (like Data sources)
     ds.vpndb_raw = raw if raw is not None else pd.DataFrame()

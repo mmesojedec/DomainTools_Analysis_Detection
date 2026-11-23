@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from config import (
+    BGPDB_RESOLVE_MAX_IPS,
     CERT_CTL_LIMIT,
     CERT_EVENTS_LOOKBACK_DAYS,
     CERT_EVENTS_MAX_RECORDS,
@@ -35,6 +36,7 @@ from config import (
     MAX_OFFLINE_DATASETS,
     OFFLINE_DIR,
     PIVOT_IP_RECORD_LIMIT,
+    RESOLVE_RECORD_LIMIT,
     SEED_MAX_CERTIFICATES,
     SEED_MAX_TARGETS,
     VPNDB_ASN_MAX,
@@ -289,6 +291,10 @@ PARTS = {
     "cname_chases": ("CNAME chases", "DNSDB Scout", "Each CNAME followed to its final address",
                      lambda s: f"Up to {CNAME_CHASE_MAX_STEPS} names per chain, {CNAME_CHASE_RECORD_LIMIT} records "
                                "each"),
+    "resolutions": ("DNS resolution", "DNSDB Scout", "Names of the DNS tree outside the collected passive DNS, "
+                    "looked up to resolve it", lambda s: f"{RESOLVE_RECORD_LIMIT} records per name"),
+    "resolution_routing": ("DNS resolution routing", "BGPDB", "Prefix, origin and RPKI / IRR of the addresses the DNS "
+                           "resolution reached", lambda s: f"Up to {BGPDB_RESOLVE_MAX_IPS} addresses per click"),
     "cname_rdata": ("Reverse CNAME", "DNSDB Scout", "Other names pointing to the same CNAME targets",
                     lambda s: f"Up to {CNAME_RDATA_RECORD_LIMIT:,} names per lookup"),
     "anonymizers": ("VPNDB verdicts", "VPNDB", "VPN, proxy and Tor verdict per hosting IP",

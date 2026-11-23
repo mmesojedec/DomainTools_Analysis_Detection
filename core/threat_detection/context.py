@@ -39,6 +39,7 @@ class DomainContext:
     ip_intel: dict = field(default_factory=dict)
     cert_events: pd.DataFrame = field(default_factory=pd.DataFrame)
     cname_map: pd.DataFrame = field(default_factory=pd.DataFrame)   # the domain's rows of core.cname.build_cname_map
+    resolution: pd.DataFrame = field(default_factory=pd.DataFrame)  # the domain's rows of core.resolver.build_tree
     anonymizers: dict = field(default_factory=dict)   # ip -> VPNDB row (core.anonymizers.by_ip) of the run's IPs
     exit_weeks: dict = field(default_factory=dict)    # ip -> the weeks VPNDB has exit evidence for (history)
     neighbours: dict = field(default_factory=dict)    # /24 -> VPNDB verdict row (core.anonymizers.neighbour_frame)

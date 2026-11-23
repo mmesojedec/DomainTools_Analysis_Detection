@@ -36,7 +36,7 @@ from core.window import resolve_window
 from integrations.account import account_products
 from integrations.cache import clear_all_caches, prune_cache, refreshing
 from integrations.certificates import merge_search_certs
-from integrations.collector import collect_all, resolve_seeds, restore_cached_chases
+from integrations.collector import collect_all, resolve_seeds, restore_cached_chases, restore_cached_resolutions
 from integrations.credentials import clear_credential_cache
 from integrations.http import StatusLog
 from integrations.progress import tracking
@@ -47,6 +47,7 @@ from views.anonymizer_view import render_anonymizer_summary
 from views.api_usage_view import skipped_products_note
 from views.bgp_page import render_bgp_line, render_bgp_page
 from views.campaign_view import render_campaign_lens
+from views.cert_profile_view import render_cert_profile
 from views.certsql_view import CERTS_KEY as CERTSQL_CERTS_KEY
 from views.certsql_view import ORIGIN_KEY as CERTSQL_ORIGIN_KEY
 from views.certsql_view import render_certsql_page
@@ -68,6 +69,7 @@ from views.query_view import render_query_lens
 from views.quota_banner import render_quota_banners
 from views.raw_view import render_cache_panel, render_raw_lens, render_status_panel
 from views.recent_view import render_recent_page, render_recent_teaser
+from views.resolver_view import render_resolver_lens
 from views.results_toolbar import (
     CURRENT_PAGE_KEY,
     filter_alerts,
@@ -126,7 +128,8 @@ CACHE_HASH_FUNCS = {pd.DataFrame: _frame_digest}
 def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip_observations, brands, official_domains,
                       window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None, exit_weeks=None,
                       neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist="",
-                      bgp_origins=None, bgp_asns=None, bgp_routes=None, bgp_previous=None):
+                      bgp_origins=None, bgp_asns=None, bgp_routes=None, bgp_previous=None, resolutions=None,
+                      pdns_coverage=None):
     return detect_threat_flags(
         events, thresholds, risk_df=risk, ssl_df=ssl, enrichment_data=enrichment, cert_events_df=cert_events,
         ip_observations=ip_observations, brands=brands, official_domains=official_domains,
@@ -135,6 +138,7 @@ def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip
                                                 "hosting_asns": hosting_asns, "tor_overview": tor_overview},
         verdicts=verdicts, allowlist=allowlist,
         bgp_frames={"origins": bgp_origins, "asns": bgp_asns, "routes": bgp_routes, "previous": bgp_previous},
+        resolutions=resolutions, pdns_coverage=pdns_coverage,
     )
 
 
@@ -145,11 +149,12 @@ def analyst_inputs():
 
 
 def vpndb_frames(ds):
-    """The VPNDB context frames the anonymizer rules read (see collector.collect_anonymizer_context), and the BGPDB
-    frames of the BGP routing rules."""
+    """The VPNDB context frames the anonymizer rules read (see collector.collect_anonymizer_context), the BGPDB
+    frames of the BGP routing rules, and the DNS resolution lookups of the dangling DNS rules."""
     return {"exit_weeks": ds.exit_weeks, "neighbour_ranges": ds.neighbour_ranges, "hosting_asns": ds.hosting_asns,
             "tor_overview": ds.tor_overview, "bgp_origins": ds.bgp_origins, "bgp_asns": ds.bgp_asns,
-            "bgp_routes": ds.bgp_routes, "bgp_previous": previous_bgp_routing(ds)}
+            "bgp_routes": ds.bgp_routes, "bgp_previous": previous_bgp_routing(ds), "resolutions": ds.resolutions,
+            "pdns_coverage": ds.pdns_coverage}
 
 
 def previous_bgp_routing(ds):
@@ -350,10 +355,12 @@ def _activate_dataset(collected, key, created, origin, save_run):
     """
     Makes `collected` the active dataset. Lifecycle history = earlier runs (from any target list) covering these
     targets; 'Changes Since Last Run' compares against the previous run of this exact target list.
-    CNAME chases still in the lookup cache are restored first (no API calls).
+    CNAME chases and DNS resolution lookups still in the lookup cache are restored first (no API calls).
     """
     log = StatusLog()
-    if restore_cached_chases(collected, log):
+    restored = restore_cached_chases(collected, log)
+    restored += restore_cached_resolutions(collected, log)
+    if restored:
         collected.statuses = list(collected.statuses) + log.rows
     st.session_state.collected = collected
     st.session_state.data_origin = origin
@@ -735,12 +742,14 @@ PAGE_FUNCTIONS = {
     "recent": lambda: render_recent_page(CTX.timezone, page_history),
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),
+    "cert_profile": data_page(lambda: render_cert_profile(CTX.ds, CTX.view.active)),
     "alerts": data_page(page_alerts),
     "dns": data_page(page_dns),
     "vpndb": data_page(lambda: render_vpndb_page(CTX.ds)),
     "bgp": data_page(lambda: render_bgp_page(CTX.ds)),
     "tor": data_page(lambda: render_tor_page(CTX.ds)),
     "cname": data_page(lambda: render_cname_lens(CTX.ds, CTX.collected)),
+    "resolver": data_page(lambda: render_resolver_lens(CTX.ds, CTX.collected)),
     "certs": data_page(lambda: render_ssl_lens(CTX.ds, CTX.threats, CTX.thresholds)),
     "hostnames": data_page(lambda: render_hostname_lens(CTX.ds)),
     "triage": data_page(lambda: render_triage_lens(CTX.ds)),
@@ -757,7 +766,7 @@ PAGE_FUNCTIONS = {
 }
 
 
-TOOLBAR_PAGES = {"summary", "profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "certs", "hostnames", "triage",
+TOOLBAR_PAGES = {"summary", "profile", "cert_profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "resolver", "certs", "hostnames", "triage",
                  "similarity", "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
 
 

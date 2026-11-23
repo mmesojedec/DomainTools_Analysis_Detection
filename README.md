@@ -149,6 +149,7 @@ core/
   pivots.py                    All pivots (Hunt map): shared Iris Investigate values ranked by Iris pivot count
   subdomain_triage.py          Subdomain Triage: name and lifecycle signals, score and level per subdomain
   cname.py                     CNAME chains: target service types, chains through collected data and DNSDB chases, per-domain chase plan, cross-domain links
+  resolver.py                  DNS resolution (like the Super Resolver): the DNS tree resolved through CNAME, MX, NS and SPF to IPs, dangling records and their severity, routing (RPKI / IRR, visibility) and origins
   use_cases.py                 Use cases and custom profiles: collection options, window, plan, lookups and limits
   next_steps.py                Hunt map's "What to check next": findings turned into steps that point at a page
   hunt_plan.py                 Suggested hunt: leads scored, stop rules, look-ahead and the start order from alerts
@@ -165,6 +166,7 @@ core/
   allowlist.py                 Infrastructure allowlist (IPs, ranges, ASNs, name servers, certificate organizations, trackers, registrars)
   query_watch.py               Watched IrisQL queries: a query saved with the domains it returned, so a check shows only new ones
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
+  cert_profile.py              Certificate profile: fields grouped as in X.509, flags, related certificates, where seen, field map, field breakdown
   lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
   rule_catalog.py              Detection reference: per-rule trigger, rationale, severity and confidence levels
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
@@ -203,6 +205,7 @@ core/
                                route), the VPNDB match (anonymizer exit on unstable routing) and the Tor match
                                (unauthorized origin that is a Tor exit network)
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
+    resolver_rules.py          DNS resolution rules (dangling NS, MX and SPF records, CNAMEs to lapsed domains, internal IPs in public DNS)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
     enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
     intel_rules.py             Registration age, hosting watchlist, redirects, parking, ASN-aware flux, volume anomalies,
@@ -247,6 +250,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen (Iris, VPNDB and BGP routing cards), with an action row
+  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags, field map, all fields, related, where seen)
                                (sightings, IrisQL, CertsQL, copy)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
   alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools
@@ -254,7 +258,8 @@ views/                         One module per page + sidebar, alert tools, certi
   infra_view.py                DNS & Hosting: Timeline, Subdomains & IPs, and Web & TXT tabs
   campaign_view.py             DNS & Hosting → Campaign & hosting (timelines, graph, clusters, hosting map, hopping)
   cname_view.py                CNAME Chains page: chains, chases, cross-domain links, reverse CNAME
-  ssl_view.py                  Certificates page (6 tabs: Overview, Self-Signed, Validity & keys, JA4X & C2, Issuers & policies, CT logs)
+  resolver_view.py             DNS resolution page: Resolve (DNSDB), BGPDB routing of resolved addresses, dangling records, resolution tree, graph, origin networks
+  ssl_view.py                  Certificates page (7 tabs: Overview, Self-Signed, Validity & keys, JA4X & C2, Issuers & policies, CT logs, Field breakdown)
   pivot_view.py                Hunt map → All pivots: shared values ranked by rarity, Find in Iris
   hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
   triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals

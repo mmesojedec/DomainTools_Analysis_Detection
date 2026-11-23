@@ -17,7 +17,8 @@ from views.common import chart, selected_rows, selection_key
 
 PAGE_TAB_KEY = "bgp_tab"
 TAGLINE = "Who announces the hosting IPs on the internet, since when, and whether the registries allow it."
-TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "Neighbouring prefixes", "VPNDB match", "Responses"]
+TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "Neighbouring prefixes", "VPNDB match",
+        "Resolved addresses", "Responses"]
 RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN, bgp.MOVED]
 SEVERITY_BADGES = {"Critical": "red", "High": "red", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
 STATUS_BADGES = {bgp.VALID: "green", bgp.UNAUTHORIZED: "red", bgp.UNVERIFIED: "gray", bgp.LOCAL_LEAK: "orange"}
@@ -77,8 +78,17 @@ HOW_TO_READ = {
         "Below, the origin networks that carry exits: a young or single-homed network full of exits is often the "
         "provider's own.",
     ),
+    "Resolved addresses": (
+        "The addresses the DNS resolution reached beyond the hosting IPs (CNAME, MX and NS targets, SPF hosts), with "
+        "their routing from BGPDB: looked up on the DNS resolution page (after *Resolve*, or *Look up the routing*).",
+        "**Reached by** = the records of the analyzed domains that resolve to the address. **Collectors** = how many "
+        "route collectors see the route (the Super Resolver's reachability); under 5 is flagged.",
+        "An unauthorized origin or several origins on a mail server or name server the domain depends on is worth a "
+        "look: whoever announces the prefix receives that traffic.",
+    ),
     "Responses": (
-        "Every BGPDB lookup of the run as received (NDJSON), with the URL. Select one to get it as a curl command.",
+        "Every BGPDB lookup of the run as received (NDJSON), with the URL, those of the DNS resolution included "
+        "(Detail starts with *DNS resolution*). Select one to get it as a curl command.",
     ),
 }
 
@@ -97,6 +107,9 @@ def render_bgp_page(ds):
                 "bgpdbq tool's ~/.bgpdbq.conf), keep *Look up BGP routing of the hosting IPs (BGPDB)* on (Settings → "
                 "Collection options), then analyze again. BGPDB is reachable on the DomainTools network or VPN.",
                 icon=":material/info:")
+        if not _empty(getattr(ds, "resolution_routing", None)):
+            st.subheader("Resolved addresses")
+            _resolved(ds)
         if not _empty(ds.bgp_raw):
             _responses(ds)
         return
@@ -104,7 +117,7 @@ def render_bgp_page(ds):
     ips = bgp.ip_table(ds.bgp_origins, ds.bgp_routes, found, ds.enrichment)
     tabs = st.tabs(TABS, key=PAGE_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
-    renders = (_overview, _routing_map, _timeline, _networks, _neighbours, _vpndb, _responses)
+    renders = (_overview, _routing_map, _timeline, _networks, _neighbours, _vpndb, _resolved, _responses)
     for tab, name, render in zip(tabs, TABS, renders):
         if tab.open is not False:
             with tab:
@@ -114,6 +127,31 @@ def render_bgp_page(ds):
                     render(ds, found, ips)
                 else:
                     render(ds)
+
+
+def _resolved(ds):
+    """The routing of the addresses only the DNS resolution reached (core.resolver.resolved_routing)."""
+    from core import resolver as res
+    tree, _, routing = res.dataset_tree(ds)
+    rows = res.resolved_routing(tree, routing, ds.bgp_origins)
+    pending = res.unrouted_ips(tree, ds.bgp_origins, getattr(ds, "resolution_routing", None))
+    if rows.empty:
+        st.caption("No resolved address beyond the hosting IPs has BGPDB routing yet"
+                   + (f" ({len(pending):,} to look up)" if pending else "") + ". Open DNS resolution and click "
+                   "*Resolve the DNS tree* (or *Look up the routing*).")
+        navigation.link("resolver", "Open DNS resolution", icon=":material/lan:")
+        return
+    cols = st.columns(5)
+    cols[0].metric("Addresses", len(rows))
+    cols[1].metric("Origin networks", rows["Origin"].nunique())
+    cols[2].metric("Unauthorized", int((rows["Status"] == bgp.UNAUTHORIZED).sum()))
+    cols[3].metric(f"Seen by < {res.LOW_VISIBILITY} collectors", int((rows["Collectors"] < res.LOW_VISIBILITY).sum()))
+    cols[4].metric("Not looked up yet", len(pending))
+    st.dataframe(rows, hide_index=True, width="stretch", column_config={
+        "Reached By": st.column_config.TextColumn(width="large"),
+        "Warnings": st.column_config.TextColumn(width="large")})
+    st.download_button("Download (CSV)", lambda: rows.to_csv(index=False).encode(), "bgp_resolved_addresses.csv",
+                       "text/csv", on_click="ignore", icon=":material/download:", key="bgp_resolved_csv")
 
 
 def brief(ds, found=None, limit=3):

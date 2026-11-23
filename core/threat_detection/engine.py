@@ -14,6 +14,7 @@ from core.correlation import Correlation, collect_artifacts, correlate, detect_d
 from core.helpers import is_ip_address
 from core.network_intel import build_ip_intel
 from core.pdns_features import add_event_gaps
+from core.resolver import build_index, build_tree
 from core.threat_detection.anonymizer_rules import ANONYMIZER_RULES, shared_exit_alerts
 from core.threat_detection.bgp_rules import BGP_RULES
 from core.threat_detection.cname_rules import CNAME_RULES, shared_cname_alerts
@@ -28,6 +29,7 @@ from core.threat_detection.dns_rules import DNS_RULES, rule_dga_entropy
 from core.threat_detection.enrichment_rules import ENRICHMENT_RULES, apply_popularity, build_tracker_occurrences
 from core.threat_detection.intel_rules import INTEL_RULES
 from core.threat_detection.lifecycle_rules import LIFECYCLE_RULES
+from core.threat_detection.resolver_rules import RESOLVER_RULES
 from core.threat_detection.ssl_rules import run_ssl_rules
 from integrations.enrichment import extract_iris_profile
 
@@ -38,6 +40,8 @@ GATE_EXEMPT_RULES = frozenset({
     "Homoglyph / IDN Brand Impersonation", "Typosquatting Lookalike", "Combosquatting (Brand + Keyword)",
     "Brand in Subdomain", "Brand Name on Alternate TLD",
     "Dangling CNAME (Subdomain Takeover Risk)", "Unverified CNAME to Takeover-Prone Service",
+    "Dangling NS Record (Zone Takeover Risk)", "Dangling MX Record (Mail Interception Risk)",
+    "Dangling SPF Include (Mail Spoofing Risk)", "CNAME to Lapsed Domain (Takeover Risk)",
     "Unauthorized CA Certificate Issuance (CAA Breach)", "Wildcard Issuance Forbidden by CAA Policy",
     "Known C2 Certificate Fingerprint (JA4X)", "Code-Generated Certificate Layout (JA4X)",
 })
@@ -136,7 +140,8 @@ def _hop_alerts(contexts, hops):
 def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrichment_data=None,
                         cert_events_df=None, ip_observations=None, brands=(), official_domains=(),
                         history_gaps=False, window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None,
-                        vpndb_context=None, verdicts=None, allowlist=None, bgp_frames=None):
+                        vpndb_context=None, verdicts=None, allowlist=None, bgp_frames=None, resolutions=None,
+                        pdns_coverage=None):
     """
     Evaluates DNS/pDNS/Domain History events, SSL/TLS certificates, Iris enrichment, and cross-domain
     correlations per domain on raw UTC timestamps. Returns a ThreatResult.
@@ -148,6 +153,8 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     `vpndb_context`: {"exit_weeks", "neighbour_ranges", "hosting_asns"} frames (collector.collect_anonymizer_context)
     and "tor_overview" (VPNDB /tor).
     `bgp_frames`: {"origins", "asns", "routes"} (BGPDB, core.bgp) for the BGP routing rules.
+    `resolutions`: DNSDB lookups of the DNS tree (core.resolver.LOOKUP_COLUMNS) and `pdns_coverage` (which domains'
+    passive DNS lookup was complete) for the dangling DNS rules.
     """
     thresholds = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     enrichment_data = enrichment_data or {}
@@ -181,6 +188,9 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     cname_map = build_cname_map(events, cname_chases)
     cname_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in cname_map.groupby("Domain")} if not cname_map.empty else {}
+    names = [d for d in candidates if not is_ip_address(d)]
+    tree, _ = build_tree(build_index(events, resolutions, pdns_coverage, names), names)
+    tree_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in tree.groupby("Domain")} if not tree.empty else {}
 
     contexts, gated_alerts = {}, []
     for domain in sorted(candidates):
@@ -212,6 +222,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
             ip_intel=ip_intel,
             cert_events=cert_events_by_domain.get(domain, pd.DataFrame()),
             cname_map=cname_by_domain.get(domain, cname_map.iloc[0:0]),
+            resolution=tree_by_domain.get(domain, tree.iloc[0:0]),
             anonymizers=anonymizer_ips,
             exit_weeks=exit_weeks,
             neighbours=neighbours,
@@ -227,7 +238,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         )
         rule_dga_entropy(ctx)
         if not dom_events.empty:
-            for rule in DNS_RULES + CNAME_RULES:
+            for rule in DNS_RULES + CNAME_RULES + RESOLVER_RULES:
                 rule(ctx)
         for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES + BGP_RULES:
             rule(ctx)

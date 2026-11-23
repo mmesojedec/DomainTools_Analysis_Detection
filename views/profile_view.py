@@ -334,7 +334,13 @@ def render_profile(ctx):
                 shown = shown.assign(JA4X=[f"{value} · {note}" if note else value for value, note in
                                            zip(shown["JA4X"].replace("nan", ""), shown["JA4X"].map(ja4x_note))])
             st.dataframe(shown, hide_index=True, width="stretch")
-            navigation.link("certs", label="Every certificate")
+            c_every, c_open = st.columns(2)
+            with c_every:
+                navigation.link("certs", label="Every certificate")
+            if "Hash" in newest:
+                from views.cert_profile_view import open_button
+                open_button(str(newest["Hash"].iloc[0]), label="Newest in Certificate profile",
+                            key="profile_cert_open", container=c_open)
         every = ds.ssl_all_utc[ds.ssl_all_utc["Domain"] == domain] if not ds.ssl_all_utc.empty else certs
         if not every.empty:
             from views.ssl_view import render_ja4x_notes  # the Certificates page imports this page's helpers

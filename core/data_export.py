@@ -38,6 +38,31 @@ def _frame(value):
     return value if isinstance(value, pd.DataFrame) else pd.DataFrame()
 
 
+def _cert_profiles(ds):
+    from core import cert_profile as cp
+    certs = cp.certificates(ds.ssl)
+    if certs.empty:
+        return certs
+    rows = []
+    for cert in certs.to_dict("records"):
+        found = cp.flags(cert, related=cp.related_certificates(cert, certs))
+        rows.append({"Domains": cp.text(cert.get("Domains")),
+                     **{f"{section}: {label}": cp.text(cert.get(column)) for section, label, column in cp.FIELDS},
+                     "Flags": " | ".join(f"{s}: {f}" for s, f in zip(found["Severity"], found["Finding"]))})
+    return pd.DataFrame(rows)
+
+
+def _resolution(ds):
+    from core import resolver
+    return resolver.display(resolver.dataset_tree(ds)[0])
+
+
+def _resolved_routing(ds):
+    from core import resolver
+    tree, _, routing = resolver.dataset_tree(ds)
+    return resolver.resolved_routing(tree, routing, getattr(ds, "bgp_origins", None))
+
+
 EXPORT_SETS = [
     ExportSet("iocs", "IOCs", "Indicators", "Domains, IPs, name servers and certificate hashes, with source and dates",
               lambda c: dataset_iocs(c.ds), default=True),
@@ -52,6 +77,15 @@ EXPORT_SETS = [
               "passive DNS dates, full history", lambda c: _frame(c.ds.hostname_inventory), default=True),
     ExportSet("cname_chains", "Tables", "CNAME chains", "Every CNAME in the analysis window with its target service, "
               "full chain and where it ends", lambda c: dataset_cname_map(c.ds)),
+    ExportSet("certificate_profiles", "Tables", "Certificate profiles", "Every certificate once, every X.509 field "
+              "(subject, issuer, validity, key, extensions, SANs, fingerprints) and what stands out (flags)",
+              lambda c: _cert_profiles(c.ds)),
+    ExportSet("dns_resolution", "Tables", "DNS resolution", "Every current record of the DNS tree resolved to IP "
+              "addresses, with its status, dangling targets and warnings (DNS resolution lens)",
+              lambda c: _resolution(c.ds)),
+    ExportSet("bgp_resolved", "Tables", "BGP routing of resolved addresses (BGPDB)", "Prefix, origin, RPKI / IRR and "
+              "route collectors of the addresses the DNS resolution reached beyond the hosting IPs, with the records "
+              "that reach them", lambda c: _resolved_routing(c.ds)),
     ExportSet("cname_reverse", "Tables", "Reverse CNAME", "Every name DNSDB saw pointing to a looked-up CNAME target "
               "(CNAME Chains lens)", lambda c: _frame(c.ds.cname_rdata)),
     ExportSet("vpndb_verdicts", "Tables", "VPN / proxy / Tor (VPNDB)", "VPNDB's verdict for every hosting IP it "

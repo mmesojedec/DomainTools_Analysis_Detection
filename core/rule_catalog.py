@@ -117,6 +117,36 @@ RULE_CATALOG = {
         "GitHub Pages, Shopify, ...).",
         "A dangling CNAME lets anyone who claims the target resource serve content, phishing pages or cookies-stealing "
         "scripts on the organization's own subdomain."),
+    # DNS resolution (dangling records)
+    "Dangling NS Record (Zone Takeover Risk)": (
+        "Critical (High when the name server's domain is still registered)",
+        "T1584.002 (Compromise Infrastructure: DNS Server)",
+        "A current NS record whose name server resolves nowhere in DNSDB (DNS resolution). Critical when the name "
+        "server's own domain has no current DNS record either (it may be unregistered).",
+        "Whoever claims a dangling name server answers for the whole zone: every name, mail and certificate of it."),
+    "Dangling MX Record (Mail Interception Risk)": (
+        "Critical (High when the mail server's domain is still registered)",
+        "T1584.001 (Compromise Infrastructure: Domains)",
+        "A current MX record whose mail server resolves nowhere in DNSDB (DNS resolution). Critical when the mail "
+        "server's own domain has no current DNS record either.",
+        "Whoever claims the mail server's name receives the domain's mail, password resets included."),
+    "Dangling SPF Include (Mail Spoofing Risk)": (
+        "High (Medium when the included domain is still registered)", "T1584.001 (Compromise Infrastructure: Domains)",
+        "A current SPF record includes a domain that has no SPF record in DNSDB (DNS resolution). High when the "
+        "included domain has no current DNS record at all.",
+        "Whoever registers the included domain can publish an SPF record that authorizes their servers to send mail "
+        "as this domain."),
+    "CNAME to Lapsed Domain (Takeover Risk)": (
+        "Critical", "T1584.001 (Compromise Infrastructure: Domains)",
+        "A current CNAME whose target resolves nowhere and whose target's domain has no current DNS record in DNSDB "
+        "(DNS resolution): it may be unregistered or lapsed.",
+        "Anyone who registers the lapsed domain serves the organization's subdomain: phishing, cookies, certificates."),
+    "Internal IP Address in Public DNS": (
+        "Low", "T1590.002 (Gather Victim Network Information: DNS)",
+        "A current A or AAAA record of a public name points to an internal address (RFC 1918, loopback, link-local, "
+        "ULA) or a bogon (reserved space not routable on the internet: 0.0.0.0/8, 100.64.0.0/10, documentation, "
+        "240.0.0.0/4, ...).",
+        "Context: it maps the internal network for anyone, and names on internal addresses can serve DNS rebinding."),
     "Unverified CNAME to Takeover-Prone Service": (
         "Medium", "T1584.001 (Compromise Infrastructure: Domains)",
         "A current CNAME to a takeover-prone service whose chain was not chased (chasing off, over the per-domain chase budget, or the "
