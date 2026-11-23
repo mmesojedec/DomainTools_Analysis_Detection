@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from core.bgp import BYOIP_NETWORKS, main_origins
+from core.anonymizers import ANONYMIZER_CATEGORIES
+from core.bgp import BYOIP_NETWORKS, main_origins, main_upstreams
 from core.cert_utils import issuer_family
 from core.helpers import extract_ip_addresses, is_ip_address
 from core.hostnames import apex_of
@@ -71,6 +72,7 @@ class DomainFeatures:
     grams: set = field(default_factory=set)
     dif: tuple = ()                                 # (flux, server, validation, issuer, key, apps) or ()
     vector: tuple = ()                              # risk vectors (NaN as 0), () without a profile
+    extra: set = field(default_factory=set)        # {(kind, value)}: shown as shared indicators, never scored
 
 
 # ---- features ---------------------------------------------------------------------------------------------------------
@@ -131,6 +133,12 @@ def domain_features(ds, profiles=None, domains=None):
         for host, count in (iris.get("name_server_counts") or {}).items():
             iris_counts[("ns", str(host).lower())] = count or 0
         f.tokens |= {("mx", h.lower()) for h in iris["mx_hosts"]}
+        f.extra |= {("registrar", iris["registrar"]), ("tld", f.tld), ("shape", f.shape),
+                    ("server", iris["server_type"]), ("redirect", iris["redirect_domain"])}
+        f.extra |= {("email", e) for e in iris["email_domains"]}
+        f.extra |= {("country", e["country"]) for e in iris["ips"]} | {("isp", e["isp"]) for e in iris["ips"]}
+        if pd.notna(f.created):
+            f.extra.add(("created", f.created.strftime("%Y-%m-%d")))
     pdns = getattr(ds, "pdns_utc", None)
     if pdns is not None and not pdns.empty:
         types = record_types(pdns)
@@ -154,12 +162,20 @@ def domain_features(ds, profiles=None, domains=None):
                 feats[domain].tokens.add(("txt", app.lower()))
     origins = getattr(ds, "bgp_origins", None)
     if origins is not None and not origins.empty:
+        upstreams = main_upstreams(getattr(ds, "bgp_routes", None))
         for _, row in main_origins(origins).iterrows():
-            for domain in str(row["Domains"]).split(","):
-                domain = domain.strip()
-                if domain in feats:
-                    feats[domain].tokens |= {("asn", str(row["Origin"]).upper()),
-                                             ("prefix", str(row["Prefix"]).rstrip("+"))}
+            for domain in _domains_of(row, feats):
+                feats[domain].tokens |= {("asn", str(row["Origin"]).upper()),
+                                         ("prefix", str(row["Prefix"]).rstrip("+"))}
+                feats[domain].extra |= {("upstream", str(upstreams.get(row["Prefix"], "")).upper()),
+                                        ("route", str(row.get("Status") or "")),
+                                        ("asname", str(row.get("AS Name") or ""))}
+    anonymizers = getattr(ds, "anonymizers", None)
+    if anonymizers is not None and not anonymizers.empty and "Category" in anonymizers.columns:
+        for _, row in anonymizers[anonymizers["Category"].isin(ANONYMIZER_CATEGORIES)].iterrows():
+            for domain in _domains_of(row, feats):
+                feats[domain].extra |= {("anon", str(row["Category"])),
+                                        ("provider", f"{row.get('Provider') or 'unnamed'} ({row['Category']})")}
     ssl = getattr(ds, "ssl_all_utc", None)
     if ssl is None or ssl.empty:
         ssl = getattr(ds, "ssl", None)
@@ -185,10 +201,16 @@ def domain_features(ds, profiles=None, domains=None):
         for _, row in profiles.iterrows():
             if row["Domain"] in feats:
                 feats[row["Domain"]].dif = dif_parts(row.get("DIF Fingerprint"))
+                feats[row["Domain"]].extra.add(("dif", str(row.get("DIF Fingerprint") or "")))
                 feats[row["Domain"]].vector = tuple(float(v) if pd.notna(v) else 0.0 for v in row[vectors])
     for f in feats.values():
         f.tokens = {(k, v) for k, v in f.tokens if v}
+        f.extra = {(k, v) for k, v in f.extra if v and str(v).lower() not in ("nan", "none")}
     return feats, iris_counts
+
+
+def _domains_of(row, feats):
+    return [d for d in (x.strip() for x in str(row.get("Domains") or "").split(",")) if d in feats]
 
 
 # ---- rarity -----------------------------------------------------------------------------------------------------------
@@ -382,6 +404,92 @@ def clusters(pairs, domains, threshold=DEFAULT_THRESHOLD, min_rare=0):
         active.remove(j)
     groups = [sorted(domains[m] for m in members[i]) for i in active if len(members[i]) > 1]
     return sorted(groups, key=lambda g: (-len(g), g))
+
+
+# ---- shared indicators of a cluster --------------------------------------------------------------------------------
+
+# kind: (type shown, category, source). Scored kinds first, then the indicators only shown (DomainFeatures.extra).
+INDICATORS = {
+    "ip": ("IP", "Hosting", "Iris / passive DNS"), "net24": ("/24 range", "Hosting", "Iris / passive DNS"),
+    "asn": ("Network (ASN)", "Hosting", "Iris / BGPDB"), "prefix": ("Announced prefix", "Routing", "BGPDB"),
+    "upstream": ("Upstream network", "Routing", "BGPDB"), "route": ("Route status", "Routing", "BGPDB"),
+    "asname": ("Origin AS name", "Routing", "BGPDB"), "country": ("IP country", "Hosting", "Iris"),
+    "isp": ("ISP", "Hosting", "Iris"), "server": ("Web server", "Hosting", "Iris"),
+    "anon": ("Anonymizer exit", "Anonymizers", "VPNDB"), "provider": ("Anonymizer provider", "Anonymizers", "VPNDB"),
+    "ns": ("Name server", "DNS", "Iris / passive DNS"), "nsdom": ("Name server domain", "DNS", "Iris / passive DNS"),
+    "mx": ("MX", "DNS", "Iris / passive DNS"), "txt": ("TXT app / tag", "DNS", "Passive DNS"),
+    "ca": ("CA", "Certificates", "Certificates"), "val": ("Validation level", "Certificates", "Certificates"),
+    "key": ("Key type", "Certificates", "Certificates"), "ja4x": ("JA4X", "Certificates", "Certificates"),
+    "pubkey": ("Public key SHA256", "Certificates", "Certificates"),
+    "cert": ("Certificate SHA256", "Certificates", "Certificates"),
+    "registrar": ("Registrar", "Registration", "Iris"), "created": ("Created on", "Registration", "Iris"),
+    "email": ("Registration email domain", "Registration", "Iris"), "tld": ("TLD", "Naming", "Domain"),
+    "shape": ("Name shape", "Naming", "Domain"), "redirect": ("Redirects to", "Hosting", "Iris"),
+    "dif": ("DIF fingerprint", "DIF", "Risk profile"),
+}
+CATEGORY_COLORS = {"Hosting": "#1e88e5", "Routing": "#8e24aa", "Anonymizers": "#e53935", "DNS": "#00897b",
+                   "Certificates": "#f9a825", "Registration": "#6d4c41", "Naming": "#546e7a", "DIF": "#3949ab"}
+INDICATOR_COLUMNS = ["Category", "Type", "Indicator", "Source", "Domains", "Share %", "Seen On", "Rarity",
+                     "Domain List"]
+CLUSTER_PAIR_COLUMNS = ["Domain A", "Domain B", "Similarity %", "Shared", "Shared %", "Shared Indicators"]
+
+
+def _all_indicators(f):
+    return f.tokens | f.extra
+
+
+def cluster_indicators(group, feats, counts=None):
+    """
+    INDICATOR_COLUMNS: every indicator at least two of the cluster's domains share (IPs, ranges, networks, prefixes,
+    upstreams and route status, VPNDB exits and providers, name servers, MX, TXT, certificates, registrar, dates,
+    naming, DIF), with the share of the cluster holding it and how many domains it is seen on overall. Most shared,
+    then rarest, first; `Domain List` names the cluster domains holding it.
+    """
+    counts = counts or {}
+    holders = {}
+    for domain in group:
+        for token in _all_indicators(feats[domain]):
+            holders.setdefault(token, []).append(domain)
+    rows = []
+    for (kind, value), domains in holders.items():
+        if len(domains) < 2:
+            continue
+        label, category, source = INDICATORS.get(kind, (kind, "Other", ""))
+        scored = (kind, value) in feats[domains[0]].tokens
+        rows.append({"Category": category, "Type": label, "Indicator": value, "Source": source,
+                     "Domains": len(domains), "Share %": round(100 * len(domains) / len(group)),
+                     "Seen On": counts.get((kind, value)) if scored else None,
+                     "Rarity": round(rarity((kind, value), counts), 2) if scored else None,
+                     "Domain List": sorted(domains)})
+    frame = pd.DataFrame(rows, columns=INDICATOR_COLUMNS)
+    if frame.empty:
+        return frame
+    frame["_r"] = frame["Rarity"].fillna(0)
+    return frame.sort_values(["Domains", "_r", "Category"], ascending=[False, False, True]) \
+        .drop(columns="_r").reset_index(drop=True)
+
+
+def cluster_pairs(group, feats, pairs):
+    """
+    CLUSTER_PAIR_COLUMNS: every pair of the cluster with all the indicators the two share (not only the scored ones)
+    and Shared % = shared over the indicators either of them has.
+    """
+    lookup = {}
+    for _, row in pairs.iterrows():
+        lookup[(row["Domain A"], row["Domain B"])] = lookup[(row["Domain B"], row["Domain A"])] = row["Similarity %"]
+    rows = []
+    names = sorted(group)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            mine, theirs = _all_indicators(feats[a]), _all_indicators(feats[b])
+            shared = sorted(mine & theirs, key=lambda t: (list(INDICATORS).index(t[0]) if t[0] in INDICATORS
+                                                          else len(INDICATORS), t[1]))
+            union = mine | theirs
+            rows.append({"Domain A": a, "Domain B": b, "Similarity %": lookup.get((a, b)), "Shared": len(shared),
+                         "Shared %": round(100 * len(shared) / len(union)) if union else 0,
+                         "Shared Indicators": "; ".join(f"{INDICATORS.get(k, (k,))[0]} {v}" for k, v in shared)})
+    frame = pd.DataFrame(rows, columns=CLUSTER_PAIR_COLUMNS)
+    return frame.sort_values(["Similarity %", "Shared"], ascending=False, na_position="last").reset_index(drop=True)
 
 
 def closest_dif(profiles):

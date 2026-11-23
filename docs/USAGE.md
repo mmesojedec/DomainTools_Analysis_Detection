@@ -43,7 +43,7 @@ types, alert severities and detection thresholds, applied at once to the loaded 
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *Certificates* |
 | **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* · *Domain similarity* |
 | **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
-| **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: case report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
+| **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: analysis report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
 | **Settings** | *Settings*: tabs *Collection options*, *Detection thresholds*, *Brands & allowlist*, *Storage & cache*, *API credentials* · *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) · *Documentation*: these guides |
 
 Start, IrisQL, CertsQL and Runs are plain links in the menu; the others open a dropdown (*Evidence*, right after *Hunt*, has one page).
@@ -381,8 +381,12 @@ score works is in the [User Guide](USER_GUIDE.md#domain-similarity).
 2. **Pairs**: the pairs that pass, with *Similarity*, *Rare shared*, the groups that *Matched* (60 %+) and *Differs*
    (below 30 %), the *Shared values* (rarest first) and each group's %.
 3. **Matrix**: a domain × domain heatmap, clusters first (60 domains at most).
-4. **Clusters**: groups that are alike on average above the threshold, with their most shared values and a graph whose
-   edges carry the pair %.
+4. **Clusters**: groups that are alike on average above the threshold. Each shows a graph of its domains and the
+   indicators they share (IPs, ranges, prefixes, upstreams and route status from BGPDB, VPNDB exits and providers, name
+   servers, MX, certificates, registrar, dates, naming, DIF), each with the % of the cluster holding it; *Pair
+   similarity* switches to the domain-to-domain graph with the pair %. *Shared indicators* lists every shared value with
+   its source, share, rarity and a tick per domain (filter by category); *Shared between each pair* lists all the values
+   each pair shares.
 5. **Earlier runs**: pick a domain for the domains of your saved runs that look like it (40 % by default), with the run.
 6. **Learn weights**: with 10+ pairs of two Malicious domains and 10+ pairs of a Malicious and a Benign domain (your
    verdicts), learned weights next to the current ones; **Use the learned weights** applies them for the session.
@@ -604,27 +608,67 @@ by search type). **Download all lookups (CSV)** saves every tool's lookups with 
 left out of the commands. Gap-fill and certificate-input searches are included; lookups run once per certificate
 (SHA-256 events, CT logs) get one row each.
 
-#### Case report
+#### Analysis report
 
-The **Export & report** page (*Data* menu) starts with **Case report**: the run as one HTML page to hand to a manager, attach to a
-ticket or send with a takedown request. Give it a title, your name and a summary (what was investigated, what you
-concluded, what you recommend), choose how many of the most severe alerts to list, and click **Download case report
-(HTML)**. For a PDF, open the file in a browser and print it (*Save as PDF*).
+The **Export & report** page (*Data* menu) starts with the **Analysis report**: the whole run as one HTML page to hand
+to a manager or a customer, attach to a ticket or send with a takedown request. For a PDF, open the file in a browser
+and print it (*Save as PDF*).
 
-The report has the run at a glance (domains, alerts per severity, the highest unified risk, alerts marked malicious,
-the share of lookups answered), the top alerts with their evidence, risk by domain, an infrastructure snapshot per
-domain (registrar, created and expiry dates, IPs with ASN and country, name servers, MX) and the indicators (the first
-500). Like the rest of the page it follows the analysis window and the toolbar filters and leaves out suppressed alerts.
-The file has no scripts and loads nothing from the internet.
+**Report type.** Pick it first. Every type offers every section; the type sets how much each one writes:
+
+| Type | For | What it writes |
+| --- | --- | --- |
+| High level overview | Managers and customers | The critical and high findings and what needs attention, the key charts (secondary ones left out), 10 domain cards, tables cut at 15 rows, the critical and high alerts with their evidence, and only the IOCs behind critical and high alerts (50 by default) |
+| Detailed report | Analysts | Every severity and every chart, 60 domain cards, tables up to 300 rows, every detection with up to 2,000 evidence records, and as many IOCs as you choose (500 by default), most severe first |
+| Complete report | The full record | Every row of every table, every domain card, every alert with all its evidence, every IOC; choosing it ticks every section |
+
+*Alerts listed* sets how many alerts the Alerts section lists (in the High level overview also the detections under
+Supporting evidence) and *IOCs listed* how many IOCs the IOCs appendix lists.
+
+**IOC severity.** Each IOC takes the most severe alert behind it: an alert that cites the value in its evidence or
+triggering IOCs (*Alert evidence*), or else an alert on one of its domains (*Domain alert*). IOCs are listed most
+severe first, cited ones before inherited ones, with the number of alerts behind them; IOCs with no alert come last.
+
+**Header.** Give it a title, the analyst, the organisation or case and a **description / summary** (what was
+investigated, what you concluded, what you recommend). The report adds the run time, the analysis window and the time
+span of the records, the targets, the data sources (lookups per source, how many came from the cache and how many
+failed) and when it was generated.
+
+**Sections.** Tick the sections to include; **Select all** and **Select none** tick or clear them all. They follow the
+app's menu:
+
+| Part | Sections |
+| --- | --- |
+| High level | At a glance: key numbers (alerts per severity, highest risk, high-risk domains, distinct DIFs, primary threat driver, verdicts), the most severe findings, VPNDB and BGP highlights, linked domains · Needs attention: the critical and high alerts per domain, then everything else to act on, most severe first (domains marked Malicious or Suspicious, high-risk domains, new alerts, BGP findings, VPN / proxy / Tor exits, takeover-prone and dead-end CNAMEs, self-signed certificates, new or expiring domains and certificates, suspicious subdomains, strongly linked domains, failed lookups), each linking to its section |
+| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
+| Infrastructure | DNS & hosting (hosting map and Domain → ASN → IP flow, change events, IP map, query volume, infrastructure graph and clusters, domain hopping, TXT apps) · VPNDB · Tor network · BGP (findings, hosting IPs, routing map, origin timeline, AS paths, networks, VPNDB match, neighbours) · CNAME chains · Certificates |
+| Hunt | Hunt map (when the run belongs to a saved hunt) · Hostname inventory · Subdomain triage · Domain similarity (pairs, matrix, clusters with their shared indicators) |
+| Supporting evidence | Every active detection with its threat logic, triggering IOCs and evidence records · Data sources |
+| Appendices | IOCs ranked by severity, as many as the type and *IOCs listed* allow · All lookups (as queries, CLI and curl commands; off by default) |
+
+Raw data is limited to the facts behind the detections; other raw records are in the data export below, to share as
+needed. A table that is cut says how many rows it left out.
+
+**The page.** A sidebar lists every part and section: click one to jump there, or type in *Find a section* to narrow
+the list; the section you are reading is highlighted. Each section is a card that folds on a click on its title;
+*Expand* and *Collapse* fold or open them all and *Print* opens them all and prints. Click a column header to sort a
+table; tables over 12 rows have a filter box. On a phone the sidebar opens from *Contents*. Printing hides the sidebar
+and starts each part on a new page.
+
+**Charts** are the app's own, interactive: *embedded* (works offline, about 5 MB), *loaded from the internet* (small
+file) or *no charts* (tables only). Graphs (AS paths, CNAME chains, similarity clusters) are drawn by viz.js from the
+internet; offline their tables are still there. A section without data says so in one line, and a section that fails
+to build says so without losing the rest of the report.
 
 #### Export & report
 
 The **Export & report** page (*Data* menu) holds every export of the run. The Alerts page links to it with
-**Export detections, IOCs and reports**. Besides the case report and the *Confirmed indicators*, it has the
+**Export detections, IOCs and reports**. Besides the analysis report and the *Confirmed indicators*, it has the
 detections (CSV), IOCs (CSV / JSON), a STIX 2.1 bundle and the evidence report (HTML / Markdown); see [Suppressions
 and exports](USER_GUIDE.md#suppressions-and-exports).
 
-It also downloads the run's data for sharing with other teams, without charts. Tick what to export:
+It also downloads the run's data for sharing with other teams, without charts. Tick what to export (**Select all** /
+**Select none** tick or clear every item):
 
 | Group | Items |
 | --- | --- |

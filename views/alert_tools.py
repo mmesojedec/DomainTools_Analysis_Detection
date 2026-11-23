@@ -51,7 +51,8 @@ HEATMAP_ROW_PX = 34      # fixed height per domain row so cells never overlap
 HEATMAP_CELL_PX = 24     # square size; fits inside a row with a visible gap
 
 
-def _render_heatmap(alerts):
+def heatmap_figure(alerts):
+    """Domain × category alert heatmap (number: alerts, colour: worst severity); also used by the report."""
     weights = alerts["Severity"].map(SEVERITY_WEIGHTS).fillna(0)
     cells = alerts.assign(Weight=weights).groupby(["Domain", "Category"]).agg(
         Alerts=("Threat Type", "size"), Max_Weight=("Weight", "max"),
@@ -88,6 +89,11 @@ def _render_heatmap(alerts):
                      showgrid=True, gridcolor="rgba(255,255,255,0.06)")
     fig.update_yaxes(title="", automargin=True, showgrid=True, gridcolor="rgba(255,255,255,0.06)",
                      range=[-0.6, n_domains - 0.4])
+    return fig, n_domains
+
+
+def _render_heatmap(alerts):
+    fig, n_domains = heatmap_figure(alerts)
     points = chart(fig, key="alert_heatmap", height=max(300, n_domains * HEATMAP_ROW_PX + 220), selectable=True)
     selected = set()
     for point in points:
@@ -112,6 +118,28 @@ def _tactic_rows(alerts):
     return pd.DataFrame(rows)
 
 
+def mitre_figure(rows):
+    """Treemap ATT&CK → tactic → technique → rule from _tactic_rows (also used by the report)."""
+    fig = px.treemap(rows.assign(Count=1), path=[px.Constant("ATT&CK"), "Tactic", "Technique", "Threat Type"],
+                     values="Count", color="Tactic", title="Detections by Tactic ➔ Technique ➔ Rule")
+    fig.update_layout(margin=dict(t=40, l=5, r=5, b=5))
+    return fig
+
+
+def mitre_matrix(rows):
+    """One row per (tactic, technique): its name, alerts, domains and the rule categories it was detected from."""
+    matrix = rows.groupby(["Tactic", "Technique"]).agg(
+        Name=("Name", lambda v: next((n for n in v if n), "")), Alerts=("Threat Type", "size"),
+        Domains=("Domain", "nunique"),
+        **{"Detected From": ("Detected From", lambda v: ", ".join(sorted(set(v))))}).reset_index()
+    matrix["Tactic"] = pd.Categorical(matrix["Tactic"], categories=TACTIC_ORDER, ordered=True)
+    return matrix.sort_values(["Tactic", "Alerts"], ascending=[True, False])
+
+
+def tactic_rows(alerts):
+    return _tactic_rows(alerts)
+
+
 def render_mitre_view(alerts):
     rows = _tactic_rows(alerts)
     if rows.empty:
@@ -119,17 +147,9 @@ def render_mitre_view(alerts):
         return
     col1, col2 = st.columns([1.6, 1])
     with col1:
-        fig = px.treemap(rows.assign(Count=1), path=[px.Constant("ATT&CK"), "Tactic", "Technique", "Threat Type"], values="Count",
-                         color="Tactic", title="Detections by Tactic ➔ Technique ➔ Rule")
-        fig.update_layout(margin=dict(t=40, l=5, r=5, b=5))
-        chart(fig, key="mitre_treemap", height=460)
+        chart(mitre_figure(rows), key="mitre_treemap", height=460)
     with col2:
-        matrix = rows.groupby(["Tactic", "Technique"]).agg(
-            Name=("Name", lambda v: next((n for n in v if n), "")), Alerts=("Threat Type", "size"),
-            Domains=("Domain", "nunique"),
-            **{"Detected From": ("Detected From", lambda v: ", ".join(sorted(set(v))))}).reset_index()
-        matrix["Tactic"] = pd.Categorical(matrix["Tactic"], categories=TACTIC_ORDER, ordered=True)
-        table(matrix.sort_values(["Tactic", "Alerts"], ascending=[True, False]), column_config={
+        table(mitre_matrix(rows), column_config={
             "Detected From": st.column_config.Column(
                 "Detected from", help="The rule categories behind the technique's alerts: e.g. BGP Routing (BGPDB), Hosting & "
                                       "DNS Providers (Iris, VPNDB), Certificates")})

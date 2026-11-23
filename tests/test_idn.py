@@ -57,6 +57,7 @@ def test_drawing_functions_decode_only_while_the_switch_is_on(monkeypatch):
     wrapped = idn_display._wrap(lambda body, help=None: drawn.append((body, help)))
     state = {}
     monkeypatch.setattr(st, "session_state", state)
+    monkeypatch.setattr(idn_display, "get_script_run_ctx", lambda suppress_warning=False: object())   # in a run
     wrapped("on xn--bcher-kva.de", help="xn--bcher-kva.de")
     state[idn_display.UNICODE_KEY] = True
     wrapped("on xn--bcher-kva.de", help="xn--bcher-kva.de")

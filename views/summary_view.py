@@ -298,6 +298,24 @@ def _render_top_alerts(alerts):
     navigation.link("alerts", label=f"All {len(alerts):,} alert(s) with their evidence")
 
 
+def category_figure(counts):
+    """Alerts by category, stacked by severity (alerts_by_category); also used by the report."""
+    fig = px.bar(counts, x="Alerts", y="Category", color="Severity", orientation="h",
+                 color_discrete_map=HEATMAP_SEVERITY_COLORS,
+                 category_orders={"Severity": SEVERITY_ORDER, "Category": list(counts["Category"].cat.categories)})
+    fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), legend_title_text="", yaxis_title="",
+                      xaxis_title="", legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0))
+    return fig
+
+
+def activity_figure(activity):
+    """Events per week by activity (weekly_activity); also used by the report."""
+    fig = px.line(activity, x="Week", y="Events", color="Activity", markers=False)
+    fig.update_layout(margin=dict(t=10, l=10, r=10, b=10), legend_title_text="", xaxis_title="",
+                      legend=dict(orientation="h", y=-0.25))
+    return fig
+
+
 def _render_statistics(ds, alerts):
     st.subheader("Run statistics")
     c_category, c_shared = st.columns(2)
@@ -307,13 +325,8 @@ def _render_statistics(ds, alerts):
         if counts.empty:
             st.caption("No alerts.")
         else:
-            fig = px.bar(counts, x="Alerts", y="Category", color="Severity", orientation="h",
-                         color_discrete_map=HEATMAP_SEVERITY_COLORS,
-                         category_orders={"Severity": SEVERITY_ORDER,
-                                          "Category": list(counts["Category"].cat.categories)})
-            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), legend_title_text="", yaxis_title="",
-                              xaxis_title="", legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0))
-            chart(fig, key="summary_categories", height=max(220, 40 * counts["Category"].nunique() + 120))
+            chart(category_figure(counts), key="summary_categories",
+                  height=max(220, 40 * counts["Category"].nunique() + 120))
     with c_shared:
         st.markdown("**Top shared infrastructure**", help="The most used hosting networks, registrars, name servers "
                                                           "and certificate issuers. Shared: two or more of your "
@@ -334,10 +347,7 @@ def _render_statistics(ds, alerts):
     if activity.empty:
         st.caption("No dated activity in the analysis window.")
     else:
-        fig = px.line(activity, x="Week", y="Events", color="Activity", markers=False)
-        fig.update_layout(margin=dict(t=10, l=10, r=10, b=10), legend_title_text="", xaxis_title="",
-                          legend=dict(orientation="h", y=-0.25))
-        chart(fig, key="summary_activity", height=260)
+        chart(activity_figure(activity), key="summary_activity", height=260)
     _render_lifecycle_and_health(ds)
 
 

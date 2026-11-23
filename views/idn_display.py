@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 from core.idn import has_ace, to_unicode
 
@@ -25,6 +26,9 @@ _paused = threading.local()   # each session's script runs in its own thread
 
 
 def enabled():
+    """The switch is on (False outside a script run, e.g. a report built on a download click: exports stay ASCII)."""
+    if get_script_run_ctx(suppress_warning=True) is None:
+        return False
     return bool(st.session_state.get(UNICODE_KEY)) and not getattr(_paused, "on", False)
 
 

@@ -183,6 +183,16 @@ names or a TXT record. **Hunt → Domain similarity** compares domains far more 
   second keeps popular providers from making a match on their own.
 - **Clusters** use average linkage: the two groups whose pairs are most alike on average merge while that average is at
   or above the threshold.
+- Each cluster lists its **shared indicators**: every value two or more of its domains have, from all the run's sources:
+  IPs, /24 ranges, networks, ISP and country (Iris / passive DNS); announced prefix, upstream network, origin AS name
+  and route status (BGPDB); anonymizer exit type and provider (VPNDB); name servers, MX and TXT apps; CA, validation,
+  key, JA4X, public key and certificate hashes; registrar, creation date and registration email domain; TLD and name
+  shape; DIF fingerprint. *Share of cluster* is the % of the cluster's domains holding the value; *Seen on* and
+  *Rarity* come from the scoring (blank for the values that are shown but not scored: ISP, country, upstream, route
+  status, VPNDB, registrar, dates, naming, DIF). The graph links each domain to the 20 most shared values, coloured by
+  category, and gives each domain the % of the cluster's shared values it holds; *Pair similarity* switches to the
+  domain-to-domain graph. *Shared between each pair* lists, for every pair, all the values the two share and
+  *Shared %* (shared over the values either has).
 - **Earlier runs**: every saved run's domains are indexed by MinHash (64 hashes, 16 bands) over the artifacts runs keep
   (IPs and their /24, name servers, MX, prefixes, networks, JA4X, certificates) and the name shape; candidates are
   rescored with the same rarity-weighted overlap (default threshold 40 %).
@@ -918,10 +928,15 @@ own; other certificates built with the same fields match too, so confirm with th
   in MISP `AS` / `ip-dst` attributes with `to_ids: false`, in STIX only when a routing finding names them, and then
   never `malicious-activity`.
 
-  For a manager or a takedown request, the **Case report** at the top of *Export & report* is the short version: one
-  printable HTML page (print it to PDF) with your summary, the run at a glance, the most severe alerts with their
-  evidence, risk by domain, an infrastructure snapshot (registrar, dates, IPs with ASN and country, name servers,
-  MX) and the indicators. It contains no scripts and loads nothing from the internet.
+  For a manager, a customer or a takedown request, the **Analysis report** at the top of *Export & report* is the whole
+  run as one printable HTML page (print it to PDF). Pick the **report type** first: the *High level overview* (the
+  critical and high findings, a *Needs attention* list and the key charts, short tables, only the IOCs behind critical
+  and high alerts), the *Detailed report* (every severity and chart, longer tables, as many IOCs as you choose, most
+  severe first) or the *Complete report* (every row and every IOC). Then a header (analyst, case, run, analysis window,
+  data sources, your description) and the sections you tick, structured like the app (high level; overview: summary,
+  domain profiles, alerts; infrastructure; hunt; supporting evidence; IOCs and lookups as appendices), with the app's
+  charts. **Select all** / **Select none** tick or clear every section (and every item of the data export). The page
+  has a sidebar to jump to any section, sections that fold, and tables that sort and filter.
 
 ## Hunting: triage status, leads and the hunt map
 
@@ -1103,7 +1118,7 @@ with what links it), the **core indicators** (values two or more cluster domains
   - **alerts by type** (with the domains and ATT&CK technique) and **alert details**: every alert with its
     confidence, category and evidence;
   - the **open next steps** of the newest run.
-- **Use in the case report**: opens Export & report with the result as the case report's summary.
+- **Use in the case report**: opens Export & report with the result as the analysis report's description.
 - **Watch these domains**: adds the cluster as a watched target list (Runs → Compare & trends → Watched Lists).
 
 Each run keeps its suggested steps when you analyze it or load it, so the map still shows a run's open steps after
@@ -1178,10 +1193,10 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 | Hunt map | *This hunt*: the hunt's status (growing, converging, done, closed) and map (runs with what they added, their alerts, their BGP routing (prefixes, origin networks, routing alerts) and link to the start; open steps with their facts; done steps), an alert highlight, the hunt result (cluster, core indicators, alerts by type; close, report, watch), *Join to another hunt* / *Detach* and the loaded run's next steps; *Combined hunts*: several hunts on one map with the links between them, a combined result and *Join them into one hunt*; *All investigations*: every saved run over time, linked by leads and shared infrastructure; *All pivots*: every shared value in Iris Investigate (IPs, name servers, emails, registrant, certificates, trackers) ranked by how many domains share it, with *Analyze now* and *Find in Iris* |
 | Hostname Inventory | Every hostname from certificates, passive DNS and certificate events, with lifecycle and flags (never resolved, no certificate, new, sensitive name), and each hostname's certificates with their hashes |
 | Subdomain Triage | Subdomains ranked by phishing words, brands, embedded domains, punycode, random names and new / burst / never-resolved lifecycle, with shared platforms (pages.dev, workers.dev, ...) called out; focus the views on the picks |
-| Domain similarity | Infrastructure similarity of the run's domains as a % per pair with the reasons: threshold and minimum rare shared values, group weights, *Pairs*, *Matrix* (heatmap), *Clusters* (average linkage, with a graph), *Earlier runs* (look-alikes in saved runs) and *Learn weights* (from your verdicts); see [Domain similarity](#domain-similarity) |
+| Domain similarity | Infrastructure similarity of the run's domains as a % per pair with the reasons: threshold and minimum rare shared values, group weights, *Pairs*, *Matrix* (heatmap), *Clusters* (average linkage, with a graph of the shared indicators and tables of every shared IOC, per cluster and per pair), *Earlier runs* (look-alikes in saved runs) and *Learn weights* (from your verdicts); see [Domain similarity](#domain-similarity) |
 | Evidence | *Records*: raw TXT, certificate, co-occurrence, Domain History and passive DNS records, and every VPNDB and BGPDB answer as received (select one to see it as tables; a BGPDB answer as one row per record, downloadable as NDJSON). *Lookup queries*: every lookup the run made as a reusable query (the IrisQL search the targets came from, CertsQL, DNSDB names and record types, including record-type lookups and CNAME chase steps, Iris domain lists, VPNDB endpoints and the IPs of each bulk request, BGPDB lookups as `bgpdbq` commands) and `domaintools` CLI / `bgpdbq` / curl command, in one table per tool, with the selected rows' queries and commands ready to copy |
 | Saved datasets | Saved offline datasets: what each holds, *Load offline dataset* (re-analyze with no API calls), *Download hunt report (HTML)* of the hunt its run belongs to (no loading, no API query), rename and delete |
-| Export & report | Case report (the run as one printable HTML page: summary, top alerts with evidence, risk, infrastructure, IOCs); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
+| Export & report | Analysis report (the run as one printable HTML page structured like the app, with its charts: high level overview, detailed or complete; pick the sections; IOCs ranked by severity, lookups optional; sidebar navigation); confirmed indicators (CSV, MISP, STIX); detections, IOCs, STIX bundle and evidence report; IOCs, tables (detections, risk profiles, hostname inventory, CNAME chains, lookups) and raw records as CSV or NDJSON files (zipped with a manifest) for sharing; no charts |
 | Data sources | The run in numbers and every lookup by source, target and status (including the IrisQL or CertsQL search a run's targets came from), Cached details (cache age, expiry, re-run with fresh lookups or the cache), certificate-input provenance |
 | Settings | Tabs: *Collection options* (the next Analyze, or any use case or profile; create a custom profile), *Detection thresholds*, *Brands & allowlist* (brand watchlist, *Hunt lookalikes in IrisQL*, infrastructure allowlist), *Storage & cache* (cache lifetime, clear cache, retention of runs and offline datasets), *API credentials* (which source each key comes from, *Enter API keys*, *Show the welcome screen and disclaimer again*) |
 | Account | Your DomainTools products with their quota, usage and expiry, and the API queries this app made |
@@ -1200,7 +1215,7 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
    In **CNAME Chains**, filter on *Dead end* and the takeover-prone, dynamic DNS and free hosting service types,
    and chase the chains that are still *Not chased*.
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
-   suggested hunt's steps and leads on the **Hunt map** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or a case report.
+   suggested hunt's steps and leads on the **Hunt map** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or an analysis report.
    Check a new indicator against earlier investigations on **Runs → Indicator Sightings**.
 8. Re-run later and use **Only first detected in this run** and **Changes Since Last Run** to focus on what changed.
 

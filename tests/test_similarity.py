@@ -99,3 +99,33 @@ def test_weights_are_learned_only_with_enough_verdicts():
     assert report["positives"] == 12 and report["negatives"] == 12 and report["accuracy"] == 100
     assert weights["Hosting"] + weights["DNS"] > 80 and sum(weights.values()) in (99, 100, 101)
     assert sim.learn_weights(pairs.head(4), verdicts)[0] is None
+
+
+def test_cluster_indicators_cover_every_source_and_the_share():
+    ds, _ = dataset(CAMPAIGN)
+    ds.anonymizers = pd.DataFrame({"IP": ["45.1.2.3"], "Domains": ["xwfa3ak.cc, sqv5zzx.cc"], "Category": ["VPN"],
+                                   "Provider": ["ExampleVPN"]})
+    ds.bgp_origins = pd.DataFrame({"IP": ["45.1.2.3", "45.1.2.9"], "Domains": ["xwfa3ak.cc, sqv5zzx.cc", "spr7tsc.cc"],
+                                   "Prefix": ["45.1.2.0/24"] * 2, "Origin": ["AS64999"] * 2,
+                                   "AS Name": ["BAD-HOST"] * 2, "Status": ["Unauthorized"] * 2,
+                                   "Collectors": [40, 40], "Updates": [3, 3]})
+    ds.bgp_routes = pd.DataFrame({"Prefix": ["45.1.2.0/24"], "Upstream": ["AS1234"], "Collectors": [40],
+                                  "Updates": [3]})
+    feats, iris_counts = sim.domain_features(ds)
+    counts = sim.value_counts(feats, iris_counts)
+    group = ["spr7tsc.cc", "sqv5zzx.cc", "xwfa3ak.cc"]
+    found = sim.cluster_indicators(group, feats, counts)
+    by_type = {(r["Type"], r["Indicator"]): r for _, r in found.iterrows()}
+    assert by_type[("Name server", "ns1.rare-dns.net")]["Share %"] == 100
+    assert by_type[("IP", "45.1.2.3")]["Domains"] == 2 and by_type[("IP", "45.1.2.3")]["Share %"] == 67
+    assert by_type[("Anonymizer provider", "ExampleVPN (VPN)")]["Source"] == "VPNDB"
+    assert {("Upstream network", "AS1234"), ("Route status", "Unauthorized"), ("Announced prefix", "45.1.2.0/24"),
+            ("Registrar", "NameCheap")} <= set(by_type)
+    assert by_type[("Registrar", "NameCheap")]["Rarity"] is None or pd.isna(by_type[("Registrar", "NameCheap")]["Rarity"])
+    assert found.iloc[0]["Domains"] == 3
+    _, _, pairs = scored()
+    rows = sim.cluster_pairs(group, feats, pairs)
+    assert len(rows) == 3
+    top = rows[(rows["Domain A"] == "sqv5zzx.cc") & (rows["Domain B"] == "xwfa3ak.cc")].iloc[0]
+    assert "Anonymizer exit VPN" in top["Shared Indicators"] and "IP 45.1.2.3" in top["Shared Indicators"]
+    assert 0 < top["Shared %"] <= 100

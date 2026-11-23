@@ -89,7 +89,7 @@ def render_similarity_page(ctx):
     cols[2].metric("Similar pairs", f"{len(shown):,}")
     cols[3].metric("Clusters", f"{len(groups):,}", help="Groups of 2+ domains")
     tabs = st.tabs(TABS, key="similarity_tab", on_change="rerun")
-    renders = (lambda: _pairs(shown, pairs), lambda: _matrix(pairs, feats, groups), lambda: _clusters(groups, pairs),
+    renders = (lambda: _pairs(shown, pairs), lambda: _matrix(pairs, feats, groups), lambda: _clusters(groups, pairs, feats, counts),
                lambda: _earlier(ctx, feats, counts), lambda: _learn(pairs))
     for tab, render in zip(tabs, renders):
         if tab.open is not False:
@@ -153,37 +153,120 @@ def _matrix(pairs, feats, groups):
                + " Blank: not enough data in common to compare.")
 
 
-def _clusters(groups, pairs):
+GRAPH_INDICATORS = 20      # shared indicators drawn on a cluster's graph (most shared, rarest first)
+PRESENCE_COLUMNS = 15      # up to this many domains, the shared-indicator table gets one tick column per domain
+CLUSTER_VIEWS = ["Shared indicators", "Pair similarity"]
+
+
+def _dot(text):
+    return str(text).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def indicator_graph(group, indicators, limit=GRAPH_INDICATORS):
+    """Graphviz source: the cluster's domains (with the % of the shared indicators each holds) linked to the shared
+    indicators (coloured by category, with the % of the cluster holding them)."""
+    top = indicators.head(limit)
+    held = {d: 0 for d in group}
+    for domains in indicators["Domain List"]:
+        for d in domains:
+            held[d] += 1
+    total = max(len(indicators), 1)
+    lines = ['graph { graph [bgcolor="transparent", rankdir=LR, overlap=false, nodesep=0.15, ranksep=1.2]; '
+             'node [fontname="Helvetica", fontsize=10, style="rounded,filled", shape=box]; '
+             'edge [color="#9e9e9e80"];']
+    for d in group:
+        lines.append(f'"d:{_dot(d)}" [label="{_dot(display_name(d))}\\n{100 * held[d] / total:.0f} % of shared", '
+                     'fillcolor="#1f4e79", fontcolor="white"];')
+    for i, row in top.iterrows():
+        value = row["Indicator"] if len(str(row["Indicator"])) <= 30 else str(row["Indicator"])[:28] + "…"
+        color = sim.CATEGORY_COLORS.get(row["Category"], "#757575")
+        lines.append(f'"i:{i}" [label="{_dot(row["Type"])}\\n{_dot(value)}\\n{row["Share %"]} % of cluster", '
+                     f'fillcolor="{color}33", color="{color}", fontcolor="{color}", style="rounded,filled"];')
+        for d in row["Domain List"]:
+            lines.append(f'"d:{_dot(d)}" -- "i:{i}" [color="{color}99"];')
+    return "\n".join(lines) + "}"
+
+
+def pair_graph(rows):
+    lines = ['graph { graph [bgcolor="transparent"]; node [shape=box, style="rounded,filled", '
+             'fillcolor="#1f4e79", fontcolor="white", fontname="Helvetica", fontsize=10]; '
+             'edge [color="#9e9e9e", fontsize=9, fontcolor="#9e9e9e"];']
+    for _, r in rows.iterrows():
+        if pd.notna(r["Similarity %"]):
+            lines.append(f'"{_dot(display_name(r["Domain A"]))}" -- "{_dot(display_name(r["Domain B"]))}" '
+                         f'[label="{r["Similarity %"]:.0f}%", penwidth={0.5 + 3 * r["Similarity %"] / 100:.1f}];')
+    return "\n".join(lines) + "}"
+
+
+def _clusters(groups, pairs, feats, counts):
     if not groups:
         st.caption("No cluster at this threshold.")
         return
-    lookup = {(r["Domain A"], r["Domain B"]): r for _, r in pairs.iterrows()}
-
-    def pair(a, b):
-        return lookup.get((a, b)) if (a, b) in lookup else lookup.get((b, a))
-
+    st.caption("Each cluster shows the indicators its domains share, from every source of the run: Iris, passive "
+               "DNS, certificates, VPNDB and BGPDB. *% of cluster*: the cluster's domains holding the indicator; "
+               "*% of shared* on a domain: the cluster's shared indicators it holds.")
     for number, group in enumerate(groups, 1):
-        rows = [pair(a, b) for i, a in enumerate(group) for b in group[i + 1:]]
-        rows = [r for r in rows if r is not None]
-        mean = sum(r["Similarity %"] for r in rows) / len(rows) if rows else 0
-        values = {}
-        for r in rows:
-            for value in str(r["Shared Values"]).split(", "):
-                if value:
-                    values[value] = values.get(value, 0) + 1
+        indicators = sim.cluster_indicators(group, feats, counts)
+        rows = sim.cluster_pairs(group, feats, pairs)
+        scores = rows["Similarity %"].dropna()
+        everywhere = int((indicators["Domains"] == len(group)).sum()) if not indicators.empty else 0
         with st.container(border=True):
-            st.markdown(f"**Cluster {number}** · {len(group)} domains · average {mean:.0f} %  \n"
+            st.markdown(f"**Cluster {number}** · {len(group)} domains · average {scores.mean() if len(scores) else 0:.0f} %"
+                        f" · {len(indicators)} shared indicators, {everywhere} on every domain  \n"
                         + ", ".join(f"`{display_name(d)}`" for d in group))
-            if values:
-                st.caption("Most shared: " + ", ".join(v for v, _ in sorted(values.items(), key=lambda kv: -kv[1])[:6]))
-            if len(group) <= 25:
-                lines = ['graph { graph [bgcolor="transparent"]; node [shape=box, style="rounded,filled", '
-                         'fillcolor="#1f4e79", fontcolor="white", fontname="Helvetica", fontsize=10]; '
-                         'edge [color="#9e9e9e", fontsize=9, fontcolor="#9e9e9e"];']
-                for r in rows:
-                    lines.append(f'"{display_name(r["Domain A"])}" -- "{display_name(r["Domain B"])}" '
-                                 f'[label="{r["Similarity %"]:.0f}%", penwidth={0.5 + 3 * r["Similarity %"] / 100:.1f}];')
-                st.graphviz_chart("\n".join(lines) + "}", width="content")
+            view = st.segmented_control("View", CLUSTER_VIEWS, default=CLUSTER_VIEWS[0], key=f"sim_cluster_view::{number}",
+                                        label_visibility="collapsed")
+            if len(group) > 25:
+                st.caption("Graph left out: more than 25 domains. The tables below list everything.")
+            elif view == CLUSTER_VIEWS[1]:
+                st.graphviz_chart(pair_graph(rows), width="content")
+            elif indicators.empty:
+                st.caption("The domains share no indicator: they are alike in shape (name, dates, risk), not in values.")
+            else:
+                st.graphviz_chart(indicator_graph(group, indicators), width="content")
+                if len(indicators) > GRAPH_INDICATORS:
+                    st.caption(f"The {GRAPH_INDICATORS} most shared of {len(indicators)} indicators drawn; the table "
+                               "lists all.")
+            with st.expander(f"Shared indicators ({len(indicators)})", icon=":material/fingerprint:"):
+                _indicator_table(group, indicators, number)
+            with st.expander(f"Shared between each pair ({len(rows)})", icon=":material/compare_arrows:"):
+                _cluster_pair_table(rows)
+
+
+def _indicator_table(group, indicators, number):
+    if indicators.empty:
+        st.caption("No indicator is held by two or more of these domains.")
+        return
+    categories = [c for c in sim.CATEGORY_COLORS if c in set(indicators["Category"])]
+    chosen = st.pills("Categories", categories, selection_mode="multi", key=f"sim_cluster_cats::{number}",
+                      label_visibility="collapsed")
+    shown = indicators[indicators["Category"].isin(chosen)] if chosen else indicators
+    config = {
+        "Share %": st.column_config.ProgressColumn("Share of cluster", format="%d %%", min_value=0, max_value=100),
+        "Domains": st.column_config.NumberColumn("Domains", help="Cluster domains holding it"),
+        "Seen On": st.column_config.NumberColumn("Seen on", help="Domains seen with it overall (Iris, this run, saved "
+                                                                 "runs); blank for indicators that are not scored"),
+        "Rarity": st.column_config.NumberColumn("Rarity", format="%.2f", help="1: unique to these domains; 0.1: CDN, "
+                                                                              "cloud network or mass CA"),
+        "Indicator": st.column_config.TextColumn("Indicator", width="large"),
+    }
+    if len(group) <= PRESENCE_COLUMNS:
+        shown = shown.assign(**{display_name(d): shown["Domain List"].map(lambda ds, d=d: d in ds) for d in group})
+        shown = shown.drop(columns="Domain List")
+        config |= {display_name(d): st.column_config.CheckboxColumn(display_name(d)) for d in group}
+    else:
+        config["Domain List"] = st.column_config.ListColumn("Domains holding it")
+    table(shown, column_config=config)
+
+
+def _cluster_pair_table(rows):
+    table(rows.assign(**{"Domain A": rows["Domain A"].map(display_name),
+                         "Domain B": rows["Domain B"].map(display_name)}), column_config={
+        "Similarity %": st.column_config.ProgressColumn("Similarity", format="%.0f %%", min_value=0, max_value=100),
+        "Shared": st.column_config.NumberColumn("Shared", help="Indicators both domains have"),
+        "Shared %": st.column_config.ProgressColumn("Shared %", format="%d %%", min_value=0, max_value=100,
+                                                    help="Shared over the indicators either domain has"),
+        "Shared Indicators": st.column_config.TextColumn("Shared indicators", width="large")})
 
 
 def _earlier(ctx, feats, counts):

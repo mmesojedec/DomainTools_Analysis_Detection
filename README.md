@@ -181,7 +181,9 @@ core/
   run_history.py               Snapshot normalization, run comparison, alert lifecycle, trends, per-domain history
   offline.py                   Offline datasets: save / load / manage collected data (gzipped JSON, no pickle)
   export.py                    IOC lists, confirmed indicators, STIX 2.1 bundles, MISP events, HTML/Markdown evidence reports
-  case_report.py               Case report: one run as a printable, self-contained HTML page (summary, top alerts, risk, infrastructure, IOCs)
+  analysis_report.py           Analysis report: report types (high level, detailed, complete), sections, IOC severity ranking, header and assembly
+  case_report.py               Shared report styles and the compact case-report builder
+  report_html.py               Report page: sidebar navigation, folding sections, sortable / filterable tables, cards, Plotly charts, Graphviz via viz.js
   seen.py                      Indicator Sightings: where an indicator was observed across saved runs and offline datasets
   data_export.py               Export & report page data: IOCs, tables and raw records as CSV / NDJSON, zipped with a manifest
   cert_utils.py                Certificate helpers (weak keys, duration, self-signed, IP names)
@@ -257,6 +259,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
   triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals
   similarity_view.py           Domain similarity page: pair %, threshold, matrix, clusters, earlier runs, learned weights
+  report_sections.py           Analysis report sections: one builder per section, reusing the pages' data and figure builders
   raw_view.py                  Evidence → Records (VPNDB and BGPDB answers included), and the lookup status panel shown
                                when a run returned no data
   query_view.py                Evidence → Lookup queries: every lookup as a reusable query and command (bgpdbq for BGPDB)
@@ -287,7 +290,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_plan_view.py            Suggested hunt (Hunt map): where to start, ranked branches, leads set aside
   hunt_next_view.py            Hunt map's alert decisions, what to check next and more leads (moved from the Summary)
   hunt_combine_view.py         Hunt map's Combined hunts tab: several hunts on one map, combined result, join / detach
-  export_view.py               Export & report: case report, confirmed indicators, detections, IOCs, STIX, reports, tables and raw records
+  export_view.py               Export & report: analysis report (report type, section picker, All / None, limits), confirmed indicators, detections, IOCs, STIX, reports, tables and raw records
   docs_view.py                 In-app documentation (Settings → Documentation, /docs)
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)

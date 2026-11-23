@@ -65,22 +65,27 @@ def render_kpi_banner(profiles, high_risk_cutoff):
     st.divider()
 
 
+def radar_figure(profiles, grid="rgba(255, 255, 255, 0.2)"):
+    """Digital Risk Vector Profile radar, one trace per domain; also used by the report."""
+    vectors = shown_vectors(profiles)
+    radar_melt = profiles.assign(**{c: profiles[c].fillna(0) for c in vectors}) \
+        .rename(columns={"Domain": "Domain / IP"}).melt(
+        id_vars=["Domain / IP"], value_vars=vectors, var_name="Risk Vector", value_name="Score"
+    )
+    fig = px.line_polar(radar_melt, r="Score", theta="Risk Vector", color="Domain / IP", line_close=True, range_r=[0, 100])
+    fig.update_traces(fill="toself", opacity=0.6)
+    fig.update_polars(radialaxis=dict(angle=90, tickangle=0, gridcolor=grid))
+    fig.update_layout(margin=dict(t=30, l=30, r=30, b=30))
+    return fig
+
+
 def _render_profiles(profiles):
     col_rad, col_ledg = st.columns([1.2, 1.3])
     with col_rad:
         st.markdown("#### Digital Risk Vector Profile",
                     help="Radar chart mapping domain risk across its dimensions; BGP Routing appears when BGPDB "
                          "answered for the run's hosting IPs (a domain without BGPDB data shows 0 there).")
-        vectors = shown_vectors(profiles)
-        radar_melt = profiles.assign(**{c: profiles[c].fillna(0) for c in vectors}) \
-            .rename(columns={"Domain": "Domain / IP"}).melt(
-            id_vars=["Domain / IP"], value_vars=vectors, var_name="Risk Vector", value_name="Score"
-        )
-        fig = px.line_polar(radar_melt, r="Score", theta="Risk Vector", color="Domain / IP", line_close=True, range_r=[0, 100])
-        fig.update_traces(fill="toself", opacity=0.6)
-        fig.update_polars(radialaxis=dict(angle=90, tickangle=0, gridcolor="rgba(255, 255, 255, 0.2)"))
-        fig.update_layout(margin=dict(t=30, l=30, r=30, b=30))
-        chart(fig, height=380)
+        chart(radar_figure(profiles), height=380)
 
     with col_ledg:
         st.markdown("#### Infrastructure Fingerprints (DIF)",
