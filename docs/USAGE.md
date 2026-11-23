@@ -535,9 +535,30 @@ retargeted CNAME, long chain / loop, CNAME target shared by several analyzed dom
 
 #### Certificate profile
 
-The **Certificate profile** page (*Overview*) shows one certificate of the run, field by field. Pick a domain and a
-certificate (newest first). Other places open a certificate here: *Newest in Certificate profile* on the Domain
-profile, the Certificates page's *Field breakdown* tab and the related certificates below.
+The **Certificate profile** page (*Overview*) shows one certificate of the run, field by field. Pick a domain, an
+order and a certificate. Each certificate in the picker is tagged with how it covers the domain, whether it is valid
+now and whether the website serves it now, for example *[Apex · Valid · served now]*:
+
+- **Apex**: names the analyzed domain itself. **Wildcard**: only `*.domain`. **Subdomain**: only names under it.
+- **Valid**, **Not valid yet** or **Expired**, at the time you look.
+- **served now**: Iris Investigate lists it among the certificates on the domain's website today.
+
+The **Order** is one of:
+
+- **Most relevant** (the default): valid certificates first. Among them, the domain's own (Apex), then a wildcard
+  over it, then subdomain certificates. Served now goes first, then the newest. The first entry is the domain's
+  certificate to look at first.
+- **Newest issued**: by Not Before.
+- **Expiring soonest**: valid ones closest to expiry, then the most recently expired.
+- **Most severe flag**: what stands out most first.
+
+**Show** narrows the list to *Valid now*, *Served now* or *Domain itself* (Apex or Wildcard). Changing the domain,
+order or filter opens the list's first certificate. The page reads certificate dates in every form the sources give
+them: ISO text from the Certificate API, and YYYYMMDD text or numbers from Iris Investigate and Domain History. When
+several sources list the same certificate, it keeps the richest row.
+
+Other places open a certificate here: *Domain's certificate in Certificate profile* on the Domain profile (the most
+relevant one), the Certificates page's *Field breakdown* tab and the related certificates below.
 
 - **Summary**: issuer, validation level (DV / OV / EV), how long it is valid, days to expiry, key, the most severe
   flag, its domains and sources.
@@ -552,12 +573,31 @@ profile, the Certificates page's *Field breakdown* tab and the related certifica
   - code-signing or "any" extended key usage;
   - wildcard, more than 50 SANs, or IP addresses in the SANs;
   - a public key reused by other certificates.
-- **Field map**: the certificate's structure as a graph, with one table per section (subject, issuer, validity,
-  public key, extensions, subject alternative names, signature and fingerprints) and a row per field with its value.
-  Flagged fields take the flag's colour, and so does their section's title. Empty fields are grey, so you see what
-  the certificate lacks. The JA4X card explains how it was generated.
-- **All fields**: every field grouped by section (*Only filled fields* on by default), and its SANs split into the
-  analyzed domains and other names. The other names are leads to related infrastructure.
+- **Anatomy**: every field of the certificate in one view, from top to bottom:
+  - **Trust flow and verdict**: the issuer that signs it, the certificate, how many names it covers; the most severe
+    flag; and the tags (Apex, Valid, served now, how many of the 40 fields are filled).
+  - **Field fingerprint**: one cell per X.509 field, section by section: filled, empty, or in the colour of its flag.
+    Hover a cell for its value. Two certificates from the same tool or CA look alike here.
+  - **Validity**: a timeline from issuance to expiry with *now* on it, the days left and how much of its life is
+    used. A certificate valid longer than 398 days shows where the limit falls.
+  - **Key strength**: the key as security bits (RSA 2048 ≈ 112, EC 256 ≈ 128), from broken to strong.
+  - **One card per section** (subject, issuer, validity, public key, extensions, subject alternative names,
+    signature and fingerprints), with how many of its fields are filled and a coloured edge when one is flagged.
+    The flags sit right under their field. Values are drawn for their kind:
+    - distinguished names as their parts;
+    - SANs as chips, the analyzed domains first and highlighted (the other names are leads to related
+      infrastructure);
+    - extension, key usage and policy OIDs with their names, the extensions numbered in the certificate's order;
+    - basic constraints as *CA: yes / no*;
+    - SCTs as the logs that signed it and when, against Not Before;
+    - fingerprints and JA4X in groups of four (the JA4X card below explains its parts);
+    - dates with how long ago.
+
+  *Only filled fields* (on by default) hides empty fields. Off, they show dimmed, so you see what the certificate lacks
+  (no organization on a DV certificate, no SCTs, no policy). *Explain fields* adds a line under each field saying
+  what it is (hover a field name for the same). **Find a field or value** keeps the fields whose name, value, shown
+  name (*ocsp* finds Authority info access) or explanation matches. The JA4X card explains how it was generated, and
+  *As a table* lists the fields to sort and copy.
 - **Related certificates**: the run's certificates with the same public key, the same notable or rare JA4X (a CA's
   usual layout is not a relation), the exact SAN set or the common name. Open any of them.
 - **Where seen**: the certificate's CT log entries, observations and hostname events, and the alerts that cite it.
@@ -567,7 +607,7 @@ often it is filled, how many distinct values it has, the most common one, and th
 certificate has: an odd issuer unit, subject country or extension OID. Hashes and serial numbers are unique by
 design and left out. The analysis report has a *Certificate profiles* section (Overview): 3 certificates in the High
 level overview, 10 in the Detailed report and all in the Complete report, the ones that stand out most first, each
-with its field map and flags. The Detailed and Complete reports' Certificates section adds the field breakdown, and
+with its anatomy and flags (the Complete report with the empty fields too). The Detailed and Complete reports' Certificates section adds the field breakdown, and
 the data export has *Certificate profiles* (every certificate once, every field, its flags).
 
 #### DNS resolution
@@ -728,7 +768,7 @@ app's menu:
 | Part | Sections |
 | --- | --- |
 | High level | At a glance: key numbers (alerts per severity, highest risk, high-risk domains, distinct DIFs, primary threat driver, verdicts), the most severe findings, VPNDB and BGP highlights, linked domains · Needs attention: the critical and high alerts per domain, then everything else to act on, most severe first (domains marked Malicious or Suspicious, high-risk domains, new alerts, BGP findings, VPN / proxy / Tor exits, takeover-prone and dead-end CNAMEs, self-signed certificates, new or expiring domains and certificates, suspicious subdomains, strongly linked domains, failed lookups), each linking to its section |
-| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Certificate profiles (the certificates that stand out most: field map, flags, all fields, related certificates) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
+| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Certificate profiles (the certificates that stand out most: anatomy with the flags under their fields, related certificates) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
 | Infrastructure | DNS & hosting (hosting map and Domain → ASN → IP flow, change events, IP map, query volume, infrastructure graph and clusters, domain hopping, TXT apps) · VPNDB · Tor network · BGP (findings, hosting IPs, routing map, origin timeline, AS paths, networks, VPNDB match, neighbours) · CNAME chains · DNS resolution (dangling records, graph, warnings, resolution tree, origins) · Certificates |
 | Hunt | Hunt map (when the run belongs to a saved hunt) · Hostname inventory · Subdomain triage · Domain similarity (pairs, matrix, clusters with their shared indicators) |
 | Supporting evidence | Every active detection with its threat logic, triggering IOCs and evidence records · Data sources |

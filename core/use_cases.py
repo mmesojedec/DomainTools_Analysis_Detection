@@ -139,7 +139,7 @@ USE_CASES = (
             "rare shared values, and domains hopping across the same IPs.",
             {"opt_pivot": True, "opt_ct": True, **VPNDB_FULL, WINDOW_KEY: "Last 90 days"},
             (("certs", "Check the Self-Signed tab for C2 defaults and certificates served live"),
-             ("cert_profile", "Open a flagged certificate: field map, JA4X and related certificates"),
+             ("cert_profile", "Open a flagged certificate: its anatomy, JA4X and related certificates"),
              ("pivots", "Rank the pivots: certificate hashes, IPs and name servers few domains share"),
              ("dns", "Look for domain hopping on shared IPs and watchlisted hosting"),
              ("alerts", "Mark each alert Malicious or Benign"))),

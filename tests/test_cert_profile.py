@@ -65,15 +65,7 @@ def test_related_certificates_and_key_reuse():
     assert "Public key reused by 1 other certificate(s)" in " ".join(found["Finding"])
 
 
-def test_field_map_breakdown_and_citing_alerts():
-    cert = _cert(**{"Is Self Signed": True})
-    found = cp.flags(cert, now=NOW)
-    dot = cp.field_map(cert, found)
-    assert dot.startswith("digraph") and "Subject alternative names" in dot and "Issuer" in dot
-    assert '<TD BGCOLOR="#ea580c" ALIGN="LEFT"><FONT COLOR="white">Self-signed' in dot   # flagged: the flag's colour
-    assert '<TD BGCOLOR="#cbd5e1" ALIGN="LEFT"><FONT COLOR="#475569">Organization' in dot   # empty: grey
-    assert '<TD COLSPAN="2" BGCOLOR="#ea580c"' in dot                   # so is its section's title
-    assert "&lt;" in cp.field_map({**cert, "Issuer DN": "cn=<x>"})      # values are escaped
+def test_breakdown_and_citing_alerts():
     certs = cp.certificates(pd.DataFrame([_cert(), _cert(Hash="b" * 64, **{"Issuer Org": "Odd CA"}),
                                           _cert(Hash="c" * 64)]))
     breakdown = cp.field_breakdown(certs).set_index("Field")
@@ -88,3 +80,92 @@ def test_field_map_breakdown_and_citing_alerts():
     assert list(cp.citing_alerts("a" * 64, alerts)["Threat Type"]) == ["t"]
     seen = cp.where_seen("A" * 64, ctl=pd.DataFrame({"Hash": ["a" * 64, "z"], "Log Host": ["ct.example", "x"]}))
     assert list(seen) == ["CT logs"] and len(seen["CT logs"]) == 1
+
+
+def test_dates_in_every_source_format_are_read_and_arrow_safe():
+    assert cp.when(20261116) == pd.Timestamp("2026-11-16")              # Domain History: YYYYMMDD as a number
+    assert cp.when("20261116") == pd.Timestamp("2026-11-16")            # Iris Investigate: as text
+    assert cp.when("2026-11-16T05:04:25Z") == pd.Timestamp("2026-11-16 05:04:25")
+    assert cp.when(1794787200) == pd.Timestamp("2026-11-16")            # epoch seconds
+    assert pd.isna(cp.when("")) and pd.isna(cp.when(None)) and pd.isna(cp.when(123))
+    ssl = pd.DataFrame([_cert(Source="Domain History", **{"Not Before": 20261001, "Not After": 20261230,
+                                                          "Issuer Org": ""}),
+                        _cert(**{"Not Before": "2026-10-01T05:00:00Z", "Not After": "2026-12-30T05:00:00Z"}),
+                        _cert(Hash="b" * 64, Source="Domain History", **{"Not Before": 20261110,
+                                                                          "Not After": 20270208})])
+    certs = cp.certificates(ssl)
+    assert list(certs["Hash"]) == ["b" * 64, "a" * 64]                  # newest first, not by raw number
+    assert str(certs["Not Before"].dtype).startswith("datetime64")
+    a = certs[certs["Hash"] == "a" * 64].iloc[0]
+    assert a["Issuer Org"] == "Let's Encrypt" and a["Sources"] == ["Domain History", "DomainTools Cert API"]
+    related = cp.related_certificates(a.to_dict(), certs)
+    assert str(related["Not Before"].dtype).startswith("datetime64")
+    import pyarrow as pa
+    pa.Table.from_pandas(related)                                          # what st.dataframe does
+    pa.Table.from_pandas(certs.drop(columns=[c for c in certs if certs[c].map(type).eq(list).any()]))
+
+
+def test_most_relevant_is_the_valid_certificate_for_the_domain_itself():
+    def cert(digest, names, start, end, source="DomainTools Cert API"):
+        return _cert(Hash=digest * 64, Source=source, **{"Common Name": names[0], "SAN DNS": names,
+                                                         "Not Before": NOW + pd.Timedelta(days=start),
+                                                         "Not After": NOW + pd.Timedelta(days=end)})
+    certs = cp.certificates(pd.DataFrame([
+        cert("a", ["new.ex.com"], -1, 89),                      # newest, but a subdomain's
+        cert("b", ["ex.com", "www.ex.com"], -30, 60),           # the domain's own
+        cert("c", ["ex.com"], -200, -110),                      # the domain's own, expired
+        cert("d", ["*.ex.com"], -20, 70),                       # wildcard
+        cert("e", ["ex.com"], -40, 50, source="Iris Investigate API")]))   # the domain's own, served now
+    order = cp.ranked(certs, "ex.com", now=NOW)
+    assert list(order["Hash"].str[0]) == ["e", "b", "d", "a", "c"]
+    assert list(order["Role"]) == ["Apex", "Apex", "Wildcard", "Subdomain", "Apex"]
+    assert order.iloc[-1]["Status"] == "Expired" and bool(order.iloc[0]["Served"])
+    assert cp.most_relevant(certs, "ex.com", now=NOW) == "e" * 64
+    assert cp.label(order.iloc[0]).startswith("[Apex · Valid · served now] ex.com")
+    assert list(cp.ranked(certs, "ex.com", "Newest issued", NOW)["Hash"].str[0])[0] == "a"
+    assert list(cp.ranked(certs, "ex.com", "Expiring soonest", NOW)["Hash"].str[0]) == ["e", "b", "d", "a", "c"]
+
+
+def test_anatomy_draws_every_section_flags_under_their_fields_and_filters():
+    from core.cert_anatomy import anatomy_html, render_value
+    cert = _cert(**{"Is Self Signed": True, "SAN DNS": ["www.ex.com", "ex.com", "*.other.net"],
+                    "Issuer DN": "C=US, O=Let's Encrypt, CN=<R11>", "Public Key Bits": 1024})
+    found = cp.flags(cert, now=NOW)
+    page = anatomy_html(cert, found, domains=["ex.com"], now=NOW)
+    for section in ("Subject", "Issuer", "Validity", "Public key", "Extensions", "Subject alternative names",
+                    "Signature and fingerprints"):
+        assert f">{section}<small>" in page, section
+    assert "Self-signed: no certificate authority vouches for it" in page           # the flag under its field
+    assert "Field fingerprint" in page and "Key strength" in page and "80-bit security · weak" in page
+    assert "&lt;R11&gt;" in page and "<R11>" not in page                            # values are escaped
+    assert '<span class="chip own">www.ex.com</span>' in page and '<span class="chip wild">*.other.net' in page
+    assert "2 of the analyzed domain(s) · 1 other" in page
+    assert "State / province" not in page.split('class="grid"')[1]                     # empty: left out ...
+    every = anatomy_html(cert, found, only_filled=False, now=NOW)
+    assert "State / province" in every.split('class="grid"')[1]                         # ... unless asked
+    found_only = anatomy_html(cert, found, query="sha256WithRSA", now=NOW).split('class="grid"')[1]
+    assert "Signature algorithm" in found_only and "Common name" not in found_only
+    assert "No field, value or explanation matches" in anatomy_html(cert, found, query="zzz-nothing", now=NOW)
+    by_name = anatomy_html({**cert, "Extension OIDs": ["1.3.6.1.5.5.7.1.1"]}, found, query="ocsp", now=NOW)
+    assert "Extension OIDs" in by_name.split('class="grid"')[1]                # matches the OID's shown name
+    assert render_value("JA4X", cert) == ('<span class="mono hex">' + "<i>_</i>".join(
+        ["<span>aaaa</span>" * 3, "<span>bbbb</span>" * 3, "<span>cccc</span>" * 3]) + "</span>")
+    assert render_value("Hash", cert).count("<span>") == 16                         # 64 hex in groups of four
+    assert "398-day limit" in anatomy_html(_cert(**{"Not After": NOW + pd.Timedelta(days=600)}), now=NOW)
+
+
+def test_anatomy_reads_the_certificate_apis_structured_extensions():
+    from core.cert_anatomy import render_value
+    api = _cert(**{"Basic Constraints": {"critical": True, "is_ca": True},
+                   "Certificate Policy": [{"policy_oid": "2.23.140.1.2.1"}],
+                   "Extension OIDs": ["2.5.29.15", "1.3.6.1.4.1.11129.2.4.3", "9.9.9"],
+                   "Signed Certificate Timestamps": [{"log_id": "ab" * 32, "timestamp": "2026-11-10T00:05:00Z"}],
+                   "Is Precertificate": True, "Has Embedded SCTs": False})
+    assert "CA:TRUE" in " ".join(cp.flags(api, now=NOW)["Finding"])        # the dict form is flagged too
+    assert "CA: yes, may issue certificates" in render_value("Basic Constraints", api)
+    assert "Domain validated (CA/B Forum)" in render_value("Certificate Policy", api)
+    oids = render_value("Extension OIDs", api)
+    assert "<b>2</b>CT poison (precertificate)" in oids and "unknown" in oids
+    assert "1 CT log(s) signed it" in render_value("Signed Certificate Timestamps", api)
+    assert "expected" in render_value("Has Embedded SCTs", api)
+    assert "CA: yes" in render_value("Basic Constraints", {"Basic Constraints": "{'critical': True, 'is_ca': True}"})

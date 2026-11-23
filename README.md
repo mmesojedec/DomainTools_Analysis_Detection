@@ -49,8 +49,9 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   claimed (Critical when its domain may be unregistered or it is on a takeover-prone service); stale records
   (certificate validation leftovers, missing own names) are listed apart. Internal IPs and bogons are flagged, and
   BGPDB adds each resolved address's origin, RPKI / IRR and visibility (BGP page → *Resolved addresses*).
-- **Profiles certificates** (*Certificate profile*): one certificate field by field, with a field map of its X.509
-  structure (flagged fields coloured, empty ones grey), flags, every field, related certificates (same key, notable
+- **Profiles certificates** (*Certificate profile*): one certificate field by field in one anatomy view (trust flow,
+  field fingerprint, validity timeline, key strength, a card per X.509 section with the flags under their fields and
+  OIDs named), related certificates (same key, notable
   JA4X, SAN set) and where it was seen. The Certificates page's *Field breakdown* shows how often each field is filled
   across the run and its rare values.
 - **Compares domains** (*Domain similarity*): how alike the domains are built, from Iris, passive DNS, certificates,
@@ -181,7 +182,8 @@ core/
   allowlist.py                 Infrastructure allowlist (IPs, ranges, ASNs, name servers, certificate organizations, trackers, registrars)
   query_watch.py               Watched IrisQL queries: a query saved with the domains it returned, so a check shows only new ones
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
-  cert_profile.py              Certificate profile: fields grouped as in X.509, flags, related certificates, where seen, field map, field breakdown
+  cert_anatomy.py              Certificate anatomy: one certificate as a single HTML view (page and analysis report)
+  cert_profile.py              Certificate profile: fields grouped as in X.509, flags, related certificates, where seen, field breakdown
   lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
   rule_catalog.py              Detection reference: per-rule trigger, rationale, severity and confidence levels
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
@@ -265,7 +267,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen (Iris, VPNDB and BGP routing cards), with an action row
-  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags, field map, all fields, related, where seen)
+  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags, anatomy, related, where seen)
                                (sightings, IrisQL, CertsQL, copy)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
   alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools

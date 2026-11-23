@@ -1,7 +1,7 @@
 """
 Certificate profile: one certificate of the run, field by field. The X.509 fields the Certificate API returns are
 grouped as in the certificate itself (subject, issuer, validity, public key, extensions, subject alternative names,
-signature and fingerprints), checked for what stands out (flags), drawn as a field map, and set next to the run's other
+signature and fingerprints), checked for what stands out (flags), drawn by core.cert_anatomy, and set next to the run's other
 certificates (related certificates, where it was seen, the alerts citing it). The field breakdown does the same across
 every certificate: per field how often it is filled, its common values and its rare ones.
 
@@ -14,7 +14,7 @@ import pandas as pd
 
 from core import ja4x
 from core.cert_utils import is_weak_public_key, publicly_trusted
-from core.intel_data import SEVERITY_COLORS, SEVERITY_RANK
+from core.intel_data import SEVERITY_RANK
 
 # (section, [(label, column)]) in the order of the certificate's own structure
 FIELD_GROUPS = [
@@ -46,6 +46,11 @@ DATETIME_TEXT = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}")
 RARE_JA4X = 5                  # a JA4X shared by at most this many other certificates relates them
 FLAG_COLUMNS = ["Severity", "Field", "Finding"]
 RELATED_COLUMNS = ["Relation", "Common Name", "Issuer", "Not Before", "Not After", "Domains", "Hash"]
+SOURCE_PRIORITY = {"DomainTools Cert API": 1, "CertsQL search": 1, "Iris Investigate API": 2, "Domain History": 3}
+SERVED_SOURCE = "Iris Investigate API"     # Iris lists the certificates the domain's website serves now
+ORDERS = ["Most relevant", "Newest issued", "Expiring soonest", "Most severe flag"]
+ROLES = ["Apex", "Wildcard", "Subdomain", "Other"]           # how a certificate covers the analyzed domain
+STATUSES = ["Valid", "Not valid yet", "Expired", "Unknown"]
 BREAKDOWN_COLUMNS = ["Section", "Field", "Filled", "Filled %", "Distinct", "Most common", "Rare values"]
 
 
@@ -84,8 +89,23 @@ def text(value, limit=None):
 
 
 def when(value):
-    """A certificate date as a naive UTC timestamp (the run's dates may be timezone-aware), NaT when missing."""
-    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    """
+    A certificate date as a naive UTC timestamp, NaT when missing. The sources disagree: the Certificate API gives ISO
+    text, Iris Investigate and Domain History give YYYYMMDD (as text or a number), and the run's dates may be
+    timezone-aware; a bare number is never read as nanoseconds since 1970.
+    """
+    if _empty(value):
+        return pd.NaT
+    if isinstance(value, (int, float)) and not isinstance(value, bool) or isinstance(value, str) and value.strip().isdigit():
+        digits = str(int(float(value))) if not isinstance(value, str) else value.strip()
+        if len(digits) == 8:
+            stamp = pd.to_datetime(digits, format="%Y%m%d", errors="coerce", utc=True)
+        elif len(digits) in (10, 13):                                       # epoch seconds / milliseconds
+            stamp = pd.to_datetime(int(digits), unit="s" if len(digits) == 10 else "ms", errors="coerce", utc=True)
+        else:
+            return pd.NaT
+    else:
+        stamp = pd.to_datetime(value, errors="coerce", utc=True)
     return stamp.tz_convert(None) if pd.notna(stamp) else pd.NaT
 
 
@@ -96,11 +116,17 @@ def _bool(value):
 
 
 def certificates(ssl):
-    """One row per certificate (by Hash) of the run's certificate rows, with the analyzed Domains and Sources that list
-    it; newest first."""
+    """
+    One row per certificate (by Hash) of the run's certificate rows, newest first: the richest source's row (Certificate
+    API, then Iris Investigate, then Domain History), the analyzed Domains and the Sources that list it. Not Before and
+    Not After become timestamps, whatever form the source gave them in.
+    """
     if ssl is None or ssl.empty or "Hash" not in ssl:
         return pd.DataFrame()
     frame = ssl[ssl["Hash"].astype(str).str.strip() != ""]
+    if "Source" in frame:
+        frame = frame.assign(_s=frame["Source"].map(SOURCE_PRIORITY).fillna(9)).sort_values("_s", kind="stable") \
+            .drop(columns="_s")
     domains = frame.groupby("Hash")["Domain"].agg(lambda s: sorted(set(map(str, s)))) if "Domain" in frame else None
     sources = frame.groupby("Hash")["Source"].agg(lambda s: sorted(set(map(str, s)))) if "Source" in frame else None
     unique = frame.drop_duplicates("Hash").set_index("Hash", drop=False)
@@ -108,23 +134,110 @@ def certificates(ssl):
         unique["Domains"] = domains
     if sources is not None:
         unique["Sources"] = sources
-    order = unique["Not Before"].map(when) if "Not Before" in unique else None
-    if order is not None:
-        unique = unique.assign(_o=order).sort_values("_o", ascending=False, na_position="last").drop(columns="_o")
+    for column in ("Not Before", "Not After"):
+        if column in unique:
+            parsed = unique[column].map(when)
+            fallback = f"{column} Date"
+            if fallback in unique:
+                parsed = parsed.fillna(unique[fallback].map(when))
+            unique[column] = pd.to_datetime(parsed)
+    if "Not Before" in unique:
+        unique = unique.sort_values("Not Before", ascending=False, na_position="last", kind="stable")
     return unique.reset_index(drop=True)
 
 
 def label(cert):
-    """A short name for a certificate in pickers: CN · issuer · valid from · hash."""
+    """A short name for a certificate in pickers: [role · status · served now ·] CN · issuer · valid from · hash."""
     start = when(cert.get("Not Before"))
-    return " · ".join(part for part in (text(cert.get("Common Name")) or "(no CN)", text(cert.get("Issuer")),
+    tags = [cert.get("Role") if cert.get("Role") not in (None, "", "Other") else "",
+            cert.get("Status") if cert.get("Status") not in (None, "", "Unknown") else "",
+            "served now" if _bool(cert.get("Served")) else ""]
+    tags = [t for t in tags if t]
+    name = " · ".join(part for part in (text(cert.get("Common Name")) or "(no CN)", text(cert.get("Issuer")),
                                         f"{start:%Y-%m-%d}" if pd.notna(start) else "", str(cert.get("Hash"))[:12]) if part)
+    return f"[{' · '.join(tags)}] {name}" if tags else name
+
+
+def names(cert):
+    """The names the certificate is for: its common name and DNS SANs, lower case."""
+    found = [text(cert.get("Common Name"))] + (_values(cert.get("SAN DNS")) or _values(cert.get("Alt Names List")))
+    return {n.strip().lower().rstrip(".") for n in found if n and n.strip()}
+
+
+def role(cert, domains):
+    """How the certificate covers the analyzed domain(s): Apex (names the domain itself), Wildcard (*.domain only),
+    Subdomain (only names under it) or Other."""
+    covered = names(cert)
+    best = len(ROLES) - 1
+    for domain in (d.lower().rstrip(".") for d in domains if d):
+        if domain in covered:
+            return ROLES[0]
+        if f"*.{domain}" in covered:
+            best = min(best, 1)
+        elif any(n.endswith("." + domain) for n in covered):
+            best = min(best, 2)
+    return ROLES[best]
+
+
+def status(cert, now=None):
+    """Valid, Not valid yet, Expired or Unknown (no dates), at `now`."""
+    now = now or pd.Timestamp.now(tz="UTC").tz_localize(None)
+    start, end = when(cert.get("Not Before")), when(cert.get("Not After"))
+    if pd.isna(start) and pd.isna(end):
+        return STATUSES[3]
+    if pd.notna(end) and end < now:
+        return STATUSES[2]
+    if pd.notna(start) and start > now:
+        return STATUSES[1]
+    return STATUSES[0]
+
+
+def ranked(certs, domain=None, order=ORDERS[0], now=None):
+    """
+    The certificates with Role, Status, Served (on the domain's website now, per Iris Investigate) and Worst (most
+    severe flag), in `order`:
+    - Most relevant: valid before not-yet-valid before expired; then the certificate for the domain itself (Apex), a
+      wildcard over it, one for its subdomains, any other; then served now; then the newest issued. The first is the
+      domain's certificate to look at first.
+    - Newest issued, Expiring soonest (still valid first, then expired most recently), Most severe flag (then newest).
+    `domain`: the analyzed domain the roles are relative to; None: each certificate's own Domains.
+    """
+    if certs is None or certs.empty:
+        return certs
+    now = now or pd.Timestamp.now(tz="UTC").tz_localize(None)
+    rows = certs.to_dict("records")
+    frame = certs.assign(
+        Role=[role(r, [domain] if domain else _values(r.get("Domains"))) for r in rows],
+        Status=[status(r, now) for r in rows],
+        Served=[SERVED_SOURCE in _values(r.get("Sources")) or text(r.get("Source")) == SERVED_SOURCE for r in rows],
+        Worst=[next(iter(flags(r, now)["Severity"]), "None") for r in rows])
+    start = frame["Not Before"].map(when) if "Not Before" in frame else pd.Series(pd.NaT, index=frame.index)
+    end = frame["Not After"].map(when) if "Not After" in frame else pd.Series(pd.NaT, index=frame.index)
+    newest = -start.map(lambda t: t.value if pd.notna(t) else -2 ** 62)
+    if order == ORDERS[1]:
+        keys = [newest]
+    elif order == ORDERS[2]:
+        left = (end - now).map(lambda d: d.total_seconds() if pd.notna(d) else float("inf"))
+        keys = [left.map(lambda v: v < 0), left.map(abs), newest]       # valid soonest-ending, then expired latest
+    elif order == ORDERS[3]:
+        keys = [frame["Worst"].map(SEVERITY_RANK).fillna(9), newest]
+    else:
+        keys = [frame["Status"].map(STATUSES.index), frame["Role"].map(ROLES.index), ~frame["Served"], newest]
+    columns = [f"_k{i}" for i in range(len(keys))]
+    return frame.assign(**dict(zip(columns, keys))).sort_values(columns, kind="stable").drop(columns=columns) \
+        .reset_index(drop=True)
+
+
+def most_relevant(certs, domain=None, now=None):
+    """The Hash of the domain's most relevant certificate (ranked's first), None when there is none."""
+    frame = ranked(certs, domain, now=now)
+    return None if frame is None or frame.empty else str(frame["Hash"].iloc[0])
 
 
 def flags(cert, now=None, related=None):
     """
-    FLAG_COLUMNS: what stands out in the certificate, most severe first. Field is the column it concerns (the field map
-    colours it). `related`: related_certificates, for a key reused by other certificates.
+    FLAG_COLUMNS: what stands out in the certificate, most severe first. Field is the column it concerns (the anatomy
+    shows the flag under it). `related`: related_certificates, for a key reused by other certificates.
     """
     now = now or pd.Timestamp.now(tz="UTC").tz_localize(None)
     found = []
@@ -147,7 +260,10 @@ def flags(cert, now=None, related=None):
     if re.search(r"md5|sha1(?!\d)", signature):
         add("High", "Signature Algo", f"Deprecated signature algorithm {text(cert.get('Signature Algo'))}")
     constraints = text(cert.get("Basic Constraints")).lower()
-    if "ca:true" in constraints.replace(" ", "") or constraints in ("true", "ca"):
+    raw = cert.get("Basic Constraints")
+    is_ca = raw.get("is_ca") if isinstance(raw, dict) else None          # the Certificate API: {'is_ca': ...}
+    if is_ca is True or "ca:true" in constraints.replace(" ", "") or "'is_ca': true" in constraints \
+            or constraints in ("true", "ca"):
         add("High", "Basic Constraints", "Marked as a CA certificate (basic constraints CA:TRUE) while naming hosts")
     start, end = when(cert.get("Not Before")), when(cert.get("Not After"))
     if pd.notna(end) and end < now:
@@ -203,8 +319,8 @@ def related_certificates(cert, certs):
     def add(relation, mask):
         for row in others[mask].to_dict("records"):
             rows.append({"Relation": relation, "Hash": row["Hash"], "Common Name": text(row.get("Common Name")),
-                         "Issuer": text(row.get("Issuer")), "Not Before": row.get("Not Before"),
-                         "Not After": row.get("Not After"), "Domains": text(row.get("Domains"))})
+                         "Issuer": text(row.get("Issuer")), "Not Before": when(row.get("Not Before")),
+                         "Not After": when(row.get("Not After")), "Domains": text(row.get("Domains"))})
     key = text(cert.get("Public Key SHA256"))
     if key and "Public Key SHA256" in others:
         add("Same public key", others["Public Key SHA256"].map(text) == key)
@@ -223,6 +339,8 @@ def related_certificates(cert, certs):
     if cn and "Common Name" in others:
         add("Same common name", others["Common Name"].map(text) == cn)
     frame = pd.DataFrame(rows, columns=RELATED_COLUMNS)
+    for column in ("Not Before", "Not After"):
+        frame[column] = pd.to_datetime(frame[column])
     return frame.drop_duplicates(["Relation", "Hash"]).reset_index(drop=True)
 
 
@@ -256,55 +374,6 @@ def field_rows(cert):
     """Section, Field, Value (text) for every field, empty ones included."""
     return pd.DataFrame([{"Section": section, "Field": label_, "Column": column, "Value": text(cert.get(column))}
                          for section, label_, column in FIELDS])
-
-
-def _html(value):
-    return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-            .replace("]", "&#93;").replace("[", "&#91;"))
-
-
-def _worst_of(severities):
-    ranked = [s for s in severities if s]
-    return min(ranked, key=lambda s: SEVERITY_RANK.get(s, 9)) if ranked else None
-
-
-SECTION_COLOUR, FIELD_COLOUR, EMPTY_COLOUR = "#0f766e", "#475569", "#cbd5e1"
-
-
-def field_map(cert, found=None, width=44):
-    """
-    Graphviz DOT of the certificate's structure: the certificate → one table per section (subject, issuer, validity,
-    key, extensions, SANs, signature) with a row per field and its value. A field a flag concerns takes the flag's
-    colour (so does its section's title); an empty field is grey ("—"), so missing fields show too.
-    """
-    by_column = {}
-    if found is not None and not found.empty:
-        for row in found.to_dict("records"):
-            by_column.setdefault(row["Field"], row["Severity"])
-    by_column.setdefault("Duration", by_column.get("Not After"))
-    title = text(cert.get("Common Name")) or str(cert.get("Hash"))[:16]
-    lines = ['digraph { rankdir=LR; bgcolor="transparent"; nodesep=0.15; ranksep=0.6;',
-             'node [shape=plaintext, fontname="Helvetica", fontsize=10]; edge [color="#94a3b8", arrowsize=0.5];',
-             f'"root" [shape=box, style="rounded,filled", fillcolor="#4f46e5", fontcolor="white", fontsize=12, '
-             f'color="#4f46e5", label="{_html(title)}\\ncertificate"];']
-    for number, (section, fields) in enumerate(FIELD_GROUPS):
-        worst = _worst_of(by_column.get(c) for _, c in fields)
-        head = SEVERITY_COLORS.get(worst, SECTION_COLOUR) if worst else SECTION_COLOUR
-        rows = [f'<TR><TD COLSPAN="2" BGCOLOR="{head}" ALIGN="LEFT"><FONT COLOR="white"><B>{_html(section)}</B>'
-                "</FONT></TD></TR>"]
-        for label_, column in fields:
-            value = text(cert.get(column), width)
-            severity = by_column.get(column)
-            fill = SEVERITY_COLORS.get(severity, "#ef4444") if severity else FIELD_COLOUR if value else EMPTY_COLOUR
-            font = "white" if value or severity else "#475569"
-            rows.append(f'<TR><TD BGCOLOR="{fill}" ALIGN="LEFT"><FONT COLOR="{font}">{_html(label_)}</FONT></TD>'
-                        f'<TD BGCOLOR="{fill}" ALIGN="LEFT"><FONT COLOR="{font}">{_html(value or "—")}</FONT></TD>'
-                        "</TR>")
-        table = ('<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#334155">'
-                 + "".join(rows) + "</TABLE>")
-        lines.append(f'"s{number}" [label=<{table}>]; "root" -> "s{number}";')
-    lines.append("}")
-    return "\n".join(lines)
 
 
 def field_breakdown(certs, rare_limit=5):

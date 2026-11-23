@@ -327,7 +327,8 @@ def render_profile(ctx):
             st.caption("No certificates in the analysis window.")
         else:
             cols = [c for c in ("Common Name", "Issuer", "Not Before", "Not After", "JA4X", "Source") if c in certs]
-            newest = certs.assign(_nb=pd.to_datetime(certs.get("Not Before"), errors="coerce", utc=True)) \
+            from core.cert_profile import most_relevant, when
+            newest = certs.assign(_nb=certs["Not Before"].map(when) if "Not Before" in certs else pd.NaT) \
                 .sort_values("_nb", ascending=False, na_position="last")
             shown = newest.drop_duplicates("Hash" if "Hash" in certs else cols).head(8)[cols].astype(str)
             if "JA4X" in shown:
@@ -338,9 +339,12 @@ def render_profile(ctx):
             with c_every:
                 navigation.link("certs", label="Every certificate")
             if "Hash" in newest:
+                from core.cert_profile import certificates
                 from views.cert_profile_view import open_button
-                open_button(str(newest["Hash"].iloc[0]), label="Newest in Certificate profile",
-                            key="profile_cert_open", container=c_open)
+                best = most_relevant(certificates(certs), domain)
+                if best:
+                    open_button(best, label="Domain's certificate in Certificate profile",
+                                key="profile_cert_open", container=c_open, domain=domain)
         every = ds.ssl_all_utc[ds.ssl_all_utc["Domain"] == domain] if not ds.ssl_all_utc.empty else certs
         if not every.empty:
             from views.ssl_view import render_ja4x_notes  # the Certificates page imports this page's helpers

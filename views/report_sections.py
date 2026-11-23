@@ -431,9 +431,11 @@ CERT_PROFILES = {"high": 3, "detailed": 10}    # certificates profiled per level
 
 def section_cert_profiles(b, ctx):
     from core import cert_profile as cp
+    from core.cert_anatomy import anatomy_html
     b.section("Certificate profiles", "The run's certificates that stand out most (by their most severe flag, then "
-                                      "newest), each field by field: the field map of its X.509 structure, the flags "
-                                      "and the certificates related to it.")
+                                      "newest), each field by field: its anatomy (trust flow, field fingerprint, "
+                                      "validity, key strength, every X.509 section with the flags under their "
+                                      "fields) and the certificates related to it.")
     certs = cp.certificates(ctx.ds.ssl)
     if certs.empty:
         b.note("No certificate in the analysis window.")
@@ -442,7 +444,7 @@ def section_cert_profiles(b, ctx):
     ranked = cp.riskiest(certs, limit=limit)
     if limit and len(certs) > limit:
         b.note(f"The {limit} of {len(certs):,} certificates that stand out most.")
-    for cert in ranked.to_dict("records"):
+    for number, cert in enumerate(ranked.to_dict("records")):
         related = cp.related_certificates(cert, certs)
         found = cp.flags(cert, related=related)
         b.heading(cp.label(cert))
@@ -455,10 +457,7 @@ def section_cert_profiles(b, ctx):
             b.text("Nothing stands out in this certificate.")
         else:
             b.table(found)
-        b.dot(cp.field_map(cert, found))
-        if b.detail:
-            fields = cp.field_rows(cert)
-            b.table(fields[fields["Value"] != ""], columns=["Section", "Field", "Value"], exact=True)
+        b.raw(anatomy_html(cert, found, only_filled=not b.unlimited, css=number == 0))
         if not related.empty:
             b.subheading("Related certificates")
             b.table(related, max_rows=MAX_ROWS)
