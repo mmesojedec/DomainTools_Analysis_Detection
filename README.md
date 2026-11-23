@@ -35,14 +35,26 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   truncated results are never silent. Targets can be domains, IPs, or certificates (fingerprints, CN, SAN,
   public key, serial, organization, issuer), which are resolved to the domains and IPs they cover. Where passive DNS
   stops at its limit, TXT, CAA and CNAME lookups fill in what the detections need.
-- **Detects** 91 behaviors (fast-flux, parked-to-weaponized, CAA breaches, abnormal certificate rotation, DNS tunneling,
-  dangling CNAMEs, shared infrastructure, domain hopping, lookalikes, re-registered domains, phishing kit staging,
+- **Detects** 106 behaviors (fast-flux, parked-to-weaponized, CAA breaches, abnormal certificate rotation, DNS tunneling,
+  dangling CNAMEs, NS, MX and SPF records, shared infrastructure, domain hopping, lookalikes, re-registered domains, phishing kit staging,
   campaign waves, ...), each with a severity, a confidence, a category and a MITRE ATT&CK technique. Your verdicts on
   a rule's alerts tune its confidence, and an infrastructure allowlist keeps your own infrastructure out.
 - **Chases CNAME chains** like DNSDB Scout: every alias followed to its final addresses, with the target service
   (dynamic DNS / tunnel, takeover-prone, free hosting, CDN), dead ends that point to subdomain takeover, and the
   names and addresses that link the analyzed domains through their chains; reverse CNAME (RDATA) lookups find
   other domains pointing to the same targets.
+- **Resolves the DNS tree** like the Super Resolver (*DNS resolution*): every current A, AAAA, CNAME, MX, NS and SPF
+  record followed to IP addresses, from passive DNS and on-demand DNSDB lookups (the current tree of busy domains is
+  discovered with time-fenced lookups). **Dangling DNS** lists the records whose target doesn't exist and can be
+  claimed (Critical when its domain may be unregistered or it is on a takeover-prone service); stale records
+  (certificate validation leftovers, missing own names) are listed apart. Internal IPs and bogons are flagged, and
+  BGPDB adds each resolved address's origin, RPKI / IRR and visibility (BGP page → *Resolved addresses*).
+- **Profiles certificates** (*Certificate profile*): one certificate field by field, with a field map of its X.509
+  structure (flagged fields coloured, empty ones grey), flags, every field, related certificates (same key, notable
+  JA4X, SAN set) and where it was seen. The Certificates page's *Field breakdown* shows how often each field is filled
+  across the run and its rare values.
+- **Compares domains** (*Domain similarity*): how alike the domains are built, from Iris, passive DNS, certificates,
+  VPNDB and BGPDB, with similar pairs, clusters and the indicators each cluster shares.
 - **Attributes anonymizers** with VPNDB: which hosting IPs are VPN, residential proxy or Tor exits and whose, whether
   an exit is shared (it identifies the service, not the actor) or dedicated, whether the IP was an exit while the
   domain used it, the ranges and networks around the hosting, and other domains on dedicated exits. Every use case
@@ -85,9 +97,12 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
 - **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
   tools, and keeps every VPNDB answer as received.
-- **Exports** (*Data → Export & report*) detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence reports, a printable case
-  report for managers or takedown requests (summary, top alerts, risk, infrastructure, IOCs), and hands IOCs,
-  tables and raw records to other teams as CSV / NDJSON.
+- **Exports** (*Data → Export & report*) detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence
+  reports, and hands IOCs, tables and raw records to other teams as CSV / NDJSON (*Select all* / *Select none*).
+- **Reports** the run as one **analysis report** (HTML, print to PDF) structured like the app, with its charts in the
+  app's colours: pick a *High level overview* (critical findings and *Needs attention*), a *Detailed report* or a
+  *Complete report*, the sections, and how many alerts and IOCs (ranked by the alert behind them). The page has a
+  sidebar to jump to any section, folding sections, and tables that sort and filter.
 
 ## Quick start
 

@@ -1282,6 +1282,9 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 6. Use **Decode DIF fingerprints** and the **Same DIF As** column to find look-alike setups that are not yet clustered.
    In **CNAME Chains**, filter on *Dead end* and the takeover-prone, dynamic DNS and free hosting service types,
    and chase the chains that are still *Not chased*.
+   On **DNS resolution**, click *Resolve the DNS tree* and read **Dangling DNS**: records whose target doesn't exist
+   and can be claimed (CNAME, MX, NS, SPF), most severe first. **Domain similarity** groups the domains built alike.
+   Open flagged certificates in the **Certificate profile** (field map, related certificates).
 7. Mark each group's status as you go (Benign with a note for known-good findings, or suppress them), follow the
    suggested hunt's steps and leads on the **Hunt map** with *Analyze*, then export the confirmed indicators, a STIX bundle, an evidence report or an analysis report.
    Check a new indicator against earlier investigations on **Runs → Indicator Sightings**.
@@ -1297,6 +1300,10 @@ off, Hunt (including the Hunt map with *What to check next*) and Evidence are le
 - CNAME chains come from passive DNS, not live resolution: a *Dead end* means DNSDB never saw the name resolve (or
   not recently), which is strong evidence of a dangling CNAME but should be confirmed with a live lookup before
   reporting a takeover.
+- DNS resolution also comes from passive DNS: a record only counts as dangling once its target was looked up (or
+  lies under a domain whose lookup was complete), and *Not resolved yet* records may be dangling too. Confirm a
+  dangling record with a live lookup before acting; certificate validation leftovers and missing names of the analyzed
+  domain are *Stale records*, not takeover risks.
 - DIF fingerprints and risk vectors summarize the primary certificate and the current window, not every certificate
   ever issued.
 - VPNDB only knows the exits it measured or that public lists name: *Not observed* is not an all-clear, and it does

@@ -17,6 +17,7 @@ alerts, scores and detections see the [User Guide](USER_GUIDE.md).
 - [Collection order](#collection-order)
 - [Passive DNS logic](#passive-dns-logic)
 - [CNAME chasing](#cname-chasing)
+- [DNS resolution logic](#dns-resolution-logic)
 - [Certificate logic](#certificate-logic)
 - [VPNDB logic](#vpndb-logic)
 - [After collection](#after-collection)
@@ -250,6 +251,40 @@ From the page, a **reverse CNAME** lookup (`rdata/name/{target}/CNAME`, up to 5,
 row each) lists every name, of any domain, that points to a chain's target or a typed name. Analyzed domains found this way join the cross-domain links;
 other domains are shown as related domains.
 
+## DNS resolution logic
+
+The **DNS resolution** page resolves the analyzed domains' DNS tree to IP addresses, like DomainTools' Super Resolver,
+and finds the dangling records. It works on the collected passive DNS without any query; **Resolve the DNS tree**
+adds DNSDB lookups (at most the chosen 25 to 500 queries per click; cached lookups are free) and, with a BGPDB host,
+the routing of the addresses reached:
+
+```mermaid
+flowchart TD
+    A["Resolve the DNS tree"] --> B["Discover each domain's current tree: *.domain, records of the last 90 days (1 query)"]
+    B --> C{"Cut off at 10,000 records?"}
+    C -- "Yes" --> C2["One lookup per type: A, AAAA, CNAME, MX, NS, TXT"]
+    C -- "No" --> D
+    C2 --> D["Each current record: A / AAAA, CNAME chain, MX and NS hosts, SPF includes"]
+    D --> E{"A target outside the data?"}
+    E -- "Yes" --> F["Look it up: exact name, every record type (1 query); then its domain if it is dead"]
+    F --> D
+    E -- "No" --> G{"Every target resolves?"}
+    G -- "Yes" --> R["Resolves"]
+    G -- "No, and it can be claimed" --> DG["Dangling: lapsed domain or takeover-prone service is Critical"]
+    G -- "No, but nobody else can claim it" --> ST["Stale record: DCV leftover, missing own name"]
+    R --> H["BGPDB ip lookup of each new address (up to 300): prefix, origin, RPKI / IRR, collectors"]
+    DG --> H
+```
+
+- **Current** means seen within 90 days of the run's newest record. A busy domain's main passive DNS lookup is often
+  cut off by old records and misses current names; the time-fenced discovery does not.
+- A name counts as resolving nowhere only when it was looked up, or lies under a domain whose lookup was complete.
+  Until then the record is *Not resolved yet*; click again while names are left.
+- Every lookup adds a *DNSDB Resolve* row to the Data sources page; the BGPDB answers join the BGP page's
+  *Responses* and *Evidence → BGPDB Responses*. Lookups and routing are saved with the run and in offline datasets,
+  and a new run or a loaded dataset restores those still in the cache without a query. *Re-resolve (skip cache)*
+  repeats them fresh.
+
 ## Certificate logic
 
 ```mermaid
@@ -312,6 +347,8 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Detection | Every rule runs per domain / IP (including the lifecycle and compound rules), then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping, bulk-registration cohorts, campaign waves, links to a domain you marked Malicious). A domain among the 10,000 most popular in Iris, or on the DomainTools zerolist, has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert. Your allowlist and your verdicts on a rule can move the confidence too | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
+| Profiles and comparisons | Certificate profile (each certificate field by field, flags, related certificates), Certificates → Field breakdown, Domain similarity (pairs, clusters, shared indicators) | Yes |
+| Analysis report | The run as one HTML page: High level overview, Detailed or Complete report, the sections you pick | Yes |
 | Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (Start page Targets box, before Analyze; or after it on the status line) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the **Runs** page lists (*Recent runs*) and searches (*Indicator Sightings*) | - |
 
 ## What each source feeds
@@ -325,6 +362,8 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Passive DNS | Every DNS record and when it was seen | Fast-flux, DNS tunneling / TXT payloads, SPF, sinkholes, nested subdomains, origin IP exposure, CNAME chains and their detections |
 | TXT / CAA / CNAME lookups | Complete TXT, CAA and CNAME records on busy domains | SPF and TXT detections, CAA audit, CNAME Chains page |
 | CNAME chases | Where CNAMEs that leave the collected data end | Dangling CNAME (subdomain takeover), long chains and loops, final addresses in the CNAME Chains page |
+| DNS resolution (DNSDB) | Each domain's current tree and the names its records point to | DNS resolution page (Dangling DNS, resolution tree, graph), Dangling NS / MX / SPF, CNAME to Lapsed Domain, Internal IP Address in Public DNS, *Needs attention*, the report's DNS resolution section |
+| DNS resolution routing (BGPDB) | Prefix, origin, RPKI / IRR and visibility of the resolved addresses | DNS resolution *Origins* and routing warnings, BGP → *Resolved addresses* and *Responses*, Evidence → BGPDB Responses |
 | IP pivots | Other names that used the domain's hosting IPs | Domain hopping, DNS & Hosting page |
 | Certificate Events | Hostnames and IPs where certificates were observed | Potential Origin IP Exposure, hostname flow in the Certificates page, subdomains in the DNS & Hosting page, Hostname Inventory |
 | VPNDB verdicts | VPN, residential proxy and Tor attribution of the hosting IPs and IP targets | Domain on Tor Relay / Exit Node, on Residential Proxy Exit, on VPN / Proxy Exit, on Dedicated Anonymizer Exit, Hosting Moved onto / Rotating Across Anonymizer Exits, Newly Registered Domain on Anonymizer Exit, Anonymizer Exit Shared by Analyzed Domains; VPNDB page, Summary, Domain profile, confirmed indicators (shared exits left out) |
