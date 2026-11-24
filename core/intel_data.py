@@ -402,6 +402,8 @@ RULE_METADATA = {
     "Issuer Key Mismatch (Impersonated CA)": ("Certificates", "Medium"),
     "Insufficient SCTs (CT Policy)": ("Certificates", "Medium"),
     "Re-Registered Domain": ("Registration & Lifecycle", "Medium"),
+    "Possible Domain Hijack": ("Registration & Lifecycle", "Medium"),
+    "Benign-Looking Domain in Malicious Neighborhood": ("Hosting & DNS Providers", "Medium"),
     "Disposable Registrant Email": ("Registration & Lifecycle", "Medium"),
     "Name Server Churn": ("DNS Behavior", "Medium"),
     "Registrar Transfer then New Name Servers": ("Registration & Lifecycle", "Medium"),

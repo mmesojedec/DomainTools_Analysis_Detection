@@ -272,7 +272,7 @@ views/                         One module per page + sidebar, alert tools, certi
   summary_view.py              Summary: KPIs, domains, analysis details, linked domains, hunt pointer, top alerts, run statistics, what's new
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
-  profile_view.py              Domain profile: one domain on one screen (Iris, VPNDB and BGP routing cards), with an action row
+  profile_view.py              Domain profile: one domain on one screen (DomainTools risk score components, Iris, VPNDB and BGP routing cards), with an action row
   cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags and anomalies, anatomy with shape, related, where seen)
                                (sightings, IrisQL, CertsQL, copy)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores

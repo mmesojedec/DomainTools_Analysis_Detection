@@ -36,3 +36,26 @@ def risk_rows_to_dataframe(rows):
     if not df.empty:
         df["Score"] = pd.to_numeric(df["Score"], errors="coerce")
     return df
+
+
+# Component names (as risk_response_to_rows titles them) -> the names the app shows
+COMPONENT_LABELS = {"Overall Risk": "Overall", "Proximity": "Proximity", "Threat Profile": "Threat profile",
+                    "Threat Profile Malware": "Malware", "Threat Profile Phishing": "Phishing",
+                    "Threat Profile Spam": "Spam", "Zerolist": "Zerolist"}
+
+
+def risk_components(risk_df):
+    """{domain: {label: {"Score", "Threats", "Evidence"}}} of the risk rows, labels as COMPONENT_LABELS names them
+    (Overall, Proximity, Threat profile, Malware, Phishing, Spam), in that order. A missing score is None."""
+    out = {}
+    if risk_df is None or risk_df.empty:
+        return out
+    order = list(COMPONENT_LABELS)
+    rows = risk_df.assign(_order=risk_df["Component"].map(lambda c: order.index(c) if c in order else len(order)))
+    for row in rows.sort_values("_order", kind="stable").itertuples(index=False):
+        score = pd.to_numeric(row.Score, errors="coerce")
+        out.setdefault(row.Domain, {})[COMPONENT_LABELS.get(row.Component, row.Component)] = {
+            "Score": None if pd.isna(score) else float(score),
+            "Threats": str(row.Threats or "") if not pd.isna(row.Threats) else "",
+            "Evidence": str(row.Evidence or "") if not pd.isna(row.Evidence) else ""}
+    return out

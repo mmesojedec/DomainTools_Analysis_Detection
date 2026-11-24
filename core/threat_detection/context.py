@@ -30,6 +30,7 @@ class DomainContext:
     risk_display: object = "N/A"
     numeric_risk: float = None
     risk_evidence: str = "None"
+    risk_components: dict = field(default_factory=dict)   # integrations.risk.risk_components of the domain
     events: pd.DataFrame = field(default_factory=pd.DataFrame)
     ssl: pd.DataFrame = field(default_factory=pd.DataFrame)
     enrichment: dict = None

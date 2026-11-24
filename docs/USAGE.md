@@ -100,7 +100,10 @@ is in [Pages](USER_GUIDE.md#pages).
     hostnames, with *Watch this list*;
   - the use-case plan, when the run was started from a use case;
   - **Lookups of the last Analyze** (see *Collection progress* below).
-- **Domain profile** shows one domain on one screen: risk and DIF, *Why this score*, your verdict on the domain, an
+- **Domain profile** shows one domain on one screen: risk, then the **DomainTools risk score** components as numbers
+  (Proximity, Malware, Phishing, Spam, and last the Threat profile with the threats it predicts and the evidence it is
+  based on; a note when Proximity is high while Malware, Phishing and Spam are low, see [Possible domain
+  hijack](#possible-domain-hijack)), DIF, *Why this score*, your verdict on the domain, an
   action row, and one card per source: **Registration** and **Hosting** (Iris Investigate: registrar and dates, current IPs with ASN,
   ISP and country, name servers) and **VPNDB** (which VPN or proxy provider operates behind each IP: every checked IP of the domain with
   where it was seen, category, provider, confidence, sharing, IOC value, Tor role, network and country, exits first)
@@ -270,6 +273,25 @@ The display options change how the pages look, not what is looked up:
 Risk; Passive DNS & Domain History; Iris Investigate & Domain Name; Certificate API) (dormancy periods, fast-flux counts, entropy,
 certificate limits, ...). Changes re-run the engine on the data already collected, with no new API calls. The
 full list with defaults is in [Detection thresholds](USER_GUIDE.md#detection-thresholds).
+
+#### Possible domain hijack
+
+The DomainTools risk score has two kinds of components. **Proximity** says how close the domain is to known bad
+domains (shared IPs, name servers, registrant). **Malware**, **Phishing** and **Spam** (the threat profile) say how bad
+the domain looks from its own traits. A high Proximity with a low threat profile means a harmless-looking domain next
+to bad infrastructure. Two rules read that pattern (Proximity 90 or more, Malware, Phishing and Spam all 30 or less):
+
+- **Possible Domain Hijack** (High): the domain is at least a year old and, in the last 90 days, moved to an IP
+  network (a /24, CDN addresses not counted), name server provider, registrar or registrant it did not have before.
+  Domain History changes compare their Before and After; passive DNS records compare with the domain's earlier records
+  in the analysis window, so a longer window sees more moves. Only the domain and `www` count, not other subdomains.
+- **Benign-Looking Domain in Malicious Neighborhood** (Medium): the same scores without the age or the move; the
+  alert says which is missing. Shared hosting, or a new domain an actor gave a harmless name, are the usual reasons.
+
+Both drop to Low confidence when every current IP is shared by 1,000 or more domains (shared hosting), and both run
+below the Min Risk Score. The four **Hijack:** thresholds (*DomainTools Risk* group) set the scores, the age and the
+change window. An unknown Malware, Phishing or Spam score never counts as low. The Domain profile shows every component's score under
+*DomainTools risk score*, the threat profile's threats and evidence, and notes the pattern when it applies.
 
 **Brand watchlist** (*Settings → Brands & allowlist*): the brands you protect, one per line or comma-separated. A domain
 entry (`acme.com`) also marks that domain as the brand's own. The *Lookalike / Brand* detections (typosquats,

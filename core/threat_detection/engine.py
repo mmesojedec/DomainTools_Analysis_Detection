@@ -31,11 +31,13 @@ from core.threat_detection.enrichment_rules import ENRICHMENT_RULES, apply_popul
 from core.threat_detection.intel_rules import INTEL_RULES
 from core.threat_detection.lifecycle_rules import LIFECYCLE_RULES
 from core.threat_detection.resolver_rules import RESOLVER_RULES
+from core.threat_detection.risk_rules import RISK_RULES
 from core.threat_detection.ssl_rules import run_ssl_rules
 from integrations.enrichment import extract_iris_profile
+from integrations.risk import risk_components
 
 # Rules still kept for domains below the Min Risk Score: their evidence stands on its own (brand lookalikes, takeover
-# risk, CAA breaches, known C2 certificate fingerprints), and new or own domains often have a low risk score
+# risk, CAA breaches, known C2 certificate fingerprints, a high Proximity with a low threat profile), and new or own domains often have a low risk score
 GATE_EXEMPT_RULES = frozenset({
     "Phishing Kit Staging", "Mail-Capable Lookalike", "Lure Subdomain",
     "Homoglyph / IDN Brand Impersonation", "Typosquatting Lookalike", "Combosquatting (Brand + Keyword)",
@@ -45,6 +47,7 @@ GATE_EXEMPT_RULES = frozenset({
     "Dangling SPF Include (Mail Spoofing Risk)", "CNAME to Lapsed Domain (Takeover Risk)",
     "Unauthorized CA Certificate Issuance (CAA Breach)", "Wildcard Issuance Forbidden by CAA Policy",
     "Known C2 Certificate Fingerprint (JA4X)", "Code-Generated Certificate Layout (JA4X)",
+    "Possible Domain Hijack", "Benign-Looking Domain in Malicious Neighborhood",
 })
 
 
@@ -180,6 +183,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         return result
 
     risk_lookup = build_risk_lookup(risk_df)
+    components = risk_components(risk_df)
     tracker_occurrences = build_tracker_occurrences(enrichment_data)
     events_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in events.groupby("Domain")} if not events.empty else {}
     ssl_by_domain = {dom: grp for dom, grp in ssl_df.groupby("Domain")} if not ssl_df.empty and "Domain" in ssl_df.columns else {}
@@ -215,6 +219,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
             risk_display=risk_display,
             numeric_risk=numeric_risk,
             risk_evidence=evidence,
+            risk_components=components.get(domain, {}),
             events=dom_events,
             ssl=ssl_by_domain.get(domain, pd.DataFrame()),
             enrichment=enrichment_data.get(domain),
@@ -242,7 +247,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
         if not dom_events.empty:
             for rule in DNS_RULES + CNAME_RULES + RESOLVER_RULES:
                 rule(ctx)
-        for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES + BGP_RULES:
+        for rule in ENRICHMENT_RULES + INTEL_RULES + LIFECYCLE_RULES + ANONYMIZER_RULES + BGP_RULES + RISK_RULES:
             rule(ctx)
         run_ssl_rules(ctx)
         if gated:

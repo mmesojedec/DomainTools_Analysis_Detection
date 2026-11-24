@@ -143,6 +143,19 @@ THRESHOLD_SPECS = (
                   "get every rule.", "DomainTools Risk"),
     ThresholdSpec("high_risk_score", "High-Risk Score Cutoff", 70, 0, 100, 1,
                   "Unified/predictive risk score at or above which a domain counts as high risk (KPIs).", "DomainTools Risk"),
+    ThresholdSpec("proximity_min", "Hijack: Min Proximity Score", 90, 50, 100, 1,
+                  "Proximity score (closeness to known bad infrastructure) at or above which a domain whose own threat "
+                  "profile is low gets *Benign-Looking Domain in Malicious Neighborhood* or *Possible Domain Hijack*.",
+                  "DomainTools Risk"),
+    ThresholdSpec("threat_profile_max", "Hijack: Max Malware / Phishing / Spam Score", 30, 0, 70, 1,
+                  "The domain's own threat profile is low when its Malware, Phishing and Spam scores are all at or "
+                  "below this value (an unknown score is not low).", "DomainTools Risk"),
+    ThresholdSpec("hijack_age_days", "Hijack: Min Domain Age (Days)", 365, 30, 3650, 30,
+                  "Only a domain at least this old (Iris create date) can be a *Possible Domain Hijack*: a younger "
+                  "one is more likely set up by the actor.", "DomainTools Risk"),
+    ThresholdSpec("hijack_change_days", "Hijack: Recent Change Window (Days)", 90, 7, 365, 1,
+                  "A *Possible Domain Hijack* needs a move of the domain's IP network, name server provider, "
+                  "registrar or registrant within this many days.", "DomainTools Risk"),
     # --- Passive DNS & Domain History ---
     ThresholdSpec("parked_days", "Parked Dormancy (Days)", 180, 30, 365, 10,
                   "Days of inactivity before a sudden infrastructure burst triggers a Parked-to-Weaponized alert.", "Passive DNS & Domain History"),

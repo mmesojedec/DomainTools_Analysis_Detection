@@ -58,7 +58,7 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
 3. **Score gate.** Domains whose known DomainTools risk score is below **Min Risk Score** get only the rules whose
    evidence stands on its own: the lookalike rules, subdomain takeover (*Dangling CNAME*, *Unverified CNAME to
    Takeover-Prone Service*), the CAA breaches, *Known C2 Certificate Fingerprint (JA4X)*, *Phishing Kit Staging*,
-   *Mail-Capable Lookalike* and *Lure Subdomain*. A new lookalike or your own domain often has a low score. An info
+   *Mail-Capable Lookalike*, *Lure Subdomain*, *Possible Domain Hijack* and *Benign-Looking Domain in Malicious Neighborhood*. A new lookalike or your own domain often has a low score. An info
    box lists these domains. Domains Iris Investigate has no score for are still fully evaluated, with a warning. IP
    targets are always evaluated.
 4. **Detect.** Every [detection rule](#detection-catalogue) runs per domain or IP on raw UTC timestamps. Then the
@@ -551,6 +551,7 @@ current run.
 | Anonymizer Exit Shared by Analyzed Domains | Medium-High | Medium | T1583.003 (Acquire Infrastructure: Virtual Private Server) | Two or more analyzed domains resolve to the same anonymizer exit, one that few customers share (shared exits are left out). | Domains behind one non-shared exit are probably run by the same operator. |
 | Hosted Among Tor Exits | Medium | Low | T1090.003 (Proxy: Multi-hop Proxy) | The domain's IPs are not Tor relays, but sit in a Tor exit prefix, or on a network carrying 0.5 % or more of Tor exit traffic or 10+ exit addresses (VPNDB /tor). | A hoster that welcomes Tor exits, often privacy or bulletproof-style, or a server next to the operator's own exits. |
 | Hosted Among Anonymizer Exits | Medium | Low | T1090.002 (Proxy: External Proxy) | The domain's IPs are not exits, but their /24 holds known VPN / proxy exits, or the network (Iris ASN) is one VPN provider's (VPNDB). | The domain is probably hosted on an anonymizer operator's servers or next to them. |
+| Benign-Looking Domain in Malicious Neighborhood | Medium | Medium | T1583.001 (Acquire Infrastructure: Domains) | DomainTools Proximity of 90 or more while Malware, Phishing and Spam are all 30 or less, without the age and recent change of a Possible Domain Hijack. | Shared hosting, a new actor domain with a harmless name, or a compromise not yet visible as a change. Low confidence when its IPs are shared hosting. |
 | Subdomain Takeover in Progress | Critical | Medium | T1584.001 (Compromise Infrastructure: Domains) | Compound: a dangling CNAME and a subdomain repointed to another provider on the same domain. | A takeover may already have happened, not only be possible. |
 | Bulletproof-Hosted New Domain | High | Medium | T1583.003 (Acquire Infrastructure: Virtual Private Server) | Compound: newly registered and on a suspicious name server, watchlisted hosting, an anonymizer exit, or with name server churn. | Set up to resist takedown from day one. |
 
@@ -576,6 +577,7 @@ current run.
 | Parking Exit / Reactivation | High | Medium | T1583.001 (Acquire Infrastructure: Domains) | Domain left parking name servers and gained live A/AAAA/MX records within 7 days. | Reactivation of a parked domain often marks the start of malicious use. |
 | Newly Registered Domain | Medium | High | T1583.001 (Acquire Infrastructure: Domains) | Created within Newly Registered Domain Age (Days). | Most malicious domains are used within days of registration. |
 | Newly Registered & Weaponized Domain | High | High | T1583.001 (Acquire Infrastructure: Domains) | Newly registered and already resolving, mailing, or serving certificates (resolving does not count while it is on parking name servers). | A brand-new domain that is already operational is a strong abuse signal. |
+| Possible Domain Hijack | High | Medium | T1584.001 (Compromise Infrastructure: Domains) | DomainTools Proximity of 90 or more while Malware, Phishing and Spam are all 30 or less, on a domain at least 365 days old whose IP network (not a CDN), name server provider, registrar or registrant changed in the last 90 days (thresholds on Settings). | An established domain that looks harmless itself but moved next to known bad infrastructure: the pattern of a hijacked or compromised domain. Low confidence when its IPs are shared hosting. |
 | Re-Registered Domain | Medium | Medium | T1583.001 (Acquire Infrastructure: Domains) | Iris first saw the domain over a year before its current registration, or it has certificates issued more than 30 days before the registration. | Lapsed domains are drop-caught and reused for their history and reputation. |
 | Disposable Registrant Email | Medium | Medium | T1585.002 (Establish Accounts: Email Accounts) | The registration's email domains include a throwaway mail service (mailinator, guerrillamail, cock.li, ...). | Nobody can be reached there for abuse reports; legitimate owners rarely register with one. |
 | Registrar Transfer then New Name Servers | Medium-High | Medium | T1584.001 (Compromise Infrastructure: Domains) | A registrar change in Domain History followed within 14 days by name servers of a provider that is neither a large DNS provider nor parking. | The pattern of a hijacked or drop-caught domain being put to new use. |
@@ -706,10 +708,10 @@ the technique, not how many alerts fired; the in-app **MITRE ATT&CK** tab shows 
 | Tactic | Technique | Name(s) used by rules | Rules |
 | --- | --- | --- | --- |
 | Resource Development | T1583 | Acquire Infrastructure | 5 |
-| Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 27 |
+| Resource Development | T1583.001 | Acquire Infrastructure; Acquire Infrastructure: Domains | 28 |
 | Resource Development | T1583.003 | Acquire Infrastructure: Virtual Private Server | 3 |
 | Resource Development | T1583.006 | Acquire Infrastructure: Web Services | 1 |
-| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 12 |
+| Resource Development | T1584.001 | Compromise Infrastructure; Compromise Infrastructure: Domains | 13 |
 | Resource Development | T1584.002 | Compromise Infrastructure: DNS Server | 2 |
 | Resource Development | T1584.008 | Compromise Infrastructure: Network Devices | 1 |
 | Resource Development | T1585.002 | Acquire Email Accounts; Establish Accounts: Email Accounts | 2 |
@@ -889,6 +891,10 @@ engine on data already collected, with no new API calls.
 | --- | --- | --- | --- | --- |
 | Min Risk Score | 70 | 0–100 | DomainTools Risk | Domains with a known DomainTools risk score below this value get only the rules that stand on their own (lookalikes, subdomain takeover, CAA breaches, known C2 JA4X). Domains without a risk score get every rule. |
 | High-Risk Score Cutoff | 70 | 0–100 | DomainTools Risk | Unified/predictive risk score at or above which a domain counts as high risk (KPIs). |
+| Hijack: Min Proximity Score | 90 | 50–100 | DomainTools Risk | Proximity score (closeness to known bad infrastructure) at or above which a domain whose own threat profile is low gets *Benign-Looking Domain in Malicious Neighborhood* or *Possible Domain Hijack*. |
+| Hijack: Max Malware / Phishing / Spam Score | 30 | 0–70 | DomainTools Risk | The domain's own threat profile is low when its Malware, Phishing and Spam scores are all at or below this value (an unknown score is not low). |
+| Hijack: Min Domain Age (Days) | 365 | 30–3650 | DomainTools Risk | Only a domain at least this old (Iris create date) can be a *Possible Domain Hijack*: a younger one is more likely set up by the actor. |
+| Hijack: Recent Change Window (Days) | 90 | 7–365 | DomainTools Risk | A *Possible Domain Hijack* needs a move of the domain's IP network, name server provider, registrar or registrant within this many days. |
 | Parked Dormancy (Days) | 180 | 30–365 | Passive DNS & Domain History | Days of inactivity before a sudden infrastructure burst triggers a Parked-to-Weaponized alert. |
 | Rapid IP Rotation Event Count | 5 | 2–20 | Passive DNS & Domain History | Minimum distinct IPs within 7 days needed to flag Fast-Flux DNS behavior. |
 | Fast-Flux Min Distinct Networks | 3 | 2–10 | Passive DNS & Domain History | Distinct ASNs (or network prefixes when ASN is unknown) of non-CDN IPs within 7 days for Multi-Network Fast-Flux. |

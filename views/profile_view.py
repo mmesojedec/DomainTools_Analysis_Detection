@@ -13,8 +13,10 @@ from core.ja4x import note as ja4x_note
 from core.network_intel import explode_ip_events
 from core.next_steps import SEVERITY_RANK
 from core.risk_profile import drivers_text, score_drivers
+from core.threat_detection.risk_rules import risk_pattern
 from core.triage import DOMAIN, STATUS_HELP, STATUSES, load_triage, set_status, status_of
 from integrations.enrichment import extract_iris_profile
+from integrations.risk import risk_components
 from views import navigation
 from views.anonymizer_view import CATEGORY_BADGES, alerts_button, selectable_table
 from views.common import metric, metric_slots
@@ -193,6 +195,37 @@ def _render_similar(ctx, domain):
         navigation.link("similarity", label="Every pair, clusters and weights (Domain similarity)")
 
 
+RISK_SCORES = ("Proximity", "Malware", "Phishing", "Spam")
+
+
+def _render_risk(ds, domain, thresholds):
+    """The DomainTools risk score's components as numbers, like the metrics above; the threat profile last, with the
+    threats it predicts and the evidence it is based on."""
+    found = risk_components(ds.risk).get(domain) if not ds.risk.empty else None
+    st.markdown("**DomainTools risk score**")
+    if not found:
+        st.caption("Iris Investigate gave no risk score for this domain.")
+        return
+    row = st.container(horizontal=True, wrap=True, gap="medium")
+    for name in RISK_SCORES:
+        score = (found.get(name) or {}).get("Score")
+        metric(row.container(width=190), name, "–" if score is None else f"{score:.0f}")
+    profile = found.get("Threat profile") or {}
+    details = [f"**{label}:** {md_escape(text)}" for label, text in (("Threats", profile.get("Threats")),
+                                                                     ("Evidence", profile.get("Evidence"))) if text]
+    score = profile.get("Score")
+    metric(row.container(width=380), "Threat profile", "–" if score is None else f"{score:.0f}",
+           note="  \n".join(details) or None)
+    pattern = risk_pattern(found, thresholds["proximity_min"], thresholds["threat_profile_max"])
+    if pattern:
+        st.warning(f"**Proximity {pattern[0]:g}** while Malware, Phishing and Spam are all "
+                   f"{thresholds['threat_profile_max']:g} or less: a harmless-looking domain next to known bad "
+                   "infrastructure. On an established domain that recently moved its hosting, name servers, "
+                   "registrar or registrant, that is how a hijack looks (*Possible Domain Hijack*); otherwise "
+                   "shared hosting or a new actor domain (*Benign-Looking Domain in Malicious Neighborhood*). "
+                   "See the Alerts below.", icon=":material/travel_explore:")
+
+
 def _render_actions(domain):
     """One row of next moves for the domain: where else it was seen, IrisQL / CertsQL searches, a copyable name."""
     from views.certsql_view import QUERY_KEY as CERTSQL_KEY  # the query pages import this page's helpers
@@ -247,6 +280,7 @@ def render_profile(ctx):
     ]
     for col, (label, value, help_text, *delta) in zip(metric_slots(len(metrics)), metrics):
         metric(col, label, value, note=delta[0] if delta else None, help=help_text)
+    _render_risk(ds, domain, ctx.thresholds)
     if profile is not None and profile.get("DIF Breakdown"):
         st.caption(f"**DIF** `{profile['DIF Fingerprint']}` — {profile['DIF Breakdown']}")
     if profile is not None:
