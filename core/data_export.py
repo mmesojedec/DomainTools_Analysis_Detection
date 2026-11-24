@@ -39,17 +39,38 @@ def _frame(value):
 
 
 def _cert_profiles(ds):
+    from core import cert_anomalies as ca
     from core import cert_profile as cp
     certs = cp.certificates(ds.ssl)
     if certs.empty:
         return certs
+    run = ca.cached_run(certs, getattr(ds, "ctl", None))
+    found = run.anomalies()
+    table = run.shapes()
+    shapes = dict(zip(table["Hash"], table["Shape"]))
     rows = []
     for cert in certs.to_dict("records"):
-        found = cp.flags(cert, related=cp.related_certificates(cert, certs))
+        flags = cp.flags(cert, related=cp.related_certificates(cert, certs))
+        own = ca.for_certificate(cert["Hash"], found)
         rows.append({"Domains": cp.text(cert.get("Domains")),
                      **{f"{section}: {label}": cp.text(cert.get(column)) for section, label, column in cp.FIELDS},
-                     "Flags": " | ".join(f"{s}: {f}" for s, f in zip(found["Severity"], found["Finding"]))})
+                     "Shape": shapes.get(cert["Hash"]) or "",
+                     "Flags": " | ".join(f"{s}: {f}" for s, f in zip(flags["Severity"], flags["Finding"])),
+                     "Anomalies": " | ".join(f"{s} ({c}): {f}" for s, c, f in
+                                             zip(own["Severity"], own["Check"], own["Finding"]))})
     return pd.DataFrame(rows)
+
+
+def _cert_families(ds):
+    from core import cert_anomalies as ca
+    from core import cert_profile as cp
+    from core import cert_shape as shape
+    certs = cp.certificates(ds.ssl)
+    if certs.empty:
+        return certs
+    run = ca.cached_run(certs, getattr(ds, "ctl", None))
+    families = shape.families(certs, run.anomalies(), run.shapes())
+    return families.assign(Hashes=families["Hashes"].map(", ".join))
 
 
 def _resolution(ds):
@@ -78,8 +99,11 @@ EXPORT_SETS = [
     ExportSet("cname_chains", "Tables", "CNAME chains", "Every CNAME in the analysis window with its target service, "
               "full chain and where it ends", lambda c: dataset_cname_map(c.ds)),
     ExportSet("certificate_profiles", "Tables", "Certificate profiles", "Every certificate once, every X.509 field "
-              "(subject, issuer, validity, key, extensions, SANs, fingerprints) and what stands out (flags)",
-              lambda c: _cert_profiles(c.ds)),
+              "(subject, issuer, validity, key, extensions, SANs, fingerprints), its shape, what stands out (flags) "
+              "and its anomalies against the run's other certificates", lambda c: _cert_profiles(c.ds)),
+    ExportSet("certificate_families", "Tables", "Certificate families", "Certificates of one shape (how they were "
+              "made: issuer, key, validity band, extension layout, policy, serial length, SAN profile) with the "
+              "analyzed domains they cover and their anomalies", lambda c: _cert_families(c.ds)),
     ExportSet("dns_resolution", "Tables", "DNS resolution", "Every current record of the DNS tree resolved to IP "
               "addresses, with its status, dangling targets and warnings (DNS resolution lens)",
               lambda c: _resolution(c.ds)),

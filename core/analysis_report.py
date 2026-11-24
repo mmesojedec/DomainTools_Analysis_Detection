@@ -45,8 +45,9 @@ SECTIONS = [
                                               "shared infrastructure, weekly activity, lifecycle and data health"),
     Section("profiles", "Overview", "Domain profiles", "Risk radar, DIF fingerprints and a card per domain "
                                                        "(registration, hosting, routing, VPNDB, alerts)"),
-    Section("cert_profiles", "Overview", "Certificate profiles", "The certificates that stand out most, field by field: "
-                                                                 "anatomy, flags, related certificates"),
+    Section("cert_profiles", "Overview", "Certificate profiles", "Certificate families and anomalies, then the "
+                                                                 "certificates that stand out most, field by field: "
+                                                                 "anatomy, shape, flags, related certificates"),
     Section("alerts", "Overview", "Alerts", "Alert heatmap, ATT&CK treemap and techniques, Iris risk components, the "
                                             "alerts by severity"),
     Section("dns", "Infrastructure", "DNS & hosting", "IPs, hosting networks, name servers, MX, TXT apps and how they "

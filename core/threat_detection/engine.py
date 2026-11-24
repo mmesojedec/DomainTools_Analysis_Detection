@@ -17,6 +17,7 @@ from core.pdns_features import add_event_gaps
 from core.resolver import build_index, build_tree
 from core.threat_detection.anonymizer_rules import ANONYMIZER_RULES, shared_exit_alerts
 from core.threat_detection.bgp_rules import BGP_RULES
+from core.threat_detection.cert_anomaly_rules import certificate_anomaly_alerts
 from core.threat_detection.cname_rules import CNAME_RULES, shared_cname_alerts
 from core.threat_detection.compound_rules import (
     COMPOUND_RULES,
@@ -141,7 +142,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
                         cert_events_df=None, ip_observations=None, brands=(), official_domains=(),
                         history_gaps=False, window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None,
                         vpndb_context=None, verdicts=None, allowlist=None, bgp_frames=None, resolutions=None,
-                        pdns_coverage=None):
+                        pdns_coverage=None, ct_logs=None):
     """
     Evaluates DNS/pDNS/Domain History events, SSL/TLS certificates, Iris enrichment, and cross-domain
     correlations per domain on raw UTC timestamps. Returns a ThreatResult.
@@ -155,6 +156,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     `bgp_frames`: {"origins", "asns", "routes"} (BGPDB, core.bgp) for the BGP routing rules.
     `resolutions`: DNSDB lookups of the DNS tree (core.resolver.LOOKUP_COLUMNS) and `pdns_coverage` (which domains'
     passive DNS lookup was complete) for the dangling DNS rules.
+    `ct_logs`: the run's CT log entries (Hash, Timestamp) for the certificate anomaly rules (first log time).
     """
     thresholds = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     enrichment_data = enrichment_data or {}
@@ -267,6 +269,7 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     malicious_link_alerts(contexts, result.correlation, verdicts)
     bulk_registration_alerts(contexts)
     campaign_wave_alerts(contexts)
+    certificate_anomaly_alerts(contexts, ssl_df, ct_logs)
     for ctx in contexts.values():
         for rule in COMPOUND_RULES:   # last: they read the flags every other rule set
             rule(ctx)

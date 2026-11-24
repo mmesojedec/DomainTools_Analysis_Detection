@@ -129,7 +129,7 @@ def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip
                       window_start=None, cname_chases=None, cname_rdata=None, anonymizers=None, exit_weeks=None,
                       neighbour_ranges=None, hosting_asns=None, tor_overview=None, verdicts=None, allowlist="",
                       bgp_origins=None, bgp_asns=None, bgp_routes=None, bgp_previous=None, resolutions=None,
-                      pdns_coverage=None):
+                      pdns_coverage=None, ct_logs=None):
     return detect_threat_flags(
         events, thresholds, risk_df=risk, ssl_df=ssl, enrichment_data=enrichment, cert_events_df=cert_events,
         ip_observations=ip_observations, brands=brands, official_domains=official_domains,
@@ -138,7 +138,7 @@ def run_threat_engine(events, thresholds, risk, ssl, enrichment, cert_events, ip
                                                 "hosting_asns": hosting_asns, "tor_overview": tor_overview},
         verdicts=verdicts, allowlist=allowlist,
         bgp_frames={"origins": bgp_origins, "asns": bgp_asns, "routes": bgp_routes, "previous": bgp_previous},
-        resolutions=resolutions, pdns_coverage=pdns_coverage,
+        resolutions=resolutions, pdns_coverage=pdns_coverage, ct_logs=ct_logs,
     )
 
 
@@ -150,11 +150,12 @@ def analyst_inputs():
 
 def vpndb_frames(ds):
     """The VPNDB context frames the anonymizer rules read (see collector.collect_anonymizer_context), the BGPDB
-    frames of the BGP routing rules, and the DNS resolution lookups of the dangling DNS rules."""
+    frames of the BGP routing rules, the DNS resolution lookups of the dangling DNS rules, and the CT log entries of
+    the certificate anomaly rules."""
     return {"exit_weeks": ds.exit_weeks, "neighbour_ranges": ds.neighbour_ranges, "hosting_asns": ds.hosting_asns,
             "tor_overview": ds.tor_overview, "bgp_origins": ds.bgp_origins, "bgp_asns": ds.bgp_asns,
             "bgp_routes": ds.bgp_routes, "bgp_previous": previous_bgp_routing(ds), "resolutions": ds.resolutions,
-            "pdns_coverage": ds.pdns_coverage}
+            "pdns_coverage": ds.pdns_coverage, "ct_logs": getattr(ds, "ctl", None)}
 
 
 def previous_bgp_routing(ds):

@@ -8,6 +8,7 @@ every certificate: per field how often it is filled, its common values and its r
 Pure: no API call, no Streamlit.
 """
 import re
+from collections import OrderedDict
 from datetime import datetime
 
 import pandas as pd
@@ -105,7 +106,11 @@ def when(value):
         else:
             return pd.NaT
     else:
-        stamp = pd.to_datetime(value, errors="coerce", utc=True)
+        try:                    # ISO text and timestamps: far faster than to_datetime, which guesses a format per call
+            stamp = pd.Timestamp(value)
+            stamp = stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
+        except (ValueError, TypeError, OverflowError):
+            stamp = pd.to_datetime(value, errors="coerce", utc=True)
     return stamp.tz_convert(None) if pd.notna(stamp) else pd.NaT
 
 
@@ -226,6 +231,32 @@ def ranked(certs, domain=None, order=ORDERS[0], now=None):
     columns = [f"_k{i}" for i in range(len(keys))]
     return frame.assign(**dict(zip(columns, keys))).sort_values(columns, kind="stable").drop(columns=columns) \
         .reset_index(drop=True)
+
+
+def frame_key(certs, columns=("Hash", "Domains", "Sources", "Source", "Not Before", "Not After")):
+    """A cache key for a certificates frame: the text of the columns that identify and place its certificates."""
+    present = tuple(c for c in columns if c in certs.columns)
+    return (present, *(tuple(map(str, certs[c])) for c in present))
+
+
+_RANKED = OrderedDict()     # (frame_key, domain, order, 10-minute slot) -> ranked(), the few most recent
+
+
+def cached_ranked(certs, domain=None, order=ORDERS[0]):
+    """ranked(), reused while the certificates, domain and order stay the same (within ten minutes, as Status and
+    the expiry order move with the clock): the Certificate profile reruns on every click, and ranking flags every
+    certificate."""
+    if certs is None or certs.empty:
+        return ranked(certs, domain, order)
+    key = (frame_key(certs), domain, order, pd.Timestamp.now().floor("10min"))
+    frame = _RANKED.get(key)
+    if frame is None:
+        frame = _RANKED[key] = ranked(certs, domain, order)
+        while len(_RANKED) > 8:
+            _RANKED.popitem(last=False)
+    else:
+        _RANKED.move_to_end(key)
+    return frame.copy()
 
 
 def most_relevant(certs, domain=None, now=None):
@@ -397,11 +428,16 @@ def field_breakdown(certs, rare_limit=5):
     return pd.DataFrame(rows, columns=BREAKDOWN_COLUMNS)
 
 
-def riskiest(certs, now=None, limit=None):
-    """The certificates ordered by their most severe flag (then newest), for the report."""
+def riskiest(certs, now=None, limit=None, anomalies=None):
+    """The certificates ordered by their most severe flag or anomaly (core.cert_anomalies, `anomalies`), then newest,
+    for the report."""
     if certs is None or certs.empty:
         return certs
-    ranks = [min((SEVERITY_RANK.get(s, 9) for s in flags(row, now)["Severity"]), default=9)
+    extra = {}
+    if anomalies is not None and not anomalies.empty:
+        for digest, severity in zip(anomalies["Hash"], anomalies["Severity"]):
+            extra[digest] = min(extra.get(digest, 9), SEVERITY_RANK.get(severity, 9))
+    ranks = [min([SEVERITY_RANK.get(s, 9) for s in flags(row, now)["Severity"]] + [extra.get(row.get("Hash"), 9)])
              for row in certs.to_dict("records")]
     ordered = certs.assign(_r=ranks).sort_values("_r", kind="stable").drop(columns="_r")
     return ordered.head(limit) if limit else ordered

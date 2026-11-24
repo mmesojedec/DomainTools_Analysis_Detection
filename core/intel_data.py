@@ -399,6 +399,8 @@ RULE_METADATA = {
     "Certificate Staged Before DNS": ("Certificates", "Medium"),
     "Backdated Certificate": ("Certificates", "Medium"),
     "Unusual Certificate Fields": ("Certificates", "Medium"),
+    "Issuer Key Mismatch (Impersonated CA)": ("Certificates", "Medium"),
+    "Insufficient SCTs (CT Policy)": ("Certificates", "Medium"),
     "Re-Registered Domain": ("Registration & Lifecycle", "Medium"),
     "Disposable Registrant Email": ("Registration & Lifecycle", "Medium"),
     "Name Server Churn": ("DNS Behavior", "Medium"),

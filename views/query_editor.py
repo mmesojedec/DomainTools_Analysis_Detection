@@ -36,6 +36,32 @@ def set_query(key, text):
     st.session_state[_revision_key(key)] = st.session_state.get(_revision_key(key), 0) + 1
 
 
+def clear_query(key, header, *also):
+    """Clear button callback: the editor goes back to the version line alone, and the `also` keys (the last search's
+    results, the example picked) are dropped."""
+    set_query(key, f"{header}\n")
+    for name in also:
+        st.session_state.pop(name, None)
+
+
+def query_actions(key, header, search_help, clear_keys=(), search_label="Search"):
+    """
+    Search and Clear under the editor. Search is always enabled, like the Start page's Analyze: clicking it is what
+    takes the typed query (the editor sends its text when it loses focus), so a query just typed is searched on the
+    first click. Returns True when Search was clicked; the page checks the query then.
+    """
+    c_search, c_clear, _ = st.columns([1, 1, 6], vertical_alignment="center")
+    clicked = c_search.button(search_label, type="primary", icon=":material/manage_search:", help=search_help,
+                              width="stretch")
+    typed = bool(str(st.session_state.get(key) or "").strip().removeprefix(header).strip())
+    c_clear.button("Clear", icon=":material/close:", type="tertiary", key=f"{key}_clear",
+                   disabled=not typed and not any(st.session_state.get(k) for k in clear_keys),
+                   on_click=clear_query, args=(key, header, *clear_keys),
+                   help="Empties the query and removes the last search's results from this page (saved runs and "
+                        "watches stay).")
+    return clicked
+
+
 def _take(key):
     """on_commit callback (runs before the page script): the typed text becomes the query, so this run's warnings and
     line markers are already about it."""

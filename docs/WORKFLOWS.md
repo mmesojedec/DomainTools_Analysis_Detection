@@ -347,7 +347,7 @@ miss (`observed: false`) counts as *No data*, not an error; a quota or key probl
 | Detection | Every rule runs per domain / IP (including the lifecycle and compound rules), then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping, bulk-registration cohorts, campaign waves, links to a domain you marked Malicious). A domain among the 10,000 most popular in Iris, or on the DomainTools zerolist, has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert. Your allowlist and your verdicts on a rule can move the confidence too | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
-| Profiles and comparisons | Certificate profile (each certificate field by field, flags, related certificates), Certificates → Field breakdown, Domain similarity (pairs, clusters, shared indicators) | Yes |
+| Profiles and comparisons | Certificate profile (each certificate field by field, flags, shape and issuer baseline, related certificates), Certificates → Families & anomalies, Field breakdown, Domain similarity (pairs, clusters, shared indicators) | Yes |
 | Analysis report | The run as one HTML page: High level overview, Detailed or Complete report, the sections you pick | Yes |
 | Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (Start page Targets box, before Analyze; or after it on the status line) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the **Runs** page lists (*Recent runs*) and searches (*Indicator Sightings*) | - |
 

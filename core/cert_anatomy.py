@@ -167,6 +167,13 @@ CSS = """
 .ca .rel{color:var(--ca-mute);font-size:12px;margin-left:6px}
 .ca details summary{cursor:pointer;color:var(--ca-accent);font-size:12.5px;margin-top:4px}
 .ca .none{padding:14px;color:var(--ca-mute)}
+.ca .shape{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;margin-bottom:10px}
+.ca .shape b.mono{font-size:13px;padding:1px 8px;border-radius:6px;background:rgba(99,102,241,.16)}
+.ca .vs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.ca .vs div{border:1px solid var(--ca-line);border-left:4px solid var(--ca-vs);border-radius:8px;padding:5px 9px;
+ font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.ca .vs small{display:block;color:var(--ca-mute);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.ca .vs em{display:block;font-style:normal;color:var(--ca-mute);font-size:12px}
 </style>
 """
 
@@ -492,12 +499,46 @@ def _fingerprint(cert, by_column):
     return f'<div class="strip"><h5>Field fingerprint</h5><div class="dna">{"".join(cells)}</div>{legend}</div>'
 
 
-def anatomy_html(cert, found=None, only_filled=True, query="", explain=False, domains=None, now=None, css=True):
+USUAL = "Issuer's usual"
+VERDICT_COLOURS = {"usual": "#16a34a", "differs": "#d97706", "rare": "#dc2626", "too few": "rgba(127,127,127,.45)"}
+
+
+def _shape_strip(family, against):
+    """The certificate's shape (family ID, label, size) and its traits against its issuer's usual ones."""
+    if not family and (against is None or against.empty):
+        return ""
+    parts = ['<div class="strip"><h5>Shape and issuer baseline</h5>']
+    if family and family.get("id"):
+        size, spread = len(family.get("members") or []), len(family.get("domains") or [])
+        parts.append(f'<div class="shape"><b class="mono">{_e(family["id"])}</b><span>{_e(family.get("label"))}</span>'
+                     f'<span class="tag">{size} certificate(s) of this shape · {spread} analyzed domain(s)</span></div>')
+    elif family:
+        parts.append('<div class="shape"><span class="rel" style="margin:0">Too few known fields to give this '
+                     "certificate a shape (Domain History and Iris Investigate list only a few).</span></div>")
+    if against is not None and not against.empty:
+        def note(row):
+            share = re.search(r"\((\d+ of \d+)\)$", row[USUAL])
+            if row["Verdict"] == "usual":
+                return f"usual ({share.group(1)})" if share else "usual"
+            return f"{row['Verdict']} · usual: {row[USUAL]}"
+        cells = "".join(
+            f'<div style="--ca-vs:{VERDICT_COLOURS.get(r["Verdict"], "#6366f1")}"><small>{_e(r["Trait"])}</small>'
+            f'{_e(r["This certificate"])}<em>{_e(note(r))}</em></div>' for r in against.to_dict("records"))
+        parts.append(f'<div class="vs">{cells}</div><div class="legend">'
+                     + "".join(f'<span><i style="background:{c}"></i>{v}</span>' for v, c in VERDICT_COLOURS.items())
+                     + "<span>against the run's certificates of the same issuer (usual: the most common value, "
+                       "n of N issuances)</span></div>")
+    return "".join(parts) + "</div>"
+
+
+def anatomy_html(cert, found=None, only_filled=True, query="", explain=False, domains=None, now=None, css=True,
+                 family=None, against=None):
     """
     The certificate's anatomy as one HTML block (see the module docstring). `found`: cert_profile.flags.
     `only_filled`: leave out empty fields. `query`: keep only fields whose name or value contains it (highlighted).
     `explain`: a line under each field saying what it is. `domains`: the analyzed domains (highlighted SANs).
-    `css`: include the stylesheet (a page showing several anatomies needs it once).
+    `css`: include the stylesheet (a page showing several anatomies needs it once). `family` and `against`
+    (core.cert_anomalies.profile): the certificate's shape and its traits against its issuer's usual ones.
     """
     now = now or pd.Timestamp.now(tz="UTC").tz_localize(None)
     domains = list(domains if domains is not None else _values(cert.get("Domains")))
@@ -549,6 +590,6 @@ def anatomy_html(cert, found=None, only_filled=True, query="", explain=False, do
                               + (" (empty fields are hidden: switch off “Only filled fields” to search them too)"
                                  if only_filled else "") + ".</div>")
     return ((CSS if css else "") + '<div class="ca">' + _hero(cert, worst, flag_count, (filled, len(every)))
-            + _fingerprint(cert, by_column)
+            + _fingerprint(cert, by_column) + _shape_strip(family, against)
             + f'<div class="twin">{_timeline(cert, now)}{_key_meter(cert)}</div>'
             + f'<div class="grid">{body}</div></div>')

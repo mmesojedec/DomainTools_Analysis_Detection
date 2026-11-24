@@ -20,7 +20,7 @@ from core.intel_data import DEVICE_JA4X, DUAL_USE_JA4X, KNOWN_JA4X
 from core.self_signed import SEVERITIES, self_signed_certificates
 from integrations.certificates import fetch_certsql
 from views import navigation
-from views.common import chart, empty_state, explainer, metric, table
+from views.common import chart, empty_state, explainer, metric, metric_slots, table
 from views.hunt_actions import certificate_actions
 from views.query_editor import set_query
 from visualizations.sankey import render_hostname_sankey_flow
@@ -69,8 +69,9 @@ CERT_FOCUS_KEY = "cert_focus"   # a certificate or JA4X the page is narrowed to 
 CERT_TAB_KEY = "cert_tab"   # the selected tab; other pages open one with navigation.open_tab
 SELF_SIGNED_TAB = "Self-Signed"
 JA4X_TAB = "JA4X & C2"
+FAMILIES_TAB = "Families & anomalies"
 CERT_TABS = ["Overview", SELF_SIGNED_TAB, "Validity & keys", JA4X_TAB, "Issuers & policies", "CT logs",
-             "Field breakdown"]
+             FAMILIES_TAB, "Field breakdown"]
 
 
 TREEMAP_CERTS = 15   # certificates drawn per target domain in the SAN treemap; the rest are one box
@@ -852,6 +853,92 @@ def _render_field_breakdown(ds):
         open_button(picked, key="cert_breakdown_open", container=c_open)
 
 
+def _render_families(ds):
+    """Certificate shapes grouped into families (core.cert_shape) and the anomalies of every certificate against the
+    run's others (core.cert_anomalies)."""
+    from core import cert_anomalies as ca
+    from core import cert_profile as cp
+    from core import cert_shape as shape
+    from views.cert_profile_view import open_button
+    certs = cp.certificates(ds.ssl)
+    st.markdown("#### Certificate families", help="A certificate's shape is how it was made, leaving out who it is "
+                                                  "for: issuer, key, validity band, extension layout, extended key "
+                                                  "usage, policy, serial length, SAN profile, self-signed and "
+                                                  "signature algorithm. Certificates with every known trait equal "
+                                                  "are one family.")
+    explainer("Reading families and anomalies", """
+* **A family across several analyzed domains**: the same issuing pipeline or tooling, often one operator. Its ID (S-…) stays the same in every run, so a family seen before is recognised.
+* **A family of one or two next to large ones**: an outlier worth a look (a different tool, a hand-made certificate).
+* **Issuer baseline**: what a certificate does differently from its issuer's other certificates in the run, compared within the issuer's validity profile (a CA's 6-day and 90-day certificates differ by design). A different signing key (Authority Key ID) under one issuer name is the strongest: a CA impersonated by name or made by hand.
+* **Certificate Transparency**: first logged more than 48 hours after it became valid (backdated, or logged late), fewer SCTs than Chrome's CT policy asks, no trace of logging, a precertificate without its final certificate.
+* **Other**: issuance bursts across analyzed domains, round issue times, tool-style validity (365, 730 … days) and names that follow one template.
+* Domain History and Iris Investigate list only a few fields: their certificates get a shape only when 5 or more traits are known, and the issuer baseline needs 5 issuances that know a trait.
+""")
+    if certs.empty:
+        st.info("No certificate in the analysis window.")
+        return
+    run = ca.cached_run(certs, getattr(ds, "ctl", None))
+    found = run.anomalies()
+    table_ = run.shapes()
+    families = shape.families(certs, found, table_)
+    slots = metric_slots(5)
+    for slot, (name, value, help_text) in zip(slots, [
+            ("Families", f"{len(families):,}", "Distinct shapes among the certificates that have one"),
+            ("With a shape", f"{table_['Shape'].notna().sum():,} of {len(table_):,}",
+             "Certificates with 5 or more known traits (Certificate API records; Domain History lists too few)"),
+            ("Across domains", f"{int((families['Domain count'] > 1).sum()) if not families.empty else 0:,}",
+             "Families covering two or more analyzed domains"),
+            ("Anomalies", f"{len(found):,}", "Findings against the run's other certificates"),
+            ("Most severe", (found["Severity"].iloc[0] if not found.empty else "None"), None)]):
+        metric(slot, name, value, help=help_text)
+    if families.empty:
+        st.caption("No certificate has enough known fields for a shape.")
+    else:
+        shown = families.drop(columns="Hashes")
+        st.dataframe(shown, hide_index=True, width="stretch", column_config={
+            "Shape": st.column_config.TextColumn(width="large"), "Domains": st.column_config.TextColumn(width="medium"),
+            "First issued": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm"),
+            "Last issued": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm")})
+        names = {row["Family"]: f"{row['Family']} · {row['Shape']} · {row['Certificates']} certificate(s)"
+                 for row in families.to_dict("records")}
+        c_pick, c_search = st.columns([3, 1], vertical_alignment="bottom")
+        picked = c_pick.selectbox("Look at one family", list(names), format_func=names.get, key="cert_family_pick")
+        members = families.loc[families["Family"] == picked, "Hashes"].iloc[0] if picked else []
+        rows = certs[certs["Hash"].isin(members)]
+        if not rows.empty and c_search.button("Search CertsQL for this shape", key="cert_family_search",
+                                              icon=":material/badge:", type="tertiary",
+                                              help="Opens CertsQL with a query for certificates of this shape from the "
+                                                   "last 90 days; Search there runs it"):
+            set_query("certsql_query", shape.shape_query(rows.iloc[0].to_dict()))
+            navigation.go("certsql")
+        if not rows.empty:
+            labels = {row["Hash"]: cp.label(row) for row in rows.to_dict("records")}
+            c_cert, c_open = st.columns([3, 1], vertical_alignment="bottom")
+            digest = c_cert.selectbox(f"Its certificates ({len(labels):,})", list(labels), format_func=labels.get,
+                                      key="cert_family_member")
+            if digest:
+                open_button(digest, key="cert_family_open", container=c_open)
+    st.markdown("#### Anomalies across the run", help="Every certificate's findings against the run's other "
+                                                       "certificates. The Certificate profile shows them under the "
+                                                       "fields they concern.")
+    if found.empty:
+        st.success("No certificate stands out against the run's other certificates.")
+        return
+    checks = st.pills("Check", list(ca.CHECKS), selection_mode="multi", key="cert_anomaly_checks")
+    listed = found[found["Check"].isin(checks)] if checks else found
+    by_hash = {row["Hash"]: row for row in run.rows}
+    listed = listed.assign(Certificate=listed["Hash"].map(lambda h: cp.label(by_hash[h]) if h in by_hash else h),
+                           Domains=listed["Hash"].map(lambda h: cp.text(by_hash.get(h, {}).get("Domains"))))
+    st.dataframe(listed[["Severity", "Check", "Finding", "Certificate", "Domains"]], hide_index=True,
+                 width="stretch", column_config={"Finding": st.column_config.TextColumn(width="large")})
+    labels = {h: cp.label(by_hash[h]) for h in dict.fromkeys(listed["Hash"]) if h in by_hash}
+    c_cert, c_open = st.columns([3, 1], vertical_alignment="bottom")
+    digest = c_cert.selectbox("Look at a certificate with anomalies", list(labels), format_func=labels.get,
+                              key="cert_anomaly_pick")
+    if digest:
+        open_button(digest, key="cert_anomaly_open", container=c_open)
+
+
 def render_ssl_lens(ds, threats, thresholds):
     st.header("Certificates", help="Cryptographic and X.509 telemetry across active and historical certificates.")
     if ds.ssl.empty:
@@ -872,6 +959,7 @@ def render_ssl_lens(ds, threats, thresholds):
         [lambda: _render_geo(unique_certs), lambda: _render_eku(unique_certs), lambda: _render_policies(unique_certs),
          lambda: _render_caa(ds, unique_certs)],
         [lambda: _render_ct_logs(ds, unique_certs)],
+        [lambda: _render_families(ds)],
         [lambda: _render_field_breakdown(ds)],
     ]
     for tab, parts in zip(tabs, renderers):   # only the open tab is drawn

@@ -30,7 +30,7 @@ from core.use_cases import PROFILES_SETTING, find_case
 from integrations.enrichment import fetch_irisql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
-from views.query_editor import query_editor, set_query
+from views.query_editor import query_actions, query_editor, set_query
 from views.sidebar import apply_use_case, start_hunt
 
 QUERY_KEY = "irisql_query"
@@ -199,11 +199,15 @@ def render_irisql_page():
         for issue in issues:
             st.warning(issue, icon=":material/edit_note:")
     cost = query_cost(max_results, IRISQL_PAGE_SIZE)
-    if st.button("Search", type="primary", icon=":material/manage_search:", disabled=bool(issues),
-                 help=f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}; the same search again within "
-                      "the cache lifetime costs none."):
-        with st.spinner("Searching Iris Investigate..."):
-            _search(query, max_results, sort_by, int(preselect))
+    if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}; the same "
+                     "search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
+        if not query.splitlines()[1:]:
+            st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
+        elif issues:
+            st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+        else:
+            with st.spinner("Searching Iris Investigate..."):
+                _search(query, max_results, sort_by, int(preselect))
     with st.expander("The same search outside the app (DomainTools Python SDK, curl, Python script)", icon=":material/terminal:"):
         for name, command in commands(query, min(int(max_results), IRISQL_PAGE_SIZE), sort_by).items():
             st.markdown(f"**{name}**")

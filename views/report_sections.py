@@ -430,23 +430,39 @@ CERT_PROFILES = {"high": 3, "detailed": 10}    # certificates profiled per level
 
 
 def section_cert_profiles(b, ctx):
+    from core import cert_anomalies as ca
     from core import cert_profile as cp
+    from core import cert_shape as shape
     from core.cert_anatomy import anatomy_html
-    b.section("Certificate profiles", "The run's certificates that stand out most (by their most severe flag, then "
-                                      "newest), each field by field: its anatomy (trust flow, field fingerprint, "
-                                      "validity, key strength, every X.509 section with the flags under their "
-                                      "fields) and the certificates related to it.")
+    b.section("Certificate profiles", "Certificate families (certificates made the same way: issuer, key, validity "
+                                      "band, extension layout, policy, serial length, SAN profile) and the anomalies "
+                                      "against the run's other certificates; then the certificates that stand out "
+                                      "most (by their most severe flag, then newest), each field by field: its "
+                                      "anatomy (trust flow, field fingerprint, shape and issuer baseline, validity, "
+                                      "key strength, every X.509 section with the flags under their fields) and the "
+                                      "certificates related to it.")
     certs = cp.certificates(ctx.ds.ssl)
     if certs.empty:
         b.note("No certificate in the analysis window.")
         return
+    run = ca.cached_run(certs, getattr(ctx.ds, "ctl", None))
+    anomalies = run.anomalies()
+    families = shape.families(certs, anomalies, run.shapes())
+    if not families.empty:
+        b.heading("Certificate families")
+        b.table(families.drop(columns="Hashes"), max_rows=MAX_ROWS)
+    if not anomalies.empty:
+        b.heading("Anomalies across the run")
+        labels = {row["Hash"]: cp.label(row) for row in run.rows}
+        b.table(anomalies.assign(Certificate=anomalies["Hash"].map(lambda h: labels.get(h, h)))
+                [["Severity", "Check", "Finding", "Certificate"]], max_rows=MAX_ROWS)
     limit = CERT_PROFILES.get(ctx.level.key)
-    ranked = cp.riskiest(certs, limit=limit)
+    ranked = cp.riskiest(certs, limit=limit, anomalies=anomalies)
     if limit and len(certs) > limit:
         b.note(f"The {limit} of {len(certs):,} certificates that stand out most.")
     for number, cert in enumerate(ranked.to_dict("records")):
-        related = cp.related_certificates(cert, certs)
-        found = cp.flags(cert, related=related)
+        parts = ca.profile(cert, certs, run)
+        related, found = parts["related"], parts["found"]
         b.heading(cp.label(cert))
         b.cards([("Domains", cp.text(cert.get("Domains"))), ("Issuer", cp.text(cert.get("Issuer Org"))
                                                             or cp.text(cert.get("Issuer"))),
@@ -457,7 +473,8 @@ def section_cert_profiles(b, ctx):
             b.text("Nothing stands out in this certificate.")
         else:
             b.table(found)
-        b.raw(anatomy_html(cert, found, only_filled=not b.unlimited, css=number == 0))
+        b.raw(anatomy_html(cert, found, only_filled=not b.unlimited, css=number == 0, family=parts["family"],
+                           against=parts["against"]))
         if not related.empty:
             b.subheading("Related certificates")
             b.table(related, max_rows=MAX_ROWS)

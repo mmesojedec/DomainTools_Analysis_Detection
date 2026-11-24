@@ -1,16 +1,19 @@
 """
-Certificate profile page (Overview): one certificate of the run, field by field (core.cert_profile): the flags, its
-anatomy (core.cert_anatomy: every field in one view), the related certificates, where it was seen and the alerts citing
-it.
+Certificate profile page (Overview): one certificate of the run, field by field (core.cert_profile): the flags and
+anomalies against the run's other certificates (core.cert_anomalies), its anatomy (core.cert_anatomy: every field in
+one view, its shape and issuer baseline), the related certificates (shared key, JA4X, names, the same or a near shape:
+core.cert_shape), where it was seen and the alerts citing it.
 """
 import pandas as pd
 import streamlit as st
 
+from core import cert_anomalies as ca
 from core import cert_profile as cp
 from core.cert_anatomy import anatomy_html
 from core.intel_data import SEVERITY_ICONS
 from views import navigation
 from views.common import metric, metric_slots
+from views.query_editor import set_query
 
 SELECTED_KEY = "cert_profile_hash"      # the certificate shown (a hash); other pages set it to open one
 DOMAIN_KEY = "cert_profile_domain"
@@ -56,7 +59,7 @@ def render_cert_profile(ds, alerts=None):
         domain = domains[0] if domains else "All domains"
     order = c_order.selectbox("Order", cp.ORDERS, key=ORDER_KEY, on_change=_reset, help=ORDER_HELP)
     shown = certs if domain == "All domains" else certs[certs["Domains"].map(lambda v: domain in v)]
-    shown = cp.ranked(shown, None if domain == "All domains" else domain, order)
+    shown = cp.cached_ranked(shown, None if domain == "All domains" else domain, order)
     keep = c_show.pills("Show", ["Valid now", "Served now", "Domain itself"], selection_mode="multi", key=SHOW_KEY,
                         on_change=_reset, help="Valid now: within its dates. Served now: on the domain's website "
                                                "today (Iris Investigate). Domain itself: names the analyzed domain "
@@ -75,7 +78,7 @@ def render_cert_profile(ds, alerts=None):
     hashes = list(shown["Hash"])
     if st.session_state.get(SELECTED_KEY) not in hashes:      # opened from another page on another domain: show all
         if st.session_state.get(SELECTED_KEY) in set(certs["Hash"]):
-            shown = cp.ranked(certs, None, order)
+            shown = cp.cached_ranked(certs, None, order)
             hashes = list(shown["Hash"])
         else:
             st.session_state[SELECTED_KEY] = hashes[0]
@@ -85,14 +88,14 @@ def render_cert_profile(ds, alerts=None):
                                "whether it is valid now and whether the website serves it now. Other pages open a "
                                "certificate here with *Open in Certificate profile*.")
     cert = shown[shown["Hash"] == digest].iloc[0].to_dict()
-    related = cp.related_certificates(cert, certs)
-    found = cp.flags(cert, related=related)
+    parts = ca.profile(cert, certs, ca.cached_run(certs, getattr(ds, "ctl", None)))
+    related, found = parts["related"], parts["found"]
     _render_summary(cert, found, related)
     t_anatomy, t_related, t_seen = st.tabs(["Anatomy", "Related certificates", "Where seen"])
     with t_anatomy:
-        _render_anatomy(cert, found)
+        _render_anatomy(cert, found, parts)
     with t_related:
-        _render_related(related)
+        _render_related(related, parts)
     with t_seen:
         _render_seen(ds, digest, alerts)
 
@@ -120,18 +123,22 @@ def _render_summary(cert, found, related):
     if found.empty:
         st.success("Nothing stands out in this certificate.")
     else:
-        st.dataframe(found.assign(Severity=_severity(found["Severity"]),
-                                  Field=found["Field"].map(_field_label)), hide_index=True, width="stretch")
+        st.dataframe(found.assign(Severity=_severity(found["Severity"]), Field=found["Field"].map(_field_label))
+                     [["Severity", "Check", "Field", "Finding"]], hide_index=True, width="stretch",
+                     column_config={"Check": st.column_config.TextColumn(
+                         help="Certificate: the certificate on its own. Issuer baseline, Certificate Transparency, "
+                              "Other: against the run's other certificates (Certificates → Families has them all)."),
+                         "Finding": st.column_config.TextColumn(width="large")})
 
 
 def _field_label(column):
     return next((f"{section} · {label}" for section, label, c in cp.FIELDS if c == column), column)
 
 
-def _render_anatomy(cert, found):
+def _render_anatomy(cert, found, parts):
     """Every field of the certificate in one view (core.cert_anatomy): the trust flow and verdict, the field
-    fingerprint, the validity timeline and key strength, then a card per X.509 section with the flags under their
-    fields."""
+    fingerprint, its shape and issuer baseline, the validity timeline and key strength, then a card per X.509 section
+    with the flags under their fields."""
     c_only, c_explain, c_find = st.columns([1, 1, 2])
     only = c_only.toggle("Only filled fields", value=True, key="cert_profile_filled",
                          help="Off: every X.509 field, the empty ones dimmed, so you see what the certificate lacks "
@@ -141,7 +148,8 @@ def _render_anatomy(cert, found):
                                     "field's name shows the same.")
     query = c_find.text_input("Find a field or value", key="cert_profile_find", placeholder="e.g. sha1, ca:true, "
                               "letsencrypt, a SAN", label_visibility="collapsed")
-    st.html(anatomy_html(cert, found, only_filled=only, query=query, explain=explain))
+    st.html(anatomy_html(cert, found, only_filled=only, query=query, explain=explain, family=parts["family"],
+                         against=parts["against"]))
     value = cert.get("JA4X")
     if cp.text(value):
         from views.ssl_view import render_ja4x_card
@@ -155,13 +163,16 @@ def _render_anatomy(cert, found):
                      column_config={"Value": st.column_config.TextColumn(width="large")})
 
 
-def _render_related(related):
+def _render_related(related, parts):
+    _shape_search(parts)
     if related.empty:
-        st.caption("No other certificate of the run shares this one's public key, notable JA4X, SAN set or common "
-                   "name.")
+        st.caption("No other certificate of the run shares this one's public key, notable JA4X, SAN set, common name "
+                   "or shape.")
         return
     st.caption("The run's other certificates that share the public key (the same key re-certified, or reused across "
-               "sites), a notable or rare JA4X (made by the same tool), the exact SAN set or the common name.")
+               "sites), a notable or rare JA4X (made by the same tool), the exact SAN set, the common name, or its "
+               "shape: **Same shape** is made the same way (issuer, key, validity band, extension layout, policy, "
+               "serial length, SAN profile); **Near shape** scores how many of those agree and names what differs.")
     st.dataframe(related, hide_index=True, width="stretch",
                  column_config={"Not Before": st.column_config.DatetimeColumn(format="YYYY-MM-DD"),
                                 "Not After": st.column_config.DatetimeColumn(format="YYYY-MM-DD")})
@@ -172,6 +183,22 @@ def _render_related(related):
                           format_func=lambda h: names.get(h, ""))
     if picked:
         open_button(picked, label="Open it", key="cert_profile_related_open")
+
+
+def _shape_search(parts):
+    family = parts["family"]
+    c_text, c_button = st.columns([3, 1], vertical_alignment="center")
+    if family["id"]:
+        c_text.markdown(f"Shape **{family['id']}** · {family['label']} · {len(family['members'])} certificate(s), "
+                        f"{len(family['domains'])} analyzed domain(s)")
+    else:
+        c_text.caption("Too few known fields to give this certificate a shape.")
+    if c_button.button("Search CertsQL for this shape", key="cert_profile_shape_search", icon=":material/badge:",
+                       type="tertiary", help="Opens CertsQL with a query for certificates of the same issuer, key, "
+                                             "validity band, SAN count and policy from the last 90 days; edit it, "
+                                             "then Search there (one Certificates API query)"):
+        set_query("certsql_query", parts["query"])
+        navigation.go("certsql")
 
 
 def _render_seen(ds, digest, alerts):

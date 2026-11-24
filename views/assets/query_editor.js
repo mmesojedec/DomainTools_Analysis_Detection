@@ -247,7 +247,12 @@ export default function (component) {
       c.state.dtqSend(text);
     };
     box.dtqCommit = commit;
-    cm.on("blur", (c) => { if (!c.state.completionActive) commit(c); });
+    // Leaving the editor sends the query, before the click that left it lands (Search works on the first click).
+    // With suggestions open, a click on one blurs the editor too: send only when focus went to another control.
+    cm.on("blur", (c, event) => {
+      if (!c.state.completionActive || (event && event.relatedTarget)) commit(c);
+    });
+    cm.on("endCompletion", (c) => { if (!c.hasFocus()) commit(c); });
     cm.on("change", (c, change) => {
       if (change.origin === "setValue" || change.origin === "dtqHeader") return;
       setMarks(c, {});

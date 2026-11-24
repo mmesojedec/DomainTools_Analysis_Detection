@@ -35,7 +35,7 @@ from core.use_cases import PROFILES_SETTING, find_case
 from integrations.certificates import fetch_certsql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
-from views.query_editor import query_editor, set_query
+from views.query_editor import query_actions, query_editor, set_query
 from views.sidebar import apply_use_case, start_hunt
 
 QUERY_KEY = "certsql_query"
@@ -172,11 +172,15 @@ def render_certsql_page():
         for issue in issues:
             st.warning(issue, icon=":material/edit_note:")
     cost = query_cost(max_results, CERTSQL_PAGE_SIZE)
-    if st.button("Search", type="primary", icon=":material/manage_search:", disabled=bool(issues),
-                 help=f"Up to {cost} Certificate Search request{'' if cost == 1 else 's'}; the same search again "
-                      "within the cache lifetime costs none."):
-        with st.spinner("Searching certificates..."):
-            _search(query, max_results, sort, int(preselect))
+    if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Certificate Search request{'' if cost == 1 else 's'}; the "
+                     "same search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
+        if not query.splitlines()[1:]:
+            st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
+        elif issues:
+            st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+        else:
+            with st.spinner("Searching certificates..."):
+                _search(query, max_results, sort, int(preselect))
     with st.expander("The same search outside the app (curl, Python script)", icon=":material/terminal:"):
         curl_format = st.segmented_control(
             "Query in the curl command", CURL_FORMATS, default=CURL_FORMATS[0], key="certsql_curl_format",

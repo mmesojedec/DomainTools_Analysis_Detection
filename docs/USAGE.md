@@ -558,7 +558,8 @@ them: ISO text from the Certificate API, and YYYYMMDD text or numbers from Iris 
 several sources list the same certificate, it keeps the richest row.
 
 Other places open a certificate here: *Domain's certificate in Certificate profile* on the Domain profile (the most
-relevant one), the Certificates page's *Field breakdown* tab and the related certificates below.
+relevant one), the Certificates page's *Families & anomalies* and *Field breakdown* tabs and the related certificates
+below.
 
 - **Summary**: issuer, validation level (DV / OV / EV), how long it is valid, days to expiry, key, the most severe
   flag, its domains and sources.
@@ -573,11 +574,18 @@ relevant one), the Certificates page's *Field breakdown* tab and the related cer
   - code-signing or "any" extended key usage;
   - wildcard, more than 50 SANs, or IP addresses in the SANs;
   - a public key reused by other certificates.
+
+  The same list holds the certificate's **anomalies** against the run's other certificates (the *Check* column says
+  which kind; see [Certificate families and anomalies](#certificate-families-and-anomalies)).
 - **Anatomy**: every field of the certificate in one view, from top to bottom:
   - **Trust flow and verdict**: the issuer that signs it, the certificate, how many names it covers; the most severe
     flag; and the tags (Apex, Valid, served now, how many of the 40 fields are filled).
   - **Field fingerprint**: one cell per X.509 field, section by section: filled, empty, or in the colour of its flag.
     Hover a cell for its value. Two certificates from the same tool or CA look alike here.
+  - **Shape and issuer baseline**: the certificate's family ID and shape (for example *S-079e19 · YE2 · ecdsa 256 ·
+    48–100 d · 9 ext + CT · 2 names, wildcard*), how many certificates of the run share it and across how many
+    analyzed domains. Under it, each trait next to what its issuer usually has in the run: *usual*, *differs*, *rare*
+    (flagged) or *too few* (fewer than 5 of the issuer's certificates know it).
   - **Validity**: a timeline from issuance to expiry with *now* on it, the days left and how much of its life is
     used. A certificate valid longer than 398 days shows where the limit falls.
   - **Key strength**: the key as security bits (RSA 2048 ≈ 112, EC 256 ≈ 128), from broken to strong.
@@ -599,16 +607,76 @@ relevant one), the Certificates page's *Field breakdown* tab and the related cer
   name (*ocsp* finds Authority info access) or explanation matches. The JA4X card explains how it was generated, and
   *As a table* lists the fields to sort and copy.
 - **Related certificates**: the run's certificates with the same public key, the same notable or rare JA4X (a CA's
-  usual layout is not a relation), the exact SAN set or the common name. Open any of them.
+  usual layout is not a relation), the exact SAN set, the common name, the **same shape**, or a **near shape** (85%
+  or more of the weighted traits agree; the relation names what differs, for example *validity 6 d vs 89 d*). Open
+  any of them. **Search CertsQL for this shape** opens CertsQL with a query for certificates of the same issuer, key,
+  validity band, SAN count and policy from the last 90 days; it runs only when you press Search there.
 - **Where seen**: the certificate's CT log entries, observations and hostname events, and the alerts that cite it.
 
-The Certificates page's **Field breakdown** tab does the same across every certificate. For each field it shows how
+#### Certificate families and anomalies
+
+A certificate's **shape** is how it was made, leaving out who it is for. It has eleven traits, each normalised so
+routine noise does not split certificates that belong together:
+
+| Trait | Compared as |
+|---|---|
+| Issuer | common name and organization |
+| Key | algorithm and size |
+| Validity | bands: ≤7, 8–47, 48–100, 101–200, 201–398, over 398 days (Let's Encrypt's 89 and 90 days land together) |
+| Extension layout | the extension OIDs in order; the CT parts (a precertificate's poison, a final certificate's SCT list) count as one, so the two share a shape |
+| Extended key usage, policy | the sets of OIDs |
+| Serial length | in bytes, leading zeros left out (DER's sign byte makes ZeroSSL serials 32 or 34 hex characters, both 16 bytes) |
+| SAN profile | count band (1, 2, 3–10, 11–50, over 50) and wildcard |
+| Self-signed, signature algorithm | as given |
+| Subject layout | which subject attributes are present (in the near-shape score only: the Certificate API leaves some subjects empty) |
+
+Certificates with every shared trait equal are one **family**, with an ID such as *S-079e19* that stays the same in
+every run, so a family seen in an earlier run is recognised. A certificate needs 5 or more known traits for a shape:
+Certificate API records have them, Domain History and Iris Investigate rows mostly don't. A Domain History row that is
+the same certificate as a Certificate API row (its hash is that row's SHA-1) is counted once.
+
+The Certificates page's **Families & anomalies** tab lists the families, largest first, with the analyzed domains they
+cover, first and last issue time and their anomalies. A family across several analyzed domains points to one issuing
+pipeline or tool, often one operator; a family of one or two next to large ones is an outlier. Pick a family to list
+its certificates, open one in the Certificate profile, or *Search CertsQL for this shape*.
+
+Below, **Anomalies across the run** lists what each certificate does differently, filtered by check:
+
+- **Issuer baseline**: the run's own certificates of an issuer set what is normal for it, counted once per issuance
+  (a precertificate and its final certificate together). The signing key and validity are compared across the
+  issuer; the other traits within its validity profile, since a CA's 6-day and 90-day certificates differ by design.
+  A value is flagged when at most 10% of 5 or more issuances have it, against one value on 70% or more:
+  - a different **signing key** (Authority Key ID) under one issuer name (High): a CA impersonated by name or made by
+    hand, unless the CA rotated or cross-signed its key;
+  - an unusual key, validity, serial length, signature algorithm or policy (Medium), extension layout or extended key
+    usage (Low; Medium when its JA4X is also the only one of its kind);
+  - a round issue time from an issuer that otherwise times certificates to the second (Low).
+
+  Where the run has too few, built-in norms fill in: Let's Encrypt issues 6-day and 90-day certificates and never
+  longer than 100 days; Let's Encrypt, ZeroSSL and Google Trust Services issue domain-validated certificates only.
+  An organization on a domain-validated certificate is flagged for any CA (DV certificates carry none).
+- **Certificate Transparency**: first logged (embedded SCTs, its precertificate's or final certificate's, or the
+  run's CT log entries) more than 48 hours after its Not Before: backdated or logged late (CAs backdate by an hour or
+  so); SCTs from fewer logs than Chrome's and Apple's policy asks (2 up to 180 days, 3 beyond); a publicly trusted
+  certificate with no embedded SCTs, no precertificate and no CT log entry; a precertificate whose final certificate
+  is not in the run. CT log entries are collected for the newest certificates only.
+- **Other**: an issuance burst (5 or more certificates of one issuer within 10 minutes for 2 or more analyzed
+  domains); a self-signed or non-public certificate valid exactly 365, 730 … days (the number tools are given); names
+  that follow one template shared by 3 or more names of the run (*aaaaaa9999*), or look random. The analyzed domains'
+  own names are left out (the DGA rules judge them).
+
+Three anomalies raise alerts: *Issuer Key Mismatch (Impersonated CA)*, *Backdated Certificate* (also from CT log
+entries and the precertificate) and *Insufficient SCTs (CT Policy)*. The others are context on the Certificate profile
+and this tab. The analysis report's *Certificate profiles* section starts with the families and anomalies, and the
+data export has *Certificate families* and each certificate's shape and anomalies in *Certificate profiles*.
+
+The Certificates page's **Field breakdown** tab looks at every certificate field by field. For each field it shows how
 often it is filled, how many distinct values it has, the most common one, and the **rare values** only one
 certificate has: an odd issuer unit, subject country or extension OID. Hashes and serial numbers are unique by
 design and left out. The analysis report has a *Certificate profiles* section (Overview): 3 certificates in the High
 level overview, 10 in the Detailed report and all in the Complete report, the ones that stand out most first, each
 with its anatomy and flags (the Complete report with the empty fields too). The Detailed and Complete reports' Certificates section adds the field breakdown, and
-the data export has *Certificate profiles* (every certificate once, every field, its flags).
+the data export has *Certificate profiles* (every certificate once, every field, its shape, flags and anomalies).
 
 #### DNS resolution
 
@@ -768,7 +836,7 @@ app's menu:
 | Part | Sections |
 | --- | --- |
 | High level | At a glance: key numbers (alerts per severity, highest risk, high-risk domains, distinct DIFs, primary threat driver, verdicts), the most severe findings, VPNDB and BGP highlights, linked domains · Needs attention: the critical and high alerts per domain, then everything else to act on, most severe first (domains marked Malicious or Suspicious, high-risk domains, new alerts, BGP findings, VPN / proxy / Tor exits, takeover-prone and dead-end CNAMEs, self-signed certificates, new or expiring domains and certificates, suspicious subdomains, strongly linked domains, failed lookups), each linking to its section |
-| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Certificate profiles (the certificates that stand out most: anatomy with the flags under their fields, related certificates) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
+| Overview | Summary (domains with risk drivers, analysis details, top alerts, alerts by category, shared infrastructure, activity per week, lifecycle and data health, new since the last analysis) · Certificate profiles (certificate families and anomalies across the run; the certificates that stand out most: anatomy with the flags under their fields, shape and issuer baseline, related certificates) · Domain profiles (risk radar, DIF ledger with the closest DIF, a card per domain: registration, hosting IPs, VPNDB, BGP routing, latest DNS records, alerts) · Alerts (heatmap, ATT&CK treemap and techniques, DomainTools risk components, alerts by severity, alert types) |
 | Infrastructure | DNS & hosting (hosting map and Domain → ASN → IP flow, change events, IP map, query volume, infrastructure graph and clusters, domain hopping, TXT apps) · VPNDB · Tor network · BGP (findings, hosting IPs, routing map, origin timeline, AS paths, networks, VPNDB match, neighbours) · CNAME chains · DNS resolution (dangling records, graph, warnings, resolution tree, origins) · Certificates |
 | Hunt | Hunt map (when the run belongs to a saved hunt) · Hostname inventory · Subdomain triage · Domain similarity (pairs, matrix, clusters with their shared indicators) |
 | Supporting evidence | Every active detection with its threat logic, triggering IOCs and evidence records · Data sources |
@@ -1188,8 +1256,10 @@ becomes `["a", ""]` with the cursor in the new quotes.
 Enter or a click picks a suggestion, Esc closes the list, and Tab jumps past the closing quote or bracket. Fields, operators,
 values, `AND` and comments are colour-coded; an operator the field doesn't accept is underlined in red. A line that a
 warning below the box is about gets a marker in the margin (hover it for the warning). The query is taken when you
-click outside the box or press Ctrl+Enter (⌘+Enter on a Mac). The editor is bundled with the app, so it works
-without internet access.
+click outside the box or press Ctrl+Enter (⌘+Enter on a Mac), so **Search** works straight after typing: the click
+takes the query and searches it (a query with a warning is not searched). **Clear**, next to Search, empties the query
+and removes the last search's results from the page; the query and results otherwise stay when you go to other pages
+and come back. The editor is bundled with the app, so it works without internet access.
 
 **Step 1: search**
 

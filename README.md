@@ -51,9 +51,11 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   BGPDB adds each resolved address's origin, RPKI / IRR and visibility (BGP page → *Resolved addresses*).
 - **Profiles certificates** (*Certificate profile*): one certificate field by field in one anatomy view (trust flow,
   field fingerprint, validity timeline, key strength, a card per X.509 section with the flags under their fields and
-  OIDs named), related certificates (same key, notable
-  JA4X, SAN set) and where it was seen. The Certificates page's *Field breakdown* shows how often each field is filled
-  across the run and its rare values.
+  OIDs named), its shape and how it compares with its issuer's other certificates, related certificates (same key,
+  notable JA4X, SAN set, the same or a near shape) and where it was seen. The Certificates page's *Families &
+  anomalies* groups certificates made the same way (issuer, key, validity band, extension layout, policy, serial
+  length, SAN profile) and lists what each does differently from its issuer, from normal CT logging, and bulk or
+  tool-made patterns; *Field breakdown* shows how often each field is filled across the run and its rare values.
 - **Compares domains** (*Domain similarity*): how alike the domains are built, from Iris, passive DNS, certificates,
   VPNDB and BGPDB, with similar pairs, clusters and the indicators each cluster shares.
 - **Attributes anonymizers** with VPNDB: which hosting IPs are VPN, residential proxy or Tor exits and whose, whether
@@ -184,6 +186,8 @@ core/
   self_signed.py               Self-signed certificates rated Critical to Low, with the reasons and what to do
   cert_anatomy.py              Certificate anatomy: one certificate as a single HTML view (page and analysis report)
   cert_profile.py              Certificate profile: fields grouped as in X.509, flags, related certificates, where seen, field breakdown
+  cert_shape.py                Certificate shape: how a certificate was made (11 normalised traits), families, near shapes, CertsQL query
+  cert_anomalies.py            Certificate anomalies across the run: issuer baseline, Certificate Transparency, bursts and templates
   lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
   rule_catalog.py              Detection reference: per-rule trigger, rationale, severity and confidence levels
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
@@ -224,6 +228,7 @@ core/
     cname_rules.py             CNAME rules (dangling / takeover-prone, dynamic DNS, free hosting, retargeting, long chains, cross-domain CNAME links)
     resolver_rules.py          DNS resolution rules (dangling NS, MX and SPF records, CNAMEs to lapsed domains, internal IPs in public DNS)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
+    cert_anomaly_rules.py      Certificate anomaly rules across the run (foreign signing key under an issuer name, late CT logging, too few SCTs)
     enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
     intel_rules.py             Registration age, hosting watchlist, redirects, parking, ASN-aware flux, volume anomalies,
                                CDN origin exposure, lookalikes
@@ -267,7 +272,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen (Iris, VPNDB and BGP routing cards), with an action row
-  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags, anatomy, related, where seen)
+  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags and anomalies, anatomy with shape, related, where seen)
                                (sightings, IrisQL, CertsQL, copy)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
   alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools
@@ -276,7 +281,7 @@ views/                         One module per page + sidebar, alert tools, certi
   campaign_view.py             DNS & Hosting → Campaign & hosting (timelines, graph, clusters, hosting map, hopping)
   cname_view.py                CNAME Chains page: chains, chases, cross-domain links, reverse CNAME
   resolver_view.py             DNS resolution page: Resolve (DNSDB), BGPDB routing of resolved addresses, dangling records, resolution tree, graph, origin networks
-  ssl_view.py                  Certificates page (7 tabs: Overview, Self-Signed, Validity & keys, JA4X & C2, Issuers & policies, CT logs, Field breakdown)
+  ssl_view.py                  Certificates page (8 tabs: Overview, Self-Signed, Validity & keys, JA4X & C2, Issuers & policies, CT logs, Families & anomalies, Field breakdown)
   pivot_view.py                Hunt map → All pivots: shared values ranked by rarity, Find in Iris
   hostname_view.py             Hostname Inventory page: every hostname with lifecycle flags and its certificates
   triage_view.py               Subdomain Triage page: subdomains ranked by phishing, brand and lifecycle signals
