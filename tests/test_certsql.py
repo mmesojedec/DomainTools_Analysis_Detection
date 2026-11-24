@@ -236,3 +236,68 @@ def test_enum_values_are_checked_in_any_case():
     found = certsql.problems(f'{certsql.HEADER}\nsignature_algorithm equals "sha256WithRSA"')
     assert found and "sha256_with_rsa" in found[0]
     assert certsql.problems(f'{certsql.HEADER}\nkey_usage in ["digital_signature", "cert_sign"]')
+
+
+FIELD_HITS = [
+    {"sha256": "a1", "subject_common_name": "a.example.com", "san_dns": ["a.example.com", "www.example.com"],
+     "key_usage": ["digital_signature", "key_encipherment"], "issuer_country": "US",
+     "certificate_policy": [{"policy_oid": "2.23.140.1.2.1"}], "basic_constraints": {"critical": True, "is_ca": False},
+     "signed_certificate_timestamp": [{"version": 0, "log_id": "4c63dc98e59c", "timestamp": "2026-11-24T00:36:44Z"}]},
+    {"sha256": "b2", "subject_common_name": "b.example.com", "san_dns": ["b.example.com"], "issuer_country": "GB",
+     "san_ip_v4": ["8.8.8.8"]},
+    {"sha256": "c3", "subject_common_name": "c.other.org", "san_dns": ["c.other.org"], "issuer_country": "US"},
+]
+
+
+def test_field_values_flatten_lists_and_nested_objects():
+    hit = FIELD_HITS[0]
+    assert certsql.field_values(hit, "key_usage") == ["digital_signature", "key_encipherment"]
+    assert certsql.field_text(hit, "certificate_policy") == "2.23.140.1.2.1"
+    assert certsql.field_text(hit, "basic_constraints") == "critical=true, is_ca=false"
+    assert certsql.field_text(hit, "signed_certificate_timestamp") == "4c63dc98… 2026-11-24 00:36"
+    assert certsql.field_values(FIELD_HITS[1], "key_usage") == []
+    assert set(certsql.SELECT_FIELDS) == set(certsql.FIELD_TYPES) and len(certsql.SELECT_FIELDS) == 58
+    assert "sha256" in certsql.SELECT_FIELDS and set(certsql.BASE_SELECT) <= set(certsql.SELECT_FIELDS)
+
+
+def test_picked_fields_reach_every_table():
+    certs = certsql.certificate_frame(FIELD_HITS, ["issuer_country", "key_usage"])
+    assert list(certs.columns[-2:]) == ["issuer_country", "key_usage"]
+    assert certs.set_index("SHA-256").loc["a1", "key_usage"] == "digital_signature, key_encipherment"
+    domains, ips, hosts = certsql.target_frames(FIELD_HITS)
+    domains = certsql.target_field_frame(FIELD_HITS, domains, ["issuer_country"]).set_index("Target")
+    assert domains.loc["example.com", "issuer_country"] in ("US, GB", "GB, US")
+    assert domains.loc["other.org", "issuer_country"] == "US"
+    ips = certsql.target_field_frame(FIELD_HITS, ips, ["issuer_country"]).set_index("Target")
+    assert ips.loc["8.8.8.8", "issuer_country"] == "GB"
+    hosts = certsql.target_field_frame(FIELD_HITS, hosts, ["issuer_country"], column="Hostname", key="hostname")
+    assert hosts.set_index("Hostname").loc["www.example.com", "issuer_country"] == "US"
+    many = [{"sha256": str(i), "san_dns": ["x.example.com"], "issuer_country": c} for i, c in enumerate("ABCDE")]
+    frame = certsql.target_field_frame(many, certsql.target_frames(many)[0], ["issuer_country"])
+    assert frame["issuer_country"].iloc[0].endswith("+2 more")
+
+
+def test_picked_fields_are_sent_as_select_in_the_commands():
+    assert "select" not in certsql.payload("q", 10)
+    body = certsql.payload("q", 10, fields=["issuer_country"])
+    assert body["select"] == ["issuer_country"]
+    query = certsql.normalize("is_self_signed equals true")
+    for curl_format in certsql.CURL_FORMATS:
+        cmds = certsql.commands(query, 100, None, curl_format, fields=["issuer_country"])
+        assert all('"issuer_country"' in command for command in cmds.values())
+
+
+def test_every_catalog_field_can_be_picked_and_select_has_no_repeats():
+    assert certsql.select_list(["ja4x", "sha256", "ja4x"]) == ["ja4x", "sha256"]
+    certs = certsql.certificate_frame(FIELD_HITS, ["sha256", "ja4x", "issuer_country"])
+    assert "sha256" not in certs and "ja4x" not in certs and "issuer_country" in certs   # SHA-256 / JA4X shown already
+    body = certsql.payload("q", 500, certsql.sort_term("validity_not_before", "desc"), ["sha256", "ja4x"])
+    assert body == {"query_string": "q", "select": ["sha256", "ja4x"],
+                    "sort": [{"field": "validity_not_before", "order": "desc"}], "limit": 500}
+    domains = certsql.target_field_frame(FIELD_HITS, certsql.target_frames(FIELD_HITS)[0], ["sha256", "ja4x"])
+    assert "sha256" not in domains and "ja4x" in domains        # Example Certificate is the sha256 already
+    hosts = certsql.target_field_frame(FIELD_HITS, certsql.target_frames(FIELD_HITS)[2], ["sha256"], column="Hostname",
+                                       key="hostname")
+    assert hosts.set_index("Hostname").loc["www.example.com", "sha256"] == "a1"   # no certificate column there
+    assert all(code in certsql.CODE_HINTS for code in ("contains_value_too_short", "contains_value_too_long",
+                                                       "query_too_long"))

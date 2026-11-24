@@ -1472,6 +1472,24 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
    | Key size (`public_key_bits`) | Largest first | Smallest first: weak keys |
    | SHA-256 (`sha256`) | f → 0 | 0 → f (API default): the API’s own order, sent as no `sort` |
 
+   **Fields** adds certificate fields to the results, like the API's `select`: any of the 58 top-level fields of the
+   CertsQL field catalog, by name (`sha256`, `sha1`, `md5`, `serial_number`, `ja4x` …). A table that already shows
+   a picked field gets no second column for it (Certificates: `sha256` is *SHA-256*, `ja4x` *JA4X*, the SANs, key,
+   dates and common name have theirs; Domains and IPs: `sha256` is *Example Certificate*); Hostnames, which has no certificate column, still lists the `sha256` of the certificates naming each hostname.
+   Nested objects (`certificate_policy`, `signed_certificate_timestamp`,
+   `basic_constraints`, `name_constraints`) are picked whole: `select` takes top-level fields only. The app's search asks for every field of
+   each certificate, because the run needs whole certificates, so picking fields changes the tables at once, before
+   or after a search, without a new request. The picks are remembered like *Sort by*. *The same search outside the
+   app* sends exactly the picked fields as `"select"`, in the order picked, with the sort and limit set on the
+   page (no field picked: no `select`, so every field comes back):
+
+   ```json
+   {"query_string": "…", "select": ["sha256", "ja4x"], "sort": [{"field": "validity_not_before", "order": "desc"}], "limit": 500}
+   ```
+
+   Lists are shown comma-separated; a policy as its OID, an SCT as its log ID's start and time, and other nested
+   values as `name=value` pairs (`critical=true, is_ca=false`).
+
 **Step 2: pick and analyze**
 
 | Tab | Shows |
@@ -1480,8 +1498,13 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
 | IPs | Public IPs in the certificates' SANs, to analyze as IP targets |
 | Hostnames | Every hostname, wildcards included, with its registered domain. Analyzing a domain covers all of its subdomains |
 | Certificates | Each certificate: common name, SANs, issuer, validation level, validity dates and days, key, self-signed flag, SHA-256, public key SHA-256 and JA4X (empty until the API returns it). Untick **Use** to leave a certificate's names out of the Domains, IPs and Hostnames tabs |
-| Breakdown | Certificates issued per month, top issuers, validation levels, keys and domains |
+| Breakdown | Certificates issued per month, top issuers, validation levels, keys and domains; with **Fields** picked, a chart of each field's most common values under *Selected fields* |
 | Raw JSON | The certificate records as received, with a download |
+
+With **Fields** picked, each picked field is a column in every tab. On Certificates it holds that certificate's
+values. On Domains, IPs and Hostnames it holds the values of the certificates (ticked *Use*) that name the row, most
+common first: three, then *+N more*. A domain whose certificates come from issuers in several countries, or that
+mixes key usages, stands out there.
 
 Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs**, pick the **Use case** and click
 the Analyze button, as on the IrisQL page. *Runs → Compare & trends* notes the run as *via CertsQL: …*, and **Evidence → Lookup queries → CertsQL**

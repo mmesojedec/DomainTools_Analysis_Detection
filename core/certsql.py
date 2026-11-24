@@ -523,6 +523,11 @@ RELEASE_KEYWORDS = ("ja4x", "within", "contains_ip", "overlaps_range", "arc_begi
 
 # The Certificate Search error codes (HTTP 400) of the user guide -> what to do about them.
 CODE_HINTS = {
+    "contains_value_too_short": f"A `contains` value must be at least {CONTAINS_MIN} characters (after normalization): "
+                                "use a longer value, or `begins_with` / `ends_with` / `equals`.",
+    "contains_value_too_long": f"A `contains` value can be at most {CONTAINS_MAX} characters (after normalization): "
+                               "shorten it, or use `begins_with` / `ends_with` / `equals`.",
+    "query_too_long": f"The query is over {LIMITS['bytes']:,} bytes: split a long `in` list over several searches.",
     "unknown_field": "A field, subfield or part doesn't exist: check the name against the CertsQL field catalog (only "
                      "`san_uri` has a `.scheme` part).",
     "operator_not_supported": "The field doesn't take this operator; the message lists the ones it does.",
@@ -579,8 +584,28 @@ def _key(hit):
     return " ".join(str(part) for part in (algorithm, curve or bits) if part)
 
 
-def certificate_frame(hits):
-    """One row per certificate of a CertsQL answer, newest first; all are used for the domain and IP tables."""
+# Picked fields a table already shows, as field -> its column: picking one adds no second column for it.
+COVERED = {
+    "certificates": {"sha256": "SHA-256", "ja4x": "JA4X", "public_key_sha256": "Public Key SHA-256",
+                     "subject_common_name": "Common Name", "validation_level": "Validation",
+                     "validity_not_before": "Not Before", "validity_not_after": "Not After",
+                     "validity_duration_days": "Days", "is_self_signed": "Self-signed", "san_dns": "SANs",
+                     "san_ip_v4": "SANs", "san_ip_v6": "SANs", "public_key_algorithm": "Key",
+                     "public_key_bits": "Key", "public_key_curve": "Key"},
+    "targets": {"sha256": "Example Certificate"},
+}
+
+
+def new_fields(fields, frame, table="targets"):
+    """The picked fields that `frame` doesn't already show (COVERED[table])."""
+    covered = COVERED.get(table, {})
+    return [f for f in fields if covered.get(f) not in frame.columns and f not in frame.columns]
+
+
+def certificate_frame(hits, fields=()):
+    """One row per certificate of a CertsQL answer, newest first; all are used for the domain and IP tables. `fields`:
+    CertsQL fields added as columns after the usual ones (field_text), except the ones the table already shows."""
+    fields = [f for f in fields if f not in COVERED["certificates"]]
     rows = [{
         "Use": True,
         "Common Name": hit.get("subject_common_name") or "",
@@ -595,10 +620,111 @@ def certificate_frame(hits):
         "SHA-256": hit.get("sha256") or "",
         "Public Key SHA-256": hit.get("public_key_sha256") or "",
         "JA4X": hit.get("ja4x") or "",
+        **{field: field_text(hit, field) for field in fields},
     } for hit in hits or [] if isinstance(hit, dict)]
-    frame = pd.DataFrame(rows, columns=CERTIFICATE_COLUMNS).drop_duplicates("SHA-256")
+    frame = pd.DataFrame(rows, columns=[*CERTIFICATE_COLUMNS, *fields]).drop_duplicates("SHA-256")
     frame["Days"] = pd.to_numeric(frame["Days"], errors="coerce").astype("Int64")
     return frame.sort_values("Not Before", ascending=False, kind="stable").reset_index(drop=True)
+
+
+# --- selected fields ---------------------------------------------------------------------------------------------------
+# The fields the Certificates table already shows (marked so in the *Fields* picker); a search without
+# `select` returns every filled field of each certificate, so the fields picked under *Fields* are shown from the same
+# answer, with no new request. Every top-level field of the catalog can be picked: one the Certificates table already
+# shows (sha256, san_dns …) is added as its own column too, and lists its values on the Domains, IPs and Hostnames tabs.
+BASE_SELECT = ("sha256", "subject_common_name", "san_dns", "san_ip_v4", "san_ip_v6", "issuer_organization",
+               "issuer_common_name", "validation_level", "validity_not_before", "validity_not_after",
+               "validity_duration_days", "public_key_algorithm", "public_key_bits", "public_key_curve",
+               "is_self_signed", "public_key_sha256", "ja4x")
+FIELD_GROUPS = {   # the user guide's field catalog, by investigation area
+    "Identity": ("sha256", "sha1", "md5", "serial_number", "ja4x"),
+    "Validity": ("validity_not_before", "validity_not_after", "validity_duration_days", "is_self_signed",
+                 "is_precertificate", "has_wildcard_san"),
+    "Issuer and subject": ("issuer_dn", "subject_dn", "issuer_common_name", "subject_common_name",
+                           "issuer_organization", "subject_organization", "issuer_organizational_unit",
+                           "subject_organizational_unit", "issuer_locality", "subject_locality",
+                           "issuer_state_or_province", "subject_state_or_province", "issuer_country",
+                           "subject_country", "issuer_dc", "subject_dc", "subject_email_address"),
+    "Keys and signature": ("public_key_algorithm", "public_key_bits", "public_key_curve", "public_key_sha256",
+                           "signature_algorithm", "authority_key_id", "subject_key_id"),
+    "Subject Alternative Names": ("san_dns", "san_ip_v4", "san_ip_v6", "san_uri", "san_directory", "san_upn",
+                                  "san_krb5_principal", "san_fascn", "san_permanent_identifier",
+                                  "san_smtp_utf8_mailbox", "san_xmpp_jid", "san_count"),
+    "Extensions and CT": ("key_usage", "extended_key_usage", "extended_key_usage_oids", "basic_constraints",
+                          "certificate_policy", "validation_level", "name_constraints", "extension_oids",
+                          "tls_feature_ids", "signed_certificate_timestamp", "has_embedded_scts"),
+}
+FIELD_GROUP = {field: group for group, fields in FIELD_GROUPS.items() for field in fields}
+SELECT_FIELDS = tuple(FIELD_GROUP)
+TARGET_VALUES_SHOWN = 3     # distinct values a Domains / IPs / Hostnames cell lists before "+N more"
+
+
+def _element_text(value):
+    if isinstance(value, dict):
+        if "policy_oid" in value:                                       # certificate_policy
+            return str(value.get("policy_oid") or "")
+        if "log_id" in value:                                           # signed_certificate_timestamp
+            return f"{str(value.get('log_id') or '')[:8]}… {str(value.get('timestamp') or '')[:16].replace('T', ' ')}"
+        return ", ".join(f"{key}={_element_text(item)}" for key, item in value.items()
+                         if item not in (None, "", [], {}))
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(dict.fromkeys(text for text in map(_element_text, value) if text))
+    return "" if value is None else str(value)
+
+
+def field_values(hit, field):
+    """The certificate's values of a CertsQL field as text, one per element ("" when it has none)."""
+    value = hit.get(field) if isinstance(hit, dict) else None
+    if value is None or value == "" or value == [] or value == {}:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(dict.fromkeys(text for text in map(_element_text, value) if text))
+    return [_element_text(value)]
+
+
+def field_text(hit, field):
+    """One cell: the field's values joined with ", "."""
+    return ", ".join(field_values(hit, field))
+
+
+def target_field_columns(hits, fields, key="target"):
+    """
+    {row: {field: text}} for the Domains / IPs tables (key "target": registered domain or IP) or the Hostnames table
+    (key "hostname"): the distinct values of the certificates naming the row, most common first ("a, b, c +2 more").
+    """
+    from core.cert_inputs import _clean_name, _hostname_target
+    counts = {}
+    for hit in hits or []:
+        if not isinstance(hit, dict):
+            continue
+        values = {field: field_values(hit, field) for field in fields}
+        sans = [*(hit.get("san_dns") or []), *(hit.get("san_ip_v4") or []), *(hit.get("san_ip_v6") or [])]
+        rows = {(_hostname_target(n) if key == "target" else _clean_name(n)) for n in sans or [hit.get("subject_common_name")]}
+        for row in rows - {None, ""}:
+            per_field = counts.setdefault(row, {field: {} for field in fields})
+            for field, found in values.items():
+                for value in found:
+                    per_field[field][value] = per_field[field].get(value, 0) + 1
+
+    def text(tally):
+        ranked = sorted(tally, key=lambda v: -tally[v])
+        more = len(ranked) - TARGET_VALUES_SHOWN
+        return ", ".join(ranked[:TARGET_VALUES_SHOWN]) + (f" +{more} more" if more > 0 else "")
+
+    return {row: {field: text(tally) for field, tally in per_field.items()} for row, per_field in counts.items()}
+
+
+def target_field_frame(hits, frame, fields, column="Target", key="target", columns=None):
+    """`frame` with a column per field (target_field_columns; pass `columns` when already worked out)."""
+    if frame is None or frame.empty:
+        return frame
+    fields = new_fields(fields, frame)   # sha256 next to Example Certificate adds nothing
+    if not fields:
+        return frame
+    columns = target_field_columns(hits, fields, key) if columns is None else columns
+    return frame.assign(**{field: [columns.get(row, {}).get(field, "") for row in frame[column]] for field in fields})
 
 
 def used_hits(hits, certificates):
@@ -629,23 +755,32 @@ def query_cost(max_results, page_size):
     return max(1, -(-int(max_results) // int(page_size)))
 
 
-def payload(query, limit, sort=None):
-    return {"query_string": query, "limit": int(limit), **({"sort": [sort]} if sort else {})}
+def select_list(fields):
+    """The commands' `select`: exactly the fields picked under *Fields*, in that order; None (every field) when none
+    is picked. The app's own search sends no `select` (the run needs whole certificates), which the commands don't
+    show."""
+    return list(dict.fromkeys(fields)) if fields else None
+
+
+def payload(query, limit, sort=None, fields=()):
+    select = select_list(fields)
+    return {"query_string": query, **({"select": select} if select else {}), **({"sort": [sort]} if sort else {}),
+            "limit": int(limit)}
 
 
 CURL_FORMATS = ("JSON", "Text")   # how the curl command carries the query: escaped into the JSON body, or as its lines
 
 
-def _curl_json(query, limit, sort):
-    body = json.dumps(payload(query, limit, sort), indent=2)
+def _curl_json(query, limit, sort, fields=()):
+    body = json.dumps(payload(query, limit, sort, fields), indent=2)
     return (f"curl -X POST '{ENDPOINT}' \\\n  -H \"X-Api-Key: ${{DT_CERT_API_KEY:-$DT_API_KEY}}\" -H 'Content-Type: application/json' "
             f"\\\n  --data-binary @- <<'EOF' | jq .\n{body}\nEOF")
 
 
-def _curl_text(query, limit, sort):
+def _curl_text(query, limit, sort, fields=()):
     """The query as written (no escaping): jq (1.6+) wraps the lines into the JSON body and curl (7.82+) sends it with
     --json. The heredoc's last newline is trimmed, so the API gets the same query_string as the JSON form."""
-    rest = json.dumps({key: value for key, value in payload(query, limit, sort).items() if key != "query_string"},
+    rest = json.dumps({key: value for key, value in payload(query, limit, sort, fields).items() if key != "query_string"},
                       separators=(", ", ": "))
     program = '{"query_string": ($q | rtrimstr("\\n")), ' + rest[1:]
     return (f"jq -n --rawfile q /dev/stdin '{program}' <<'EOF' \\\n"
@@ -653,12 +788,13 @@ def _curl_text(query, limit, sort):
             f"  | jq .\n{query}\nEOF")
 
 
-def commands(query, limit, sort=None, curl_format="JSON"):
+def commands(query, limit, sort=None, curl_format="JSON", fields=()):
     """The same search as a curl command and a Python script; the key comes from $DT_CERT_API_KEY, else $DT_API_KEY
-    (no values). `curl_format` (CURL_FORMATS): the query escaped into the JSON body, or written as text for jq."""
-    body = json.dumps(payload(query, limit, sort), indent=2)
+    (no values). `curl_format` (CURL_FORMATS): the query escaped into the JSON body, or written as text for jq.
+    `fields`: the fields picked under *Fields*, sent as `select` exactly as picked."""
+    body = json.dumps(payload(query, limit, sort, fields), indent=2)
     return {
-        "curl": (_curl_text if curl_format == "Text" else _curl_json)(query, limit, sort),
+        "curl": (_curl_text if curl_format == "Text" else _curl_json)(query, limit, sort, fields),
         "Python script": "import json, os, requests\n\n"
                              f"body = {body}\n"
                              f"response = requests.post({json.dumps(ENDPOINT)}, json=body, timeout=60,\n"

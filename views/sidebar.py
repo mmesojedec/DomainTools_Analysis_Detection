@@ -118,7 +118,7 @@ ANALYST_KEY = "analyst_mode"
 STICKY_KEYS = (*COLLECTION_DEFAULTS, *(spec.state_key for spec in THRESHOLD_SPECS), ANALYST_KEY, "analysis_window",
                "analysis_window_range", "display_timezone", "use_case", "profile_domain", UNICODE_KEY,
                "irisql_query", "irisql_max_results", "irisql_sort", "irisql_preselect",   # IrisQL search (irisql_view)
-               "certsql_query", "certsql_max_results", "certsql_sort", "certsql_sort_order", "certsql_preselect",   # CertsQL (certsql_view)
+               "certsql_query", "certsql_max_results", "certsql_sort", "certsql_sort_order", "certsql_preselect", "certsql_fields",   # CertsQL (certsql_view)
                "irisql_analyze_scope", "certsql_analyze_scope",   # domains / IPs / both (analyze_selection)
                "hunt_map_details", "hunt_map_layout", "hunt_map_size", "hunt_map_open")   # Hunt map → Map options
 

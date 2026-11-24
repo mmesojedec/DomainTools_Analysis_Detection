@@ -75,7 +75,7 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
   form. Search works on the first click after typing, and Clear empties the query and its results. A watched query,
   checked again later, shows only the domains that are new.
 - **Finds targets with CertsQL**: a Certificate Search query in CertsQL (`san_dns contains "login"`) lists the
-  matching certificates with the domains, IPs and hostnames they name; the query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. Tick
+  matching certificates with the domains, IPs and hostnames they name; the query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. **Fields** adds any certificate field (the API's `select`) as a column to every results tab. Tick
   domains and IPs and analyze them.
 - **Ranks pivots** (*Hunt map → All pivots*): every IP, name server, email, registrant, certificate and tracker in Iris Investigate, by how many
   domains share it, so rare links to the same operator come first; one click finds their other domains in Iris.

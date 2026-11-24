@@ -11,15 +11,20 @@ import streamlit as st
 
 from config import CERTSQL_DEFAULT_RESULTS, CERTSQL_MAX_RESULTS, CERTSQL_PAGE_SIZE, SEED_DEFAULT_TARGETS, SEED_MAX_TARGETS
 from core.certsql import (
+    CERTIFICATE_COLUMNS,
     CURL_FORMATS,
     DEFAULT_SORT,
     HEADER,
+    SELECT_FIELDS,
     SORT_FIELDS,
     SORT_ORDERS,
     certificate_frame,
     commands,
     error_hint,
     examples,
+    field_text,
+    field_values,
+    new_fields,
     normalize,
     order_label,
     problems,
@@ -27,6 +32,8 @@ from core.certsql import (
     selected,
     sort_term,
     sort_text,
+    target_field_columns,
+    target_field_frame,
     target_frames,
     used_hits,
 )
@@ -46,6 +53,7 @@ ORIGIN_KEY = "certsql_origin"   # the search's Data sources row, attached to the
 CERTS_KEY = "certsql_origin_certs"   # the search's used certificates, added to the next run's certificates
 MAX_KEY, SORT_KEY, PRESELECT_KEY = "certsql_max_results", "certsql_sort", "certsql_preselect"   # sticky (sidebar.py)
 ORDER_KEY = "certsql_sort_order"   # sticky (sidebar.py)
+FIELDS_KEY = "certsql_fields"      # sticky (sidebar.py): extra fields shown in every results tab
 COLOR = "#2e8b57"
 QUERY_HELP = ("One predicate per line: `field operator value` (lowercase), with `AND` on its own line between clauses. "
               "Lines in one clause are OR'ed. Values are JSON: `\"text\"`, numbers, `true` / `false`, `[\"a\", \"b\"]`; "
@@ -165,6 +173,7 @@ def render_certsql_page():
                                 key=PRESELECT_KEY,
                                 help="Domains and IPs ticked for analysis right after the search (named by the most "
                                      "certificates first).")
+    fields = _fields_picker()
     if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
         st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: suggestions "
                    "appear as you type.")
@@ -187,13 +196,49 @@ def render_certsql_page():
             help="**JSON**: the query is escaped into the JSON body (newlines as `\\n`, quotes as `\\\"`). **Text**: the "
                  "query is written as it is, one condition per line, and jq builds the JSON body from it (needs jq 1.6+ "
                  "and curl 7.82+). Both send the same request.") or CURL_FORMATS[0]
-        for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort, curl_format).items():
+        for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort, curl_format,
+                                      fields).items():
             st.markdown(f"**{name}**")
             st.code(command, language="python" if name == "Python script" else "bash")
     state = st.session_state.get(STATE_KEY)
     if state:
         st.divider()
         _render_results(state)
+
+
+def _fields_picker():
+    """*Fields*: CertsQL fields added as columns to every results tab (the API's `select`)."""
+    if any(field not in SELECT_FIELDS for field in st.session_state.get(FIELDS_KEY) or []):   # a field no longer offered
+        st.session_state[FIELDS_KEY] = [f for f in st.session_state[FIELDS_KEY] if f in SELECT_FIELDS]
+    return st.multiselect(
+        "Fields", SELECT_FIELDS, key=FIELDS_KEY,
+        placeholder="Add certificate fields to the results…",
+        help="CertsQL fields shown as extra columns in every results tab: the certificate's value on Certificates, the "
+             "values of the certificates naming it (most common first) on Domains, IPs and Hostnames, and a chart "
+             "each on Breakdown. A search returns every field of each certificate, so changing these updates the "
+             "tables at once, with no new request. The commands under *The same search outside the app* send them as "
+             "`select`: exactly these fields, in the order picked.")
+
+
+def _with_fields(state, fields):
+    """The result tables with the picked fields added: (certificates, domains, IPs, hostnames)."""
+    certs, domains, ips, hosts = state["certs"], state["domains"], state["ips"], state["hosts"]
+    if not fields:
+        return certs, domains, ips, hosts
+    hits = state["result"].data or []
+    by_hash = {hit.get("sha256"): hit for hit in hits if isinstance(hit, dict)}
+    certs = certs.assign(**{f: certs["SHA-256"].map(lambda h, f=f: field_text(by_hash.get(h, {}), f))
+                            for f in new_fields(fields, certs, "certificates")})
+    used = used_hits(hits, state["certs"])
+    key = (tuple(fields), tuple(sorted(hit.get("sha256") or "" for hit in used)))
+    cached = state.get("field_columns")
+    if not cached or cached[0] != key:   # worked out once per picked fields and used certificates, not on every click
+        cached = state["field_columns"] = (key, target_field_columns(used, fields),
+                                           target_field_columns(used, fields, key="hostname"))
+    _, targets, hostnames = cached
+    return (certs, target_field_frame(used, domains, fields, columns=targets),
+            target_field_frame(used, ips, fields, columns=targets),
+            target_field_frame(used, hosts, fields, column="Hostname", key="hostname", columns=hostnames))
 
 
 def _render_results(state):
@@ -226,7 +271,8 @@ def _render_results(state):
         st.info("No certificate matches this query.")
         return
 
-    certs, domains, ips, hosts = state["certs"], state["domains"], state["ips"], state["hosts"]
+    fields = [f for f in st.session_state.get(FIELDS_KEY) or [] if f in SELECT_FIELDS]
+    certs, domains, ips, hosts = _with_fields(state, fields)
     _render_fingerprints(result.data)
     used = int(certs["Use"].sum())
     tabs = st.tabs([f"Domains ({len(domains):,})", f"IPs ({len(ips):,})", f"Hostnames ({len(hosts):,})",
@@ -251,7 +297,7 @@ def _render_results(state):
     with tabs[3]:
         _render_certificates(state, certs)
     with tabs[4]:
-        _breakdown(certs, domains)
+        _breakdown(certs, domains, used_hits(result.data, state["certs"]), fields)
     with tabs[5]:
         st.download_button("Download the certificates (JSON)", json.dumps(result.data, indent=1, default=str),
                            file_name="certsql_results.json", mime="application/json", icon=":material/download:")
@@ -300,7 +346,7 @@ def _render_certificates(state, certs):
                                                          "the same tool or framework; search it with `ja4x equals`. "
                                                          "Empty while the API doesn't return it.")})
     if edited["Use"].tolist() != certs["Use"].tolist():   # the used set changed: re-derive the target tables
-        state["certs"] = edited
+        state["certs"] = edited[CERTIFICATE_COLUMNS]   # the picked fields are added again when drawn
         _derive(state, state["preselect"])
         st.rerun()
 
@@ -323,7 +369,7 @@ def _editor(state, table, frame, column_config):
                        **column_config})
 
 
-def _breakdown(certs, domains):
+def _breakdown(certs, domains, hits=(), fields=()):
     used = certs[certs["Use"].astype(bool)]
     if used.empty:
         st.info("No certificate is ticked *Use*.")
@@ -352,3 +398,20 @@ def _breakdown(certs, domains):
                           yaxis_title=None, xaxis_title=None)
         with column:
             chart(fig, key=f"certsql_top_{name}", height=260)
+    if fields:
+        st.markdown("##### Selected fields", help="The picked fields' most common values among the certificates ticked "
+                                                  "*Use* (a certificate with several values counts once for each).")
+        columns = st.columns(2)
+        for number, field in enumerate(fields):
+            counts = pd.Series([value for hit in hits for value in field_values(hit, field)], dtype=str).value_counts()
+            with columns[number % 2]:
+                if counts.empty:
+                    st.caption(f"**{field}**: no certificate has a value.")
+                    continue
+                top = counts.head(10)
+                fig = px.bar(top.sort_values().rename_axis(field).reset_index(name="Count"), x="Count", y=field,
+                             orientation="h", color_discrete_sequence=[COLOR])
+                fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), showlegend=False, yaxis_title=None,
+                                  xaxis_title=None, title=f"Top {field}" + (f" (10 of {len(counts):,} values)"
+                                                                            if len(counts) > 10 else ""))
+                chart(fig, key=f"certsql_field_{field}", height=260)
