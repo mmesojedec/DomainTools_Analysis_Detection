@@ -72,7 +72,8 @@ Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst op
 - **Finds targets with IrisQL**: an Iris Investigate query in IrisQL (`domain contains "domaintools"`) lists the
   matching domains with their risk, dates, registrar and hosting; tick domains and IPs, pick a use case and analyze
   them. The query editor suggests the fields, then only the operators each field accepts, then the value in the right
-  form. A watched query, checked again later, shows only the domains that are new.
+  form. Search works on the first click after typing, and Clear empties the query and its results. A watched query,
+  checked again later, shows only the domains that are new.
 - **Finds targets with CertsQL**: a Certificate Search query in CertsQL (`san_dns contains "login"`) lists the
   matching certificates with the domains, IPs and hostnames they name; the query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. Tick
   domains and IPs and analyze them.

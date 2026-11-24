@@ -610,7 +610,9 @@ below.
   usual layout is not a relation), the exact SAN set, the common name, the **same shape**, or a **near shape** (85%
   or more of the weighted traits agree; the relation names what differs, for example *validity 6 d vs 89 d*). Open
   any of them. **Search CertsQL for this shape** opens CertsQL with a query for certificates of the same issuer, key,
-  validity band, SAN count and policy from the last 90 days; it runs only when you press Search there.
+  validity band, SAN count and policy from the last 90 days; it runs only when you press Search there. A popular
+  shape (a Let's Encrypt or Google certificate) matches a great many certificates, so keep *Certificates to fetch*
+  low (500 is one request) or add a condition, such as a SAN or subject value, before searching.
 - **Where seen**: the certificate's CT log entries, observations and hostname events, and the alerts that cite it.
 
 #### Certificate families and anomalies
@@ -669,6 +671,11 @@ Three anomalies raise alerts: *Issuer Key Mismatch (Impersonated CA)*, *Backdate
 entries and the precertificate) and *Insufficient SCTs (CT Policy)*. The others are context on the Certificate profile
 and this tab. The analysis report's *Certificate profiles* section starts with the families and anomalies, and the
 data export has *Certificate families* and each certificate's shape and anomalies in *Certificate profiles*.
+
+Shapes, families and anomalies are worked out once for the run's certificates and reused by the Certificate profile,
+this tab, the alerts, the report and the export, so clicking around does not redo them. They are worked out again
+only when the certificates change (another run, other selected domains or another analysis window). The first time
+on a run with thousands of certificates takes a few seconds; after that a click takes well under a second.
 
 The Certificates page's **Field breakdown** tab looks at every certificate field by field. For each field it shows how
 often it is filled, how many distinct values it has, the most common one, and the **rare values** only one
@@ -1256,10 +1263,7 @@ becomes `["a", ""]` with the cursor in the new quotes.
 Enter or a click picks a suggestion, Esc closes the list, and Tab jumps past the closing quote or bracket. Fields, operators,
 values, `AND` and comments are colour-coded; an operator the field doesn't accept is underlined in red. A line that a
 warning below the box is about gets a marker in the margin (hover it for the warning). The query is taken when you
-click outside the box or press Ctrl+Enter (⌘+Enter on a Mac), so **Search** works straight after typing: the click
-takes the query and searches it (a query with a warning is not searched). **Clear**, next to Search, empties the query
-and removes the last search's results from the page; the query and results otherwise stay when you go to other pages
-and come back. The editor is bundled with the app, so it works without internet access.
+click outside the box (Search included) or press Ctrl+Enter (⌘+Enter on a Mac). The editor is bundled with the app, so it works without internet access.
 
 **Step 1: search**
 
@@ -1310,8 +1314,10 @@ and come back. The editor is bundled with the app, so it works without internet 
    Investigate query each. It limits what is fetched from a query Iris accepts (up to 10,000 matches), not how many
    may match. Set **Sort by** (Iris sorts before paging, so it decides which domains you get when more
    match), and **Pre-select the riskiest** (default 10).
-3. Click **Search**. The same search within the cache lifetime costs no query. *The same search outside the app*
-   gives it as a DomainTools Python SDK command (the `domaintools` command line), a curl command and a Python script,
+3. Click **Search**. It works on the first click right after typing (the click takes the query), and a query with
+   a warning is not sent. The same search within the cache lifetime costs no query. **Clear** empties the query and
+   removes the last search's results from the page; otherwise both stay when you go to other pages and come back.
+   *The same search outside the app* gives it as a DomainTools Python SDK command (the `domaintools` command line), a curl command and a Python script,
    without credential values (taken from
    `$DT_API_USERNAME` / `$DT_API_KEY`). The curl answer is piped to `jq .` and the Python prints it indented; without
    `jq`, drop ` | jq .` from the curl line. Each block has a **Copy** button.
@@ -1439,7 +1445,8 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
    `operator_not_supported`, `invalid_value`, `ored_inner_clause`, …) and a hint on what to change.
 
 3. Set **Certificates to fetch** (pages of 500, up to 5,000), **Sort by** and **Order**, and **Pre-select the most
-   named**. Then click **Search**. The
+   named**. Then click **Search**: as on the IrisQL page, it works on the first click right after typing, a query
+   with a warning is not sent, and **Clear** empties the query and the last results. The
    total is exact up to 10,000; *10,000+* means at least that many match. *The same search outside the app* gives
    the request as a curl command and a Python script, without the key value (taken from `$DT_CERT_API_KEY`, else `$DT_API_KEY`).
    As on the IrisQL page, the curl answer is piped to `jq .` and the Python prints it indented.
