@@ -53,7 +53,7 @@ is in [Pages](USER_GUIDE.md#pages).
 
 - **Start** has the **Targets** box with **Analyze** (the only place to enter targets), three links: **Find targets
   with IrisQL**, **Find targets with CertsQL** and **Runs & Sightings** (see [Runs and Indicator
-  Sightings](#runs-and-indicator-sightings)), and the **Save offline copy** checkbox. The last run is named below them. Then it asks *What do you want to do?*
+  Sightings](#runs-and-indicator-sightings)), the **Save offline copy** checkbox and **Clear** (empties the box). The last run is named below them. Then it asks *What do you want to do?*
   Eight use cases: *Triage a suspicious domain*, *Map related
   infrastructure*, *Hunt C2 infrastructure*, *Subdomain takeover check*, *Phishing & lookalikes*, *Monitor
   changes*, *Check IP addresses (VPN, proxy, Tor)*, *Report & export evidence*. Each card shows its title, a short description and the **Analysis window** it sets in the sidebar (it
@@ -178,6 +178,7 @@ dataset** on *Data → Saved datasets*.
 | --- | --- |
 | **Targets: domains, IPs, or certificates** | The **Targets** box on the Start page. One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses go to every source; CIDR ranges (`104.21.59.0/24`) go to VPNDB only ([CIDR ranges](#cidr-ranges)). Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
 | **Save offline copy** | In the Start page Targets box, after the links *Find targets with IrisQL*, *Find targets with CertsQL* and *Runs & Sightings*. Also saves everything this run collects to `dt_offline/` for later re-analysis. Forgot to tick it? Click **Save offline copy** on the status line at the top of any page after the run. |
+| **Clear** | After *Save offline copy*. Empties the Targets box; the loaded results stay until the next Analyze replaces them. The box stays empty when you come back to the Start page, until a new run (Analyze, IrisQL, CertsQL, a hunt lead) sets new targets. |
 | **Analyze** | Collects data and runs the detection engine, then opens the Summary. With certificate inputs, it first shows [two review steps](#certificate-inputs): the searches, then the domains / IPs to analyze. |
 | **Use case** / **Options** | Sidebar, *Analyst options → Selection*. The use case or profile picked on the Start page (*changed* when you changed its options afterwards), and one line naming the collection options of the next run, with *Change collection options* (the Settings page). |
 | **API credentials** | Sidebar, *Analyst options → Selection*. One line saying how many services have credentials; the full matrix, and a form to enter keys, is under *Settings → API credentials* (see [API Credentials panel](INSTALLATION.md#api-credentials-panel)). |

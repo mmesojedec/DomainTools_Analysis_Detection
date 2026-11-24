@@ -231,3 +231,15 @@ def test_recent_runs_section_renders_runs_with_a_use_case_and_a_profile(store, m
     assert list(at.dataframe[0].value["Use case"]) == ["My hunt", "Triage a suspicious domain"]
     at.text_input(key="recent_filter").input("a.com").run(timeout=30)
     assert list(at.dataframe[0].value["Targets"]) == ["a.com"]
+
+
+def test_start_page_clear_empties_the_box_until_a_new_run_changes_the_targets(monkeypatch):
+    from views import home_view
+    state = {"targets_input": "a.com", "start_targets": "typed.com", "start_targets_empty": True}
+    monkeypatch.setattr(home_view.st, "session_state", state)
+    home_view.clear_targets()
+    assert state["start_targets"] == "" and "start_targets_empty" not in state
+    del state["start_targets"]   # the page was left: Streamlit dropped the box's state
+    assert home_view._initial_targets() == ""   # the last run's targets do not come back
+    state["targets_input"] = "b.com"   # a new run (IrisQL, a hunt lead, Analyze)
+    assert home_view._initial_targets() == "b.com"

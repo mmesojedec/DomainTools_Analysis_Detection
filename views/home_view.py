@@ -21,6 +21,7 @@ from views import navigation
 from views.sidebar import EMPTY_TARGETS_KEY, SAVE_OFFLINE_KEY, TARGETS_KEY, apply_use_case, start_analyze
 
 START_TARGETS_KEY = "start_targets"
+CLEARED_KEY = "start_targets_cleared"   # the last run's targets when Clear was clicked: the box stays empty for them
 _PREFIXES = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
 TARGETS_HELP = (
     "Domains and IPs: defanged input (hxxp, [.]) and URLs are cleaned; subdomains are analyzed at their apex domain "
@@ -33,6 +34,20 @@ TARGETS_HELP = (
     "will be searched (and can change it), then pick which of the domains and IPs found to analyze. To find targets "
     "first, use **IrisQL** or **CertsQL**; to re-analyze saved data, **Data → Saved datasets**."
 )
+
+
+def clear_targets():
+    """Start page Clear callback: the Targets box is emptied (the last run's results stay loaded)."""
+    st.session_state[START_TARGETS_KEY] = ""
+    st.session_state.pop(EMPTY_TARGETS_KEY, None)
+    # the box refills from the last run's targets when the page is drawn again; not these, once cleared
+    st.session_state[CLEARED_KEY] = st.session_state.get(TARGETS_KEY, "")
+
+
+def _initial_targets():
+    """What the Targets box starts with: the last run's targets, unless Clear emptied the box since that run."""
+    last = st.session_state.get(TARGETS_KEY, "")
+    return "" if st.session_state.get(CLEARED_KEY) == last else last
 
 
 def _card(case, overrides, active):
@@ -81,7 +96,7 @@ def render_home(has_data, render_recent):
                 "analysis window that suit it, and gives you a short plan. Then enter the targets and click **Analyze**. "
                 "You can also go straight to any page in the menu above.")
     with st.container(border=True):
-        st.session_state.setdefault(START_TARGETS_KEY, st.session_state.get(TARGETS_KEY, ""))
+        st.session_state.setdefault(START_TARGETS_KEY, _initial_targets())
         st.text_area("Targets: domains, IPs or certificates (one per line)", key=START_TARGETS_KEY, height=180,
                      placeholder="example.com\n203.0.113.7\ncn:login.example.com", help=TARGETS_HELP)
         with st.container(horizontal=True, vertical_alignment="center"):
@@ -97,6 +112,8 @@ def render_home(has_data, render_recent):
                              "re-analyzed later with a different window, thresholds or filters without API calls. "
                              "Large DNSDB limits produce large datasets. You can also save a run afterwards: *Save "
                              "offline copy* on the status line at the top of every page.")
+            st.button("Clear", icon=":material/close:", type="tertiary", key="start_clear", on_click=clear_targets,
+                      help="Empties the Targets box. The loaded results stay; Analyze replaces them.")
         if st.session_state.pop(EMPTY_TARGETS_KEY, False):
             st.warning("Enter at least one domain, IP or certificate in the Targets box first.",
                        icon=":material/edit_note:")

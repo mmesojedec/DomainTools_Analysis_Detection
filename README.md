@@ -16,7 +16,7 @@ telemetry.
 
 *The Start page: enter domains, IPs or certificates in the Targets box and click **Analyze**, or first pick a use
 case (it sets the lookups, limits and analysis window). Next to Analyze: find targets with IrisQL or CertsQL, open
-Runs & Sightings, and tick *Save offline copy*. The sidebar holds the Analyst options.*
+Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar holds the Analyst options.*
 
 ## Documentation
 
@@ -263,7 +263,7 @@ views/                         One module per page + sidebar, alert tools, certi
   welcome_view.py              First start: the disclaimer, then the API credentials (Settings can show it again)
   results_toolbar.py           Results toolbar: window, domains, network (BGPDB origin, VPNDB verdict), hostnames, record types,
                                alert and threshold filters
-  home_view.py                 Start page (Targets box, Save offline copy and Analyze, use cases, the last run)
+  home_view.py                 Start page (Targets box, Save offline copy, Clear and Analyze, use cases, the last run)
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
   certsql_view.py              CertsQL page: Certificate Search query, pick certificates / domains / IPs, analyze them
