@@ -50,11 +50,11 @@ def query_actions(key, header, search_help, clear_keys=(), search_label="Search"
     takes the typed query (the editor sends its text when it loses focus), so a query just typed is searched on the
     first click. Returns True when Search was clicked; the page checks the query then.
     """
-    c_search, c_clear, _ = st.columns([1, 1, 6], vertical_alignment="center")
-    clicked = c_search.button(search_label, type="primary", icon=":material/manage_search:", help=search_help,
-                              width="stretch")
+    row = st.container(horizontal=True, vertical_alignment="center")   # buttons keep their width in a narrow column
+    clicked = row.button(search_label, type="primary", icon=":material/manage_search:", help=search_help,
+                         width="content")
     typed = bool(str(st.session_state.get(key) or "").strip().removeprefix(header).strip())
-    c_clear.button("Clear", icon=":material/close:", type="tertiary", key=f"{key}_clear",
+    row.button("Clear", icon=":material/close:", type="tertiary", key=f"{key}_clear", width="content",
                    disabled=not typed and not any(st.session_state.get(k) for k in clear_keys),
                    on_click=clear_query, args=(key, header, *clear_keys),
                    help="Empties the query and removes the last search's results from this page (saved runs and "

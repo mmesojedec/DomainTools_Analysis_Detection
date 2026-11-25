@@ -1340,21 +1340,25 @@ click outside the box (Search included) or press Ctrl+Enter (⌘+Enter on a Mac)
 3. Click **Search**. It works on the first click right after typing (the click takes the query), and a query with
    a warning is not sent. The same search within the cache lifetime costs no query. **Clear** empties the query and
    removes the last search's results from the page; otherwise both stay when you go to other pages and come back.
-   *The same search outside the app* gives it as a DomainTools Python SDK command (the `domaintools` command line), a curl command and a Python script,
-   without credential values (taken from
+   The page is split in two: the query and its options on the left, and on the right *The same search outside the
+   app*, which follows the query as you type (no request). Its tabs give the search as a curl command, a DomainTools
+   Python SDK command (the `domaintools` command line) and a Python script, without credential values (taken from
    `$DT_API_USERNAME` / `$DT_API_KEY`). The curl answer is piped to `jq .` and the Python prints it indented; without
    `jq`, drop ` | jq .` from the curl line. Each block has a **Copy** button.
 
 **Step 2: pick and analyze**
 
-The results show how many domains match in Iris, how many were fetched, their hosting IPs and the queries used, and
+After a search, *Last search* on the right sums it up (matching, fetched, cached or the queries used) with the query
+it ran; when the query has been edited since, it says the results below are still from the earlier query.
+
+The results, full width below, show how many domains match in Iris, how many were fetched, their hosting IPs and the queries used, and
 say so when Iris has more matches than were fetched.
 
 | Tab | Shows |
 | --- | --- |
 | Domains | Each domain with its risk score, active flag, create / first seen / expiration dates, registrar, registrant organization, TLD, IPs, ASNs, countries, name servers, website title and tags. Tick **Analyze** on the rows to look into; *Tick: 10 riskiest*, *All* (the first 100) and *None* set the ticks; with *Sort by* left on the Iris default the riskiest come first |
 | IPs | The domains' current hosting IPs: how many listed domains use each (*Result Domains*), how many domains Iris has on it in total (*Iris Domains*; a large number is shared hosting), ASN, ISP, country and the domains. Tick the IPs to analyze as IP targets |
-| Breakdown | Risk score histogram, top registrars, TLDs, ASNs and countries |
+| Breakdown | Tiles: median risk score, domains at or above the high-risk cutoff (Settings), created in the last 30 days, expiring in the next 30 days, active / inactive, and how many registrars, ASNs and countries. Charts: risk score histogram, risk bands (0–39, 40–69, 70–89, 90–100), domains created per month by risk band, the share of domains on the top 5 IPs and on the top name server (a high share points to one operator or one shared host), and the top registrars, TLDs, ASNs, countries, name servers, registrant organizations and tags |
 | Raw JSON | The Iris answer as received, with a download |
 
 Under **Analyze the selection**, choose **What to analyze**: **Domains**, **IPs** or **Domains & IPs** (each shows
@@ -1470,7 +1474,8 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
 3. Set **Certificates to fetch** (pages of 500, up to 5,000), **Sort by** and **Order**, and **Pre-select the most
    named**. Then click **Search**: as on the IrisQL page, it works on the first click right after typing, a query
    with a warning is not sent, and **Clear** empties the query and the last results. The
-   total is exact up to 10,000; *10,000+* means at least that many match. *The same search outside the app* gives
+   total is exact up to 10,000; *10,000+* means at least that many match. As on the IrisQL page, the query is on the
+   left and *The same search outside the app* on the right, with *Last search* under it after a search. It gives
    the request as a curl command and a Python script, without the key value (taken from `$DT_CERT_API_KEY`, else `$DT_API_KEY`).
    As on the IrisQL page, the curl answer is piped to `jq .` and the Python prints it indented.
    **Query in the curl command** picks how the curl command carries the query; both send the same request:
@@ -1521,7 +1526,7 @@ menu (after IrisQL), or **Find targets with CertsQL** on the Start page.
 | IPs | Public IPs in the certificates' SANs, to analyze as IP targets |
 | Hostnames | Every hostname, wildcards included, with its registered domain. Analyzing a domain covers all of its subdomains |
 | Certificates | Each certificate: common name, SANs, issuer, validation level, validity dates and days, key, self-signed flag, SHA-256, public key SHA-256 and JA4X (empty until the API returns it). Untick **Use** to leave a certificate's names out of the Domains, IPs and Hostnames tabs |
-| Breakdown | Certificates issued per month, top issuers, validation levels, keys and domains; with **Fields** picked, a chart of each field's most common values under *Selected fields* |
+| Breakdown | Tiles over the certificates ticked Use: how many, issuers, median validity, DV / OV / EV split, self-signed, expired, expiring in 30 days and short-lived (10 days or less). Charts: certificates issued per month, expiring per month, validity length classes, names (SANs) per certificate with the wildcard count, the top IPs named in SANs, and the top issuers, validation levels, keys and domains; with **Fields** picked, a chart of each field's most common values under *Selected fields* |
 | Raw JSON | The certificate records as received, with a download |
 
 With **Fields** picked, each picked field is a column in every tab. On Certificates it holds that certificate's

@@ -38,11 +38,13 @@ from core.certsql import (
     used_hits,
 )
 from core.persistence import load_settings
+from core.query_breakdown import cert_summary, monthly, names_per_cert, san_ips, validity_classes
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.certificates import fetch_certsql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_actions, query_editor, set_query
+from views.query_layout import code_panel, last_search_card, split, tiles
 from views.sidebar import apply_use_case, start_hunt
 
 QUERY_KEY = "certsql_query"
@@ -146,64 +148,77 @@ def render_certsql_page():
     st.session_state.setdefault(PRESELECT_KEY, SEED_DEFAULT_TARGETS)
     if st.session_state.get(SORT_KEY) not in SORT_FIELDS or st.session_state.get(ORDER_KEY) not in SORT_ORDERS:
         st.session_state[SORT_KEY], st.session_state[ORDER_KEY] = DEFAULT_SORT   # also replaces an old one-box choice
-    st.selectbox("Start from an example", [""] + list(sample), key=EXAMPLE_KEY, on_change=_load_example,
-                 format_func=lambda name: name or "Choose an example to load it into the query…",
-                 help="Dates in the examples are counted from today and written out, so they work before the "
-                      "API accepts `within` (\"the last 30 days\").")
-    text = query_editor("certsql", QUERY_KEY, "CertsQL query", help=QUERY_HELP)
-    query = normalize(text)
-    issues = problems(query)
-    c1, c2, c3, c4 = st.columns([1, 1.2, 1.2, 1])
-    max_results = c1.number_input("Certificates to fetch", min_value=1, max_value=CERTSQL_MAX_RESULTS, step=100,
-                                  key=MAX_KEY,
-                                  help=f"Pages of {CERTSQL_PAGE_SIZE} certificates are requested until this many (each "
-                                       "page is one Certificate Search request). The total is shown either way "
-                                       "(exact up to 10,000).")
-    sort_field = c2.selectbox(
-        "Sort by", list(SORT_FIELDS), key=SORT_KEY, format_func=lambda f: SORT_FIELDS[f][0],
-        help="A field of each certificate, not a date in your query: the API orders every matching certificate by it "
-             "before paging, so when more match than you fetch, it decides which ones you get (e.g. issue date, newest "
-             "first: the most recently issued). Sent as `sort`: issue date = `validity_not_before`, expiry date = "
-             "`validity_not_after`, validity length = `validity_duration_days`, key size = `public_key_bits`.")
-    order = c3.selectbox("Order", SORT_ORDERS, key=ORDER_KEY, format_func=lambda o: order_label(sort_field, o),
-                         help="The direction, worded for the field: newest, latest, longest or largest first is "
-                              "descending (`desc`); oldest, soonest, shortest or smallest first is ascending (`asc`).")
-    sort = sort_term(sort_field, order)
-    preselect = c4.number_input("Pre-select the most named", min_value=0, max_value=SEED_MAX_TARGETS, step=5,
-                                key=PRESELECT_KEY,
-                                help="Domains and IPs ticked for analysis right after the search (named by the most "
-                                     "certificates first).")
-    fields = _fields_picker()
-    if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
-        st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: suggestions "
-                   "appear as you type.")
-    else:
-        for issue in issues:
-            st.warning(issue, icon=":material/edit_note:")
-    cost = query_cost(max_results, CERTSQL_PAGE_SIZE)
-    if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Certificate Search request{'' if cost == 1 else 's'}; the "
-                     "same search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
-        if not query.splitlines()[1:]:
-            st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
-        elif issues:
-            st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+    left, right = split()
+    with left:
+        st.selectbox("Start from an example", [""] + list(sample), key=EXAMPLE_KEY, on_change=_load_example,
+                     format_func=lambda name: name or "Choose an example to load it into the query…",
+                     help="Dates in the examples are counted from today and written out, so they work before the "
+                          "API accepts `within` (\"the last 30 days\").")
+        text = query_editor("certsql", QUERY_KEY, "CertsQL query", help=QUERY_HELP)
+        query = normalize(text)
+        issues = problems(query)
+        c1, c2 = st.columns(2)
+        max_results = c1.number_input("Certificates to fetch", min_value=1, max_value=CERTSQL_MAX_RESULTS, step=100,
+                                      key=MAX_KEY,
+                                      help=f"Pages of {CERTSQL_PAGE_SIZE} certificates are requested until this many "
+                                           "(each page is one Certificate Search request). The total is shown either "
+                                           "way (exact up to 10,000).")
+        preselect = c2.number_input("Pre-select the most named", min_value=0, max_value=SEED_MAX_TARGETS, step=5,
+                                    key=PRESELECT_KEY,
+                                    help="Domains and IPs ticked for analysis right after the search (named by the "
+                                         "most certificates first).")
+        sort_field = c1.selectbox(
+            "Sort by", list(SORT_FIELDS), key=SORT_KEY, format_func=lambda f: SORT_FIELDS[f][0],
+            help="A field of each certificate, not a date in your query: the API orders every matching certificate by "
+                 "it before paging, so when more match than you fetch, it decides which ones you get (e.g. issue date, "
+                 "newest first: the most recently issued). Sent as `sort`: issue date = `validity_not_before`, expiry "
+                 "date = `validity_not_after`, validity length = `validity_duration_days`, key size = "
+                 "`public_key_bits`.")
+        order = c2.selectbox("Order", SORT_ORDERS, key=ORDER_KEY, format_func=lambda o: order_label(sort_field, o),
+                             help="The direction, worded for the field: newest, latest, longest or largest first is "
+                                  "descending (`desc`); oldest, soonest, shortest or smallest first is ascending "
+                                  "(`asc`).")
+        sort = sort_term(sort_field, order)
+        fields = _fields_picker()
+        if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
+            st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: "
+                       "suggestions appear as you type.")
         else:
-            with st.spinner("Searching certificates..."):
-                _search(query, max_results, sort, int(preselect))
-    with st.expander("The same search outside the app (curl, Python script)", icon=":material/terminal:"):
+            for issue in issues:
+                st.warning(issue, icon=":material/edit_note:")
+        cost = query_cost(max_results, CERTSQL_PAGE_SIZE)
+        if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Certificate Search request{'' if cost == 1 else 's'}; "
+                         "the same search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
+            if not query.splitlines()[1:]:
+                st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
+            elif issues:
+                st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+            else:
+                with st.spinner("Searching certificates..."):
+                    _search(query, max_results, sort, int(preselect))
+    state = st.session_state.get(STATE_KEY)
+    with right:
         curl_format = st.segmented_control(
             "Query in the curl command", CURL_FORMATS, default=CURL_FORMATS[0], key="certsql_curl_format",
-            help="**JSON**: the query is escaped into the JSON body (newlines as `\\n`, quotes as `\\\"`). **Text**: the "
-                 "query is written as it is, one condition per line, and jq builds the JSON body from it (needs jq 1.6+ "
-                 "and curl 7.82+). Both send the same request.") or CURL_FORMATS[0]
-        for name, command in commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort, curl_format,
-                                      fields).items():
-            st.markdown(f"**{name}**")
-            st.code(command, language="python" if name == "Python script" else "bash")
-    state = st.session_state.get(STATE_KEY)
+            help="**JSON**: the query is escaped into the JSON body (newlines as `\\n`, quotes as `\\\"`). **Text**: "
+                 "the query is written as it is, one condition per line, and jq builds the JSON body from it (needs jq "
+                 "1.6+ and curl 7.82+). Both send the same request.") or CURL_FORMATS[0]
+        code_panel(commands(query, min(int(max_results), CERTSQL_PAGE_SIZE), sort, curl_format, fields), "certsql",
+                   height=280)
+        if state:
+            last_search_card(state, query, _facts(state), _label(state["query"]).split(": ", 1)[-1])
     if state:
         st.divider()
         _render_results(state)
+
+
+def _facts(state):
+    result = state["result"]
+    plus = "+" if result.extras.get("relation") == "gte" else ""
+    pages = result.extras.get("pages", 1)
+    facts = [f"{result.extras.get('total') or 0:,}{plus} matching", f"{len(result.data):,} fetched",
+             "from the cache" if result.cached_at else f"{pages:,} request{'' if pages == 1 else 's'}"]
+    return facts + (["error"] if result.error else [])
 
 
 def _fields_picker():
@@ -243,9 +258,8 @@ def _with_fields(state, fields):
 
 def _render_results(state):
     result = state["result"]
-    st.subheader("Results", help="The query these results came from is shown below; edit the query above and search "
-                                 "again to change them.")
-    st.code(state["query"], language="text")
+    st.subheader("Results", help="The query these results came from is under *Last search* above; edit the query and "
+                                 "search again to change them.")
     if result.error:
         st.error(f"Certificate Search: {result.error}" + (f" ({len(result.data):,} certificates fetched before it)"
                                                           if result.data else ""))
@@ -374,6 +388,21 @@ def _breakdown(certs, domains, hits=(), fields=()):
     if used.empty:
         st.info("No certificate is ticked *Use*.")
         return
+    summary = cert_summary(certs)
+    median = summary["median_days"]
+    levels = summary["validation"]
+    tiles([
+        ("Certificates used", f"{summary['used']:,}", None),
+        ("Issuers", f"{summary['issuers']:,}", "Distinct issuers among the certificates ticked Use."),
+        ("Median validity", "–" if median is None else f"{median:.0f} days", None),
+        ("Validation", " / ".join(f"{level} {count:,}" for level, count in levels.items()) or "–",
+         "DV: domain validated; OV: organization validated; EV: extended validation."),
+        ("Self-signed", f"{summary['self_signed']:,}", None),
+        ("Expired", f"{summary['expired']:,}", None),
+        ("Expiring in 30 days", f"{summary['expiring']:,}", None),
+        ("Short-lived (≤ 10 days)", f"{summary['short_lived']:,}",
+         "Very short validity is typical of automated issuance (ACME clients) and of throwaway infrastructure."),
+    ])
     months = used["Not Before"].str[:7].replace("", None).dropna()
     if not months.empty:
         fig = px.histogram(months.sort_values().rename("Issued").to_frame(), x="Issued",
@@ -381,6 +410,40 @@ def _breakdown(certs, domains, hits=(), fields=()):
         fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), yaxis_title="Certificates", xaxis_title=None,
                           title="Issued per month (not before)", bargap=0.05)
         chart(fig, key="certsql_issued", height=220)
+    c1, c2 = st.columns(2)
+    with c1:
+        expiry = monthly(used["Not After"])
+        if not expiry.empty:
+            fig = px.bar(expiry, x="Month", y="Count", color_discrete_sequence=[COLOR])
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), title="Expiring per month (not after)",
+                              xaxis_title=None, yaxis_title="Certificates")
+            chart(fig, key="certsql_expiry", height=240)
+    with c2:
+        classes = validity_classes(used["Days"])
+        if any(classes.values()):
+            fig = px.bar(x=list(classes), y=list(classes.values()), color_discrete_sequence=[COLOR])
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), title="Validity length", xaxis_title=None,
+                              yaxis_title="Certificates")
+            chart(fig, key="certsql_validity", height=240)
+    names, wildcards = names_per_cert(used["SANs"])
+    c1, c2 = st.columns(2)
+    with c1:
+        if not names.empty:
+            fig = px.histogram(names.rename("Names").to_frame(), x="Names", color_discrete_sequence=[COLOR])
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), bargap=0.05, yaxis_title="Certificates",
+                              xaxis_title="Names (SANs) per certificate",
+                              title=f"Names per certificate · {wildcards:,} of {len(names):,} with a wildcard")
+            chart(fig, key="certsql_names", height=240)
+    with c2:
+        addresses = san_ips(used["SANs"])
+        if not addresses.empty:
+            fig = px.bar(addresses.sort_values().rename_axis("IP").reset_index(name="Count"), x="Count", y="IP",
+                         orientation="h", color_discrete_sequence=[COLOR])
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), showlegend=False, title="Top IP (in SANs)",
+                              yaxis_title=None, xaxis_title=None)
+            chart(fig, key="certsql_san_ips", height=240)
+        else:
+            st.caption("No certificate names an IP address in its SANs.")
     c1, c2 = st.columns(2)
     series = (("Issuer", used["Issuer"]), ("Validation", used["Validation"]), ("Key", used["Key"]),
               ("Domain", domains.set_index("Target")["Certificates"] if not domains.empty else None))

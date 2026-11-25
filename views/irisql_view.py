@@ -25,13 +25,15 @@ from core.irisql import (
     selected,
 )
 from core.persistence import load_settings
+from core.query_breakdown import concentration, iris_summary, monthly, risk_band, risk_bands, top_values
 from core.query_watch import add_watch, check_watch, list_watches, remove_watch
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.enrichment import fetch_irisql
 from views.analyze_selection import hunt_parent, render_analyze_selection
 from views.common import chart
 from views.query_editor import query_actions, query_editor, set_query
-from views.sidebar import apply_use_case, start_hunt
+from views.query_layout import code_panel, last_search_card, split, tiles
+from views.sidebar import apply_use_case, current_thresholds, start_hunt
 
 QUERY_KEY = "irisql_query"
 WATCH_OPEN_KEY = "irisql_watches_open"
@@ -176,47 +178,58 @@ def render_irisql_page():
     st.session_state.setdefault(QUERY_KEY, f"{HEADER}\n")   # empty until an example is picked or typed
     st.session_state.setdefault(MAX_KEY, IRISQL_DEFAULT_RESULTS)
     st.session_state.setdefault(PRESELECT_KEY, SEED_DEFAULT_TARGETS)
-    st.selectbox("Start from an example", [""] + list(EXAMPLES), key=EXAMPLE_KEY, on_change=_load_example,
-                 format_func=lambda name: name or "Choose an example to load it into the query…")
-    text = query_editor("irisql", QUERY_KEY, "IrisQL query", help=QUERY_HELP)
-    query = normalize(text)
-    issues = problems(query)
-    c1, c2, c3 = st.columns(3)
-    max_results = c1.number_input("Domains to fetch", min_value=1, max_value=IRISQL_MAX_RESULTS, step=100,
-                                  key=MAX_KEY,
-                                  help=f"Pages of {IRISQL_PAGE_SIZE} domains are requested until this many (each page "
-                                       "is one Iris Investigate query). The total in Iris is shown either way.")
-    sort_by = c2.selectbox("Sort by", SORT_FIELDS, key=SORT_KEY, format_func=lambda f: f or "Iris default",
-                           help="Iris sorts before paging, so with more matches than fetched this decides which "
-                                "domains you get.")
-    preselect = c3.number_input("Pre-select the riskiest", min_value=0, max_value=SEED_MAX_TARGETS, step=5,
-                                key=PRESELECT_KEY,
-                                help="Domains ticked for analysis right after the search (highest risk score first).")
-    if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
-        st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: suggestions "
-                   "appear as you type.")
-    else:
-        for issue in issues:
-            st.warning(issue, icon=":material/edit_note:")
-    cost = query_cost(max_results, IRISQL_PAGE_SIZE)
-    if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}; the same "
-                     "search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
-        if not query.splitlines()[1:]:
-            st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
-        elif issues:
-            st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+    left, right = split()
+    with left:
+        st.selectbox("Start from an example", [""] + list(EXAMPLES), key=EXAMPLE_KEY, on_change=_load_example,
+                     format_func=lambda name: name or "Choose an example to load it into the query…")
+        text = query_editor("irisql", QUERY_KEY, "IrisQL query", help=QUERY_HELP)
+        query = normalize(text)
+        issues = problems(query)
+        c1, c2 = st.columns(2)
+        max_results = c1.number_input("Domains to fetch", min_value=1, max_value=IRISQL_MAX_RESULTS, step=100,
+                                      key=MAX_KEY,
+                                      help=f"Pages of {IRISQL_PAGE_SIZE} domains are requested until this many (each "
+                                           "page is one Iris Investigate query). The total in Iris is shown either way.")
+        sort_by = c2.selectbox("Sort by", SORT_FIELDS, key=SORT_KEY, format_func=lambda f: f or "Iris default",
+                               help="Iris sorts before paging, so with more matches than fetched this decides which "
+                                    "domains you get.")
+        preselect = c1.number_input("Pre-select the riskiest", min_value=0, max_value=SEED_MAX_TARGETS, step=5,
+                                    key=PRESELECT_KEY,
+                                    help="Domains ticked for analysis right after the search (highest risk score "
+                                         "first).")
+        if issues and not query.splitlines()[1:]:   # nothing typed yet: a hint, not a warning
+            st.caption(":material/edit_note: Pick an example above, or start typing a field name on line 2: "
+                       "suggestions appear as you type.")
         else:
-            with st.spinner("Searching Iris Investigate..."):
-                _search(query, max_results, sort_by, int(preselect))
-    with st.expander("The same search outside the app (DomainTools Python SDK, curl, Python script)", icon=":material/terminal:"):
-        for name, command in commands(query, min(int(max_results), IRISQL_PAGE_SIZE), sort_by).items():
-            st.markdown(f"**{name}**")
-            st.code(command, language="python" if name == "Python script" else "bash")
-    _render_watches()
+            for issue in issues:
+                st.warning(issue, icon=":material/edit_note:")
+        cost = query_cost(max_results, IRISQL_PAGE_SIZE)
+        if query_actions(QUERY_KEY, HEADER, f"Up to {cost} Iris Investigate quer{'y' if cost == 1 else 'ies'}; the "
+                         "same search again within the cache lifetime costs none.", (STATE_KEY, EXAMPLE_KEY)):
+            if not query.splitlines()[1:]:
+                st.warning("Type a query or pick an example first.", icon=":material/edit_note:")
+            elif issues:
+                st.warning("Fix the query first (see above): nothing was searched.", icon=":material/edit_note:")
+            else:
+                with st.spinner("Searching Iris Investigate..."):
+                    _search(query, max_results, sort_by, int(preselect))
     state = st.session_state.get(STATE_KEY)
+    with right:
+        code_panel(commands(query, min(int(max_results), IRISQL_PAGE_SIZE), sort_by), "irisql")
+        if state:
+            last_search_card(state, query, _facts(state), _label(state["query"])[len("IrisQL: "):])
+        _render_watches()
     if state:
         st.divider()
         _render_results(state)
+
+
+def _facts(state):
+    result = state["result"]
+    facts = [f"{result.extras.get('total') or 0:,} matching", f"{len(result.data):,} fetched",
+             "from the cache" if result.cached_at else f"{result.extras.get('pages', 1):,} Iris quer"
+             f"{'y' if result.extras.get('pages', 1) == 1 else 'ies'}"]
+    return facts + (["error"] if result.error else [])
 
 
 def _narrowing_buttons(query):
@@ -234,9 +247,8 @@ def _narrowing_buttons(query):
 
 def _render_results(state):
     result = state["result"]
-    st.subheader("Results", help="The query these results came from is shown below; edit the query above and search "
-                                 "again to change them.")
-    st.code(state["query"], language="text")
+    st.subheader("Results", help="The query these results came from is under *Last search* above; edit the query and "
+                                 "search again to change them.")
     if result.error:
         st.error(f"Iris Investigate: {result.error}" + (f" ({len(result.data):,} domains fetched before it)"
                                                          if result.data else ""))
@@ -311,22 +323,74 @@ def _editor(state, table, frame, column_config):
     return edited
 
 
+BAND_COLORS = {"0–39": "#c9b8f0", "40–69": "#a58be3", "70–89": "#7b4fd6", "90–100": "#4b2a99", "Unknown": "#d9d9d9"}
+
+
+def _bar(counts, name, key, title=None):
+    if counts.empty:
+        return
+    fig = px.bar(counts.sort_values().rename_axis(name).reset_index(name="Count"), x="Count", y=name,
+                 orientation="h", color_discrete_sequence=["#7b4fd6"])
+    fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), showlegend=False, title=title or f"Top {name}",
+                      yaxis_title=None, xaxis_title=None)
+    chart(fig, key=key, height=260)
+
+
 def _breakdown(domains, ips):
-    if domains["Risk Score"].notna().any():
-        fig = px.histogram(domains.dropna(subset=["Risk Score"]), x="Risk Score", nbins=20,
-                           color_discrete_sequence=["#7b4fd6"])
-        fig.update_layout(margin=dict(t=10, l=10, r=10, b=10), yaxis_title="Domains", bargap=0.05)
-        chart(fig, key="irisql_risk", height=220)
+    high = current_thresholds()["high_risk_score"]
+    summary = iris_summary(domains, ips, high_risk=high)
+    median = summary["median_risk"]
+    tiles([
+        ("Median risk score", "–" if median is None else f"{median:.0f}", None),
+        (f"Risk {high}+", f"{summary['high_risk']:,}", "At or above the high-risk score cutoff (Settings)."),
+        ("Created in the last 30 days", f"{summary['new']:,}", None),
+        ("Expiring in the next 30 days", f"{summary['expiring']:,}", None),
+        ("Active / inactive", f"{summary['active']:,} / {summary['inactive']:,}", "Iris's *active* flag."),
+        ("Registrars", f"{summary['registrars']:,}", "Distinct registrars among the listed domains."),
+        ("ASNs", f"{summary['asns']:,}", "Distinct ASNs of the hosting IPs."),
+        ("Countries", f"{summary['countries']:,}", "Distinct countries of the hosting IPs."),
+    ])
+    bands = [risk_band(score) for score in domains["Risk Score"]]
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        if domains["Risk Score"].notna().any():
+            fig = px.histogram(domains.dropna(subset=["Risk Score"]), x="Risk Score", nbins=20,
+                               color_discrete_sequence=["#7b4fd6"])
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), yaxis_title="Domains", bargap=0.05,
+                              title="Risk score")
+            chart(fig, key="irisql_risk", height=240)
+    with c2:
+        counts = risk_bands(domains["Risk Score"])
+        if any(counts.values()):
+            fig = px.bar(x=list(counts), y=list(counts.values()), color=list(counts),
+                         color_discrete_map=BAND_COLORS)
+            fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), showlegend=False, title="Risk bands",
+                              xaxis_title=None, yaxis_title="Domains")
+            chart(fig, key="irisql_bands", height=240)
+    created = monthly(domains["Create Date"], bands)
+    if not created.empty:
+        fig = px.bar(created, x="Month", y="Count", color="Band", color_discrete_map=BAND_COLORS,
+                     category_orders={"Band": [*BAND_COLORS]})
+        fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), title="Created per month (by risk band)",
+                          xaxis_title=None, yaxis_title="Domains", legend_title_text="Risk")
+        chart(fig, key="irisql_created", height=260)
+    ip_share, top_ips = concentration(domains["IPs"])
+    ns_share, top_ns = concentration(domains["Name Servers"], top=1)
+    if top_ips or top_ns:
+        st.caption(" · ".join(part for part in (
+            f"**{ip_share:.0%}** of the domains are on the top {len(top_ips)} IPs ({', '.join(top_ips)})"
+            if top_ips else "",
+            f"**{ns_share:.0%}** use the top name server ({top_ns[0]})" if top_ns else "") if part)
+            + ". A high share points to one operator or one shared host.")
     c1, c2 = st.columns(2)
-    for column, (name, values) in zip((c1, c2, c1, c2), (
-            ("Registrar", domains["Registrar"]), ("TLD", domains["TLD"]),
-            ("ASN", ips["ASN"].astype("string") + " " + ips["ISP"]), ("Country", ips["Country"]))):
-        counts = values[values.fillna("").str.strip() != ""].value_counts().head(10)
-        if counts.empty:
-            continue
-        fig = px.bar(counts.sort_values().rename_axis(name).reset_index(name="Count"), x="Count", y=name,
-                     orientation="h", color_discrete_sequence=["#7b4fd6"])
-        fig.update_layout(margin=dict(t=30, l=10, r=10, b=10), showlegend=False, title=f"Top {name}",
-                          yaxis_title=None, xaxis_title=None)
-        with column:
-            chart(fig, key=f"irisql_top_{name}", height=260)
+    blank = lambda values: values[values.fillna("").astype(str).str.strip() != ""]   # noqa: E731
+    with c1:
+        _bar(blank(domains["Registrar"]).value_counts().head(10), "Registrar", "irisql_top_Registrar")
+        _bar(blank(ips["ASN"].astype("string") + " " + ips["ISP"].fillna("")).value_counts().head(10), "ASN",
+             "irisql_top_ASN")
+        _bar(top_values(domains["Name Servers"]), "Name server", "irisql_top_ns")
+        _bar(top_values(domains["Tags"]), "Tag", "irisql_top_tags")
+    with c2:
+        _bar(blank(domains["TLD"]).value_counts().head(10), "TLD", "irisql_top_TLD")
+        _bar(blank(ips["Country"]).value_counts().head(10), "Country", "irisql_top_Country")
+        _bar(blank(domains["Registrant Org"]).value_counts().head(10), "Registrant org", "irisql_top_org")
