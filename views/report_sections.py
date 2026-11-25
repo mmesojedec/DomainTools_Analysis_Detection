@@ -714,7 +714,7 @@ def section_bgp(b, ctx):
             b.subheading("VPNDB match: exits and their routing")
             b.table(exits, max_rows=MAX_ROWS)
     if not _empty(ds.bgp_neighbours):
-        b.subheading("Neighbouring prefixes")
+        b.subheading("More-specific prefixes")
         b.table(ds.bgp_neighbours, max_rows=MAX_ROWS)
 
 

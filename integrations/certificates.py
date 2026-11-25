@@ -70,6 +70,9 @@ def build_search_queries(target_inputs):
     queries = [(dom, domain_search_query(dom)) for dom in classified["domains"]]
     queries += [(ip4, f'# CertsQL-1.0\nsan_ip_v4 between ["{ip4}", "{ip4}"]\n') for ip4 in classified["ipv4"]]
     queries += [(ip6, f'# CertsQL-1.0\nsan_ip_v6 between ["{ip6}", "{ip6}"]\n') for ip6 in classified["ipv6"]]
+    for cidr in classified["cidrs"]:   # a range: certificates naming any address in it
+        network = ipaddress.ip_network(cidr)
+        queries.append((cidr, f'# CertsQL-1.0\nsan_ip_v{network.version} between ["{network[0]}", "{network[-1]}"]\n'))
     return queries
 
 
@@ -256,9 +259,21 @@ def _as_list(value):
 
 
 def match_target_against_hit(tgt, hit):
-    """Evaluates whether a target (Domain, IPv4, or IPv6) matches a certificate hit."""
+    """Evaluates whether a target (domain, IPv4, IPv6 or CIDR range) matches a certificate hit."""
     tgt_clean = str(tgt).strip().lower()
     cn = str(hit.get("subject_common_name") or "").strip().lower()
+    if "/" in tgt_clean:   # a CIDR range: a SAN IP (or IP common name) inside it
+        try:
+            network = ipaddress.ip_network(tgt_clean, strict=False)
+        except ValueError:
+            return False
+        for ip_str in _as_list(hit.get("san_ip_v4") if network.version == 4 else hit.get("san_ip_v6")) + [cn]:
+            try:
+                if ipaddress.ip_address(str(ip_str).strip()) in network:
+                    return True
+            except ValueError:
+                continue
+        return False
     try:
         ip_obj = ipaddress.ip_address(tgt_clean)
     except ValueError:

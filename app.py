@@ -62,6 +62,7 @@ from views.home_view import render_home
 from views.hostname_view import render_hostname_lens
 from views.hunt_map_view import render_hunt_map
 from views.infra_view import INFRA_TABS, render_infra_tab
+from views.ip_profile_view import render_ip_profile
 from views.irisql_view import ORIGIN_KEY as IRISQL_ORIGIN_KEY
 from views.irisql_view import render_irisql_page
 from views.profile_view import render_profile
@@ -257,6 +258,32 @@ def search_seeds(state, items):
     st.session_state.pop("seed_preview_editor", None)
     st.session_state.seed_preview = {"settings": state["settings"], "plain": state["plain"],
                                      "seeds": [i.label for i in resolution.items], "resolution": resolution}
+
+
+def landing(collected, resolution=None):
+    """
+    (page key, state) a new analysis opens on: the Summary, or, for one target alone, its profile (one IP address or
+    CIDR range: the IP profile; one domain: the Domain profile; one certificate input that found one certificate: the
+    Certificate profile). The Summary still lists everything, and the profile links back.
+    """
+    from core.helpers import is_cidr, is_ip_address, normalize_cidr
+    from views.cert_profile_view import SELECTED_KEY as CERT_KEY
+    from views.ip_profile_view import SELECTED_KEY as IP_KEY
+    if collected is None:
+        return "summary", {}
+    hits = [h for h in getattr(resolution, "hits", None) or [] if h.get("sha256")]
+    if resolution is not None:
+        digests = list(dict.fromkeys(h["sha256"] for h in hits))
+        return ("cert_profile", {CERT_KEY: digests[0]}) if len(resolution.items) == 1 and len(digests) == 1 \
+            else ("summary", {})
+    targets = [str(t).strip() for t in collected.targets or [] if str(t).strip()]
+    if len(targets) != 1:
+        return "summary", {}
+    target = targets[0]
+    if is_ip_address(target) or is_cidr(target):
+        return "ip_profile", {IP_KEY: normalize_cidr(target) or target}
+    domains = list(collected.domain_targets or [])
+    return ("profile", {"profile_domain": domains[0]}) if len(domains) == 1 else ("summary", {})
 
 
 def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected=(), host_focus=None):
@@ -744,6 +771,7 @@ PAGE_FUNCTIONS = {
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),
     "cert_profile": data_page(lambda: render_cert_profile(CTX.ds, CTX.view.active)),
+    "ip_profile": data_page(lambda: render_ip_profile(CTX)),
     "alerts": data_page(page_alerts),
     "dns": data_page(page_dns),
     "vpndb": data_page(lambda: render_vpndb_page(CTX.ds)),
@@ -767,7 +795,7 @@ PAGE_FUNCTIONS = {
 }
 
 
-TOOLBAR_PAGES = {"summary", "profile", "cert_profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "resolver", "certs", "hostnames", "triage",
+TOOLBAR_PAGES = {"summary", "profile", "cert_profile", "ip_profile", "alerts", "dns", "vpndb", "bgp", "tor", "cname", "resolver", "certs", "hostnames", "triage",
                  "similarity", "hunt_tree", "sources", "evidence", "export"}   # results pages: the analysis window is in their toolbar
 
 
@@ -814,7 +842,8 @@ def main():
                 and not direct:
             if (st.session_state.get(HUNT_PARENT_KEY) or {}).get("id") and navigation.page("hunt_tree") is not None:
                 navigation.open_tab("hunt_tree", "hunt_map_tab", "This hunt")   # a run that grows a hunt: its map
-            navigation.go("summary")   # a new analysis opens on its Summary (a hunt step stays on the Hunt map)
+            page_key, state = landing(st.session_state.get("collected"))   # its Summary, or a lone target's profile
+            navigation.go(page_key, **state)
     render_apex_notice(st.session_state.get("apex_conversions"))
     render_idn_notice(st.session_state.get("idn_conversions"))
 
@@ -838,7 +867,8 @@ def main():
             selected, host_focus = choice
             targets = list(dict.fromkeys(preview["plain"] + selected))
             collect_targets(preview["settings"], targets, preview["seeds"], preview["resolution"], selected, host_focus)
-            navigation.go("summary")
+            page_key, state = landing(st.session_state.get("collected"), preview["resolution"])
+            navigation.go(page_key, **state)
         st.rerun()
 
     collected = st.session_state.get("collected")

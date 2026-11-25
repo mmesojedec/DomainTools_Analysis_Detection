@@ -10,6 +10,7 @@ import streamlit as st
 from core import cert_anomalies as ca
 from core import cert_profile as cp
 from core.cert_anatomy import anatomy_html
+from core.helpers import is_ip_address
 from core.intel_data import SEVERITY_ICONS
 from views import navigation
 from views.common import metric, metric_slots
@@ -204,9 +205,16 @@ def _shape_search(parts):
 def _render_seen(ds, digest, alerts):
     seen = cp.where_seen(digest, getattr(ds, "ctl", None), getattr(ds, "cert_observations", None),
                          getattr(ds, "cert_hostnames", None))
+    ips = []
     for name, rows in seen.items():
         st.markdown(f"**{name}** ({len(rows):,})")
         st.dataframe(rows, hide_index=True, width="stretch", height=min(320, 35 * (len(rows) + 1) + 3))
+        ips += [str(v) for col in ("IP", "Ip") if col in rows for v in rows[col] if is_ip_address(str(v))]
+    if ips:   # where it was served: each address has its IP profile
+        from views.ip_profile_view import open_button
+        c_ip, c_go = st.columns([2, 1], vertical_alignment="bottom")
+        ip = c_ip.selectbox("Address it was seen on", list(dict.fromkeys(ips)), key=f"cert_seen_ip::{digest}")
+        open_button(ip, label="Open in IP profile", key=f"cert_seen_ip_open::{digest}", container=c_go)
     cited = cp.citing_alerts(digest, alerts)
     if not cited.empty:
         st.markdown(f"**Alerts citing this certificate** ({len(cited):,})")

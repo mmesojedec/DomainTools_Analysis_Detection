@@ -24,6 +24,7 @@ SECTIONS = {
     "Overview": (PageSpec("summary", "Summary", ":material/dashboard:"),
                  PageSpec("profile", "Domain profile", ":material/domain:"),
                  PageSpec("cert_profile", "Certificate profile", ":material/badge:"),
+                 PageSpec("ip_profile", "IP profile", ":material/lan:"),
                  PageSpec("alerts", "Alerts", ":material/warning:")),
     "Infrastructure": (PageSpec("dns", "DNS & Hosting", ":material/dns:"),
                        PageSpec("vpndb", "VPNDB", ":material/vpn_lock:"),

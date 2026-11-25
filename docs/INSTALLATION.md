@@ -44,7 +44,9 @@ credentials:
 - optionally, a Certificate API key.
 
 They are saved to `credentials.toml` outside the project folder (see
-[Entering keys in the app](#entering-keys-in-the-app)). **Skip for now** starts without them. Keys can be added or
+[Entering keys in the app](#entering-keys-in-the-app)). **Save and check the keys** saves them and then checks that
+each one works (see [Checking the keys](#checking-the-keys)); **Start** closes the dialog. **Check the keys already
+set** checks keys found in the environment or files without saving anything. **Skip for now** starts without them. Keys can be added or
 changed any time under *Settings → API credentials → Enter API keys*. The acceptance is kept in `dt_settings.json`;
 *Settings → API credentials → Show the welcome screen and disclaimer again* opens the dialog again.
 
@@ -208,6 +210,28 @@ the `~/.dt*` files are used only when the file has no key.
   be parsed is never overwritten: fix or remove it first.
 - **Remove** next to a service deletes its table from the file.
 - If an environment variable already supplies the service, the confirmation says the variable still wins.
+
+### Checking the keys
+
+The welcome dialog checks the keys right after saving them, and *Settings → API credentials → Check API keys* checks
+them again at any time. Each service is asked once, with its cheapest request, bypassing the lookup cache:
+
+| Service | Request | Counts against |
+| --- | --- | --- |
+| DomainTools API (Iris Investigate, Domain History, Account) | Account Information (`GET /v1/account`) | The *Account information* product (one query), not Iris |
+| DNSDB | The key's rate limit (`GET /dnsdb/v2/rate_limit`) | Nothing |
+| VPNDB | The Tor overview (`GET /tor`) | Nothing (not metered) |
+| BGPDB | `asn/AS13335` | Nothing (no quota); needs the DomainTools network or VPN |
+| Certificate API | Not asked: it uses the DomainTools key, and each of its requests counts against its quota | - |
+
+Each service gets one line: **works** (green), **works with a notice** (orange: a product missing from the account, a
+quota used up or nearly, an expiry close), **not working** (red, with the reason: HTTP 401 / 403, no answer from the
+host, ...) or **no key** (grey). The DomainTools line also names the account's products, and the DNSDB line how many
+queries are left; both feed the quota banners and the Account page, so no extra query is needed there.
+
+A key that does not work never blocks the app: it is a notification (a toast, and the red line), and the service is
+skipped the same as one without a key until the key is corrected under *Enter API keys*. Starting from the welcome
+dialog with a failing key names it once more after the dialog closes.
 
 ## Run the app
 

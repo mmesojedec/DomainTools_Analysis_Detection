@@ -322,6 +322,10 @@ def render_settings():
         render_retention_settings()
     with tabs[4]:
         render_credential_status()
+        st.divider()
+        from views.key_check_view import render_check_section
+        render_check_section()
+        st.divider()
         from views.welcome_view import reopen  # it imports the sidebar helpers this page uses
         st.button("Show the welcome screen and disclaimer again", key="welcome_reopen_button", on_click=reopen,
                   icon=":material/info:", type="tertiary",

@@ -82,7 +82,7 @@ Options per use case (generated from `core/use_cases.py`):
 | Only the VPNDB IP check | off | · | · | · | · | · | · | on | · |
 | Look up BGP routing of the hosting IPs (BGPDB) | on | · | · | · | · | · | · | · | · |
 | BGPDB hosting IPs per run | 200 | · | · | · | · | · | · | · | · |
-| BGPDB neighbouring prefixes | on | · | · | · | · | · | · | · | · |
+| BGPDB more-specific prefixes | on | · | · | · | · | · | · | · | · |
 | CT log & co-occurrence telemetry | on | · | · | · | · | · | · | · | · |
 | Max certificates for CT lookups | 10 | · | · | · | · | 100 | · | · | · |
 | Certificate inputs: pre-selected targets | 10 | · | · | · | · | · | · | · | · |
@@ -169,6 +169,7 @@ Limits (generated from `config.py`):
 | `PIVOT_USEFUL_MAX` | 10,000 |  |
 | `RARE_LINK_MAX` | 50 | correlation: an IP / name server Iris sees on this few domains links them strongly |
 | `COMMON_LINK_MIN` | 10,000 | ... and one on more domains than this links nothing (shared hosting, big DNS)           # ... up to this many a useful one; more is weak (shared infrastructure) |
+| `TARGET_IRIS_DOMAINS` | 500 | Iris Investigate: domains fetched per IP or CIDR target (the domains on it) |
 | `PIVOT_RESULT_LIMIT` | 500 | Hunt map → All pivots: domains fetched per Iris Investigate pivot search (one page) |
 | `TRIAGE_BURST_MIN` | 5 | Subdomain Triage: hostnames of one domain first seen in the same hour to count as a burst |
 | `CERT_CTL_LIMIT` | 500 | CT log entries fetched per certificate (CT telemetry) |
@@ -188,13 +189,13 @@ Limits (generated from `config.py`):
 | `VPNDB_DETAIL_MAX` | 50 | anonymous IPs given the full verdict (sharing, Tor, evidence), one query each |
 | `VPNDB_HISTORY_MAX` | 50 | anonymizer exits given their weekly history (exit while the domain used it?) |
 | `VPNDB_NEIGHBOUR_MAX` | 30 | /24 ranges around non-exit hosting IPs looked up for known exits |
-| `BGPDB_MAX_IPS` | 200 | hosting IPs looked up in BGPDB per run (one query each) |
+| `BGPDB_MAX_IPS` | 200 | hosting IPs looked up in BGPDB per run (one query per /24 or IPv6 /48) |
 | `BGPDB_RESOLVE_MAX_IPS` | 300 | addresses of the DNS resolution looked up in BGPDB per click (one query each) |
 | `BGPDB_ROUTE_MAX` | 30 | announced prefixes whose AS paths are fetched (one query each) |
-| `BGPDB_ROUTE_LIMIT` | 100 | AS paths kept per prefix |
+| `BGPDB_ROUTE_LIMIT` | 100 | upstream → origin paths kept per prefix (route?hops=2) |
 | `BGPDB_ASN_MAX` | 40 | origin and upstream networks looked up (one query each) |
-| `BGPDB_NEIGHBOUR_MAX` | 10 | covering ranges listed for neighbouring prefixes (one query each) |
-| `BGPDB_NEIGHBOUR_LIMIT` | 200 | prefixes kept per covering range |
+| `BGPDB_NEIGHBOUR_MAX` | 10 | run prefixes (and CIDR targets) whose more-specific prefixes are listed (one query each) |
+| `BGPDB_NEIGHBOUR_LIMIT` | 200 | more-specific prefixes kept per prefix asked |
 | `VPNDB_ASN_MAX` | 20 | hosting networks (Iris ASNs) looked up for the providers on them |
 | `VPNDB_REVERSE_MAX` | 10 | dedicated exits whose other domains are looked up in DNSDB (rdata/ip) |
 | `VPNDB_REVERSE_LIMIT` | 1,000 | DNSDB records per dedicated exit |

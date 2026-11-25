@@ -34,15 +34,16 @@ def select_ips(domains, pdns, enrichment, ip_targets=(), max_ips=500, per_domain
     """
     {ip: {domains}} to check: the IP targets, then per domain its current Iris IPs and its passive DNS addresses, most
     recently seen first, up to `per_domain` each and `max_ips` in all. Public IPv4 only (VPNDB does not collect IPv6),
-    without CDN addresses (shared by every customer of the CDN, never an anonymizer exit).
+    without a domain's CDN addresses (shared by every customer of the CDN, never an anonymizer exit); IP targets are
+    checked even on a CDN.
     """
     chosen = {}
 
     def keep(ip):
         return is_ipv4(ip) and is_public_ip(ip) and not cdn_for_ip(ip)
 
-    for ip in ip_targets:
-        if keep(ip) and len(chosen) < max_ips:
+    for ip in ip_targets:   # an address entered as a target is checked even on a CDN
+        if is_ipv4(ip) and is_public_ip(ip) and len(chosen) < max_ips:
             chosen.setdefault(str(ip), set()).add(str(ip))
     ip_rows = explode_ip_events(pdns) if pdns is not None and not pdns.empty else pd.DataFrame()
     if not ip_rows.empty:
@@ -206,7 +207,7 @@ def by_ip(table):
     return {row["IP"]: row for row in table.to_dict("records")}
 
 
-# ---- CIDR ranges (VPNDB /prefix): looked up in VPNDB only ----------------------------------------------------------
+# ---- CIDR ranges (VPNDB /prefix) ------------------------------------------------------------------------------------
 
 PREFIX_COLUMNS = ["CIDR", "Category", "Top Provider", "Providers", "Provider Count", "Single Tenant", "Infrastructure",
                   "Known Exits", "Size", "Coverage", "Confidence", "Announced", "Contained Prefixes", "Covering Prefix",

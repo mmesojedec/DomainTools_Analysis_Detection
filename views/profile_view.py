@@ -6,7 +6,7 @@ from core import bgp
 from core.anonymizers import ANONYMIZER_CATEGORIES, for_domains, shared_exit
 from core.certsql import certificates_query
 from core.cname import dataset_cname_map
-from core.helpers import md_escape
+from core.helpers import is_cidr, is_ip_address, md_escape
 from core.idn import unicode_label
 from core.irisql import similar_query
 from core.ja4x import note as ja4x_note
@@ -252,11 +252,14 @@ def _render_actions(domain):
 
 def render_profile(ctx):
     ds, view, profiles = ctx.ds, ctx.view, ctx.profiles
-    domains = list(ds.selected_domains)
+    domains = [d for d in ds.selected_domains if not is_ip_address(d) and not is_cidr(d)]   # IPs: the IP profile
     st.header("Domain profile", help="One domain: risk, registration, hosting, VPNDB, BGP routing, DNS, CNAMEs, "
                                      "certificates, history and alerts. Each section links to the page with the full detail.")
     if not domains:
-        st.info("No domain is selected in the toolbar's *Domains* filter.")
+        st.info("No domain is selected in the toolbar's *Domains* filter."
+                + (" IP addresses and CIDR ranges are on the **IP profile**." if ds.selected_domains else ""))
+        if ds.selected_domains:
+            navigation.link("ip_profile", label="Open the IP profile")
         return
     if st.session_state.get("profile_domain") not in domains:
         st.session_state["profile_domain"] = domains[0]
@@ -308,7 +311,13 @@ def render_profile(ctx):
         if ips.empty:
             st.caption("No current IP address.")
         else:
-            st.dataframe(ips, hide_index=True, width="stretch")
+            picked = st.dataframe(ips, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                                  key=f"profile_hosting_ips::{domain}")
+            rows = picked.selection.rows if picked and picked.selection else []
+            from views.ip_profile_view import open_button as open_ip
+            open_ip(ips.iloc[rows[0]]["IP"] if rows else ips.iloc[0]["IP"],
+                    label=f"Open {ips.iloc[rows[0]]['IP'] if rows else ips.iloc[0]['IP']} in IP profile",
+                    key="profile_ip_open")
         st.caption("**Name servers:** " + (", ".join(iris["name_servers"]) or "none"))
         st.caption("**Mail (MX):** " + (", ".join(iris["mx_hosts"]) or "none")
                    + (f"  \n**SPF:** `{iris['spf'][:200]}`" if iris["spf"] else ""))

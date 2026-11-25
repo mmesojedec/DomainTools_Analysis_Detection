@@ -50,6 +50,7 @@ class Dataset:
     prefixes: pd.DataFrame = field(default_factory=pd.DataFrame)       # VPNDB verdict per CIDR target
     prefix_addresses: pd.DataFrame = field(default_factory=pd.DataFrame)   # addresses VPNDB reached in each CIDR
     range_ips: pd.DataFrame = field(default_factory=pd.DataFrame)      # every address of a CIDR target (VPNDB bulk)
+    target_domains: pd.DataFrame = field(default_factory=pd.DataFrame)   # Iris: domains on each IP / CIDR target
     exit_weeks: pd.DataFrame = field(default_factory=pd.DataFrame)     # VPNDB weekly history of the exits
     neighbour_ranges: pd.DataFrame = field(default_factory=pd.DataFrame)   # /24s around the hosting IPs (VPNDB)
     hosting_asns: pd.DataFrame = field(default_factory=pd.DataFrame)   # VPNDB providers on the Iris ASNs
@@ -197,6 +198,9 @@ def build_dataset(collected, selected_domains, dh_fields, pdns_fields, timezone,
         frame = getattr(collected, name, None)
         setattr(ds, name, frame[frame["CIDR"].isin(selected_domains)].reset_index(drop=True)
                 if frame is not None and not frame.empty else pd.DataFrame())
+    on_targets = getattr(collected, "target_domains", None)   # the domains Iris sees on the IP and CIDR targets
+    ds.target_domains = on_targets[on_targets["Target"].isin(selected_domains)].reset_index(drop=True) \
+        if on_targets is not None and not on_targets.empty else pd.DataFrame()
 
     _bgp_frames(ds, collected, selected_domains)
 
@@ -230,7 +234,8 @@ def _bgp_frames(ds, collected, selected_domains):
             if asns is not None and not asns.empty else pd.DataFrame()
         near = getattr(collected, "bgp_neighbours", None)
         ds.bgp_neighbours = near[near["Run Prefix"].astype(str).map(
-            lambda v: bool(prefixes & {p.strip() for p in v.split(",")}))].reset_index(drop=True) \
+            lambda v: bool(prefixes & {p.strip() for p in v.split(",")})) | near["Covering Range"].isin(selected)
+        ].reset_index(drop=True) \
             if near is not None and not near.empty else pd.DataFrame()
     raw = getattr(collected, "bgp_raw", None)
     ds.bgp_raw = raw if raw is not None else pd.DataFrame()

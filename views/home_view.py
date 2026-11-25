@@ -25,9 +25,10 @@ CLEARED_KEY = "start_targets_cleared"   # the last run's targets when Clear was 
 _PREFIXES = "  \n".join(f"`{prefix}:` {description}" for prefix, (_, description) in CERT_PREFIXES.items())
 TARGETS_HELP = (
     "Domains and IPs: defanged input (hxxp, [.]) and URLs are cleaned; subdomains are analyzed at their apex domain "
-    "(vpn.example.com → example.com). IPv4 and IPv6 addresses go to every source. **CIDR ranges** (`104.21.59.0/24`, "
-    "`2a00:1450::/32`) are looked up in VPNDB only: which VPN or proxy providers have exits in the range, and the "
-    "addresses VPNDB reached there.  \n\n**Certificates:** SHA-256 / SHA-1 / MD5 fingerprints are recognized "
+    "(vpn.example.com → example.com). IPv4 and IPv6 addresses and **CIDR ranges** (`104.21.59.0/24`, "
+    "`2a00:1450::/32`) go to every source that takes addresses: passive DNS (the names on it), Iris (the domains on "
+    "it), certificates naming it, BGP routing and VPNDB; certificate events take single addresses only. The *Check IP "
+    "addresses* use case asks VPNDB only.  \n\n**Certificates:** SHA-256 / SHA-1 / MD5 fingerprints are recognized "
     "automatically (colons allowed); other hex values are read as serial numbers. Text that is not a domain or IP "
     "(e.g. `DomainTools LLC`) is searched as a certificate organization. Other certificate fields can be given with a "
     f"prefix; the whole line is the value:  \n{_PREFIXES}  \n\nOn **Analyze** you review how each certificate input "

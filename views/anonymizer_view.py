@@ -92,7 +92,7 @@ def _empty(frame):
 def ip_check_only(ds):
     """True for an IP check run: VPNDB verdicts (IPs or CIDR ranges) and no other data."""
     return ((not _empty(ds.anonymizers) or not _empty(ds.prefixes)) and ds.combined.empty and ds.ssl.empty
-            and not ds.enrichment)
+            and not ds.enrichment and _empty(getattr(ds, "target_domains", None)) and _empty(ds.bgp_origins))
 
 
 PREFIX_CONFIG = {
@@ -133,7 +133,7 @@ def render_networks(ds):
     st.markdown("#### CIDR ranges", help="Each CIDR target looked up in VPNDB as a range: which VPN or proxy providers "
                                          "have exits inside it and in what share, and how much of it VPNDB knows. "
                                          "Ranges VPNDB knows exits in (IPv4, up to 1,024 addresses) are also checked "
-                                         "address by address. CIDR ranges are looked up in VPNDB only.")
+                                         "address by address.")
     st.dataframe(ranges, hide_index=True, width="stretch", column_config=PREFIX_CONFIG)
     for row in ranges.to_dict("records"):
         ips = range_ip_table(ds.range_ips, addresses, row["CIDR"])
@@ -164,6 +164,10 @@ def render_networks(ds):
 def render_ip_check(ds, alerts):
     """Summary of an IP check run: one card per IP and per CIDR range with VPNDB's verdict and evidence."""
     table = ds.anonymizers
+    st.info("This run used **Only the VPNDB IP check** (the *Check IP addresses* use case), so VPNDB was the only "
+            "source. For the names in passive DNS, the domains in Iris, the certificates and the BGP routing of these "
+            "addresses and ranges, pick another use case (or untick that option on Settings → Collection options) "
+            "and Analyze again.", icon=":material/info:")
     if _empty(table):
         st.subheader("IP check (VPNDB)")
         render_networks(ds)

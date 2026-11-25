@@ -72,7 +72,7 @@ def _dnsdb(target, rrtype="ANY", include_wildcard=True, limit=DNSDB_DEFAULT_LIMI
     query = urlencode({"limit": min(MAX_BATCH_SIZE, limit), **client_params(rrtype)})
     curl = "\n".join(f'curl -s -H "X-API-Key: $DNSDB_API_KEY" -H \'Accept: application/x-ndjson\' '
                      f'{shlex.quote(f"{url}?{query}")}' for url in urls)
-    if is_ip_address(target):
+    if is_ip_address(target) or "/" in str(target):
         return "Rdata IP", target, curl
     names = [unquote(url.split("/lookup/", 1)[1].split("/")[2]) for url in urls]
     return f"RRset, type {rrtype}", "\n".join(names), curl
@@ -128,15 +128,22 @@ def _vpndb(status, base_url):
 
 def _bgpdb(target):
     """
-    (search, query, command) for a BGPDB lookup logged as "ip 1.1.1.1" / "route 1.1.1.0/24" / "asn AS13335" /
-    "prefix 1.1.0.0/20": the bgpdbq command (the query) and the same request as curl, with the limit the run used.
+    (search, query, command) for a BGPDB lookup logged as "ip 1.1.1.0/24" / "route 1.1.1.0/24" / "asn AS13335" /
+    "prefix 1.1.1.0/24": the bgpdbq command (the query) and the same request as curl (the command), with the limit
+    the run used. One form each, so a copied list runs every lookup once; bgpdbq_command() gives the bgpdbq form.
     """
     command, _, argument = str(target).partition(" ")
     if command not in BGPDB_COMMANDS or not argument:
         return None
     limit = {"route": BGPDB_ROUTE_LIMIT, "prefix": BGPDB_NEIGHBOUR_LIMIT}.get(command)
     query = f"bgpdbq {command} {argument}" + (f" --limit={limit}" if limit else "")
-    return f"{command} lookup", query, f"{query} | jq .\n{bgpdb_curl(command, argument, limit)}"
+    return f"{command} lookup", query, bgpdb_curl(command, argument, limit)
+
+
+def bgpdbq_command(query):
+    """A BGPDB lookup's bgpdbq query as a command line (piped to jq); a route lookup notes the hops=2 the app sends."""
+    note = "   # the app also sends ?hops=2 (in the curl form)" if str(query).startswith("bgpdbq route ") else ""
+    return f"{query} | jq .{note}"
 
 
 def _row(status, tool, search, query, command, target=None, pages=None):
@@ -226,6 +233,13 @@ def build_lookup_queries(collected, created=None):
             curl = (f'curl -s -H "X-API-Key: $DNSDB_API_KEY" -H \'Accept: application/x-ndjson\' '
                     f'{shlex.quote(f"{rdata_url(target)}?{query}")}')
             rows.append(_row(status, "DNSDB Scout", "Rdata name, type CNAME", target, curl))
+        elif source == "Iris Investigate (domains on target)":   # an IP or CIDR target: the domains on it
+            from config import TARGET_IRIS_DOMAINS
+            from core.irisql import similar_query
+            query = similar_query(target)
+            built = irisql_commands(query, min(TARGET_IRIS_DOMAINS, IRISQL_PAGE_SIZE), "risk_score")
+            rows.append(_row(status, "IrisQL", "IrisQL query (domains on the target)", query,
+                             built["DomainTools Python SDK"] + "\n" + built["curl"]))
         elif source == "IrisQL":
             request = status.get("Request") or {}
             if request.get("query"):

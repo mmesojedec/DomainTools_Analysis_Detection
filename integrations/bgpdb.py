@@ -2,11 +2,14 @@
 BGPDB (an internal DomainTools service): the BGP routing table history of the last ~30 days, as the bgpdbq tool
 queries it. Each command is a GET of `{host}/v1/{command}/{argument}` answered with NDJSON, one object per line:
 
-- `ip/{address}`      every announced prefix covering the address and each network (origin AS) that announced it:
-                      first / last seen, update count, route collectors, IRR / RPKI validity, RIR allocation, score
+- `ip/{address|cidr}` every announced prefix covering the address (or the range) and each network (origin AS) that
+                      announced it: first / last seen, update count, route collectors, IRR / RPKI validity, RIR
+                      allocation, score. The run asks once per /24 (IPv6 /48) for all of its addresses in it
 - `prefix/{cidr}`     the same for a prefix and every more-specific prefix inside it
 - `asn/{asn}`         an AS: RIR registration, name, visibility, upstream / downstream neighbour counts
-- `route/{ip|cidr}`   every AS path seen towards the prefix, with dates, collectors and peers
+- `route/{ip|cidr}`   every AS path seen towards the prefix, with dates, collectors and peers; `?hops=2` (always sent)
+                      aggregates the paths to their last two hops, upstream and origin, so a prefix rarely hits the
+                      result limit and each row is one of its upstreams. Hops carry prepending as `AS17318(x4)`
 
 The stream ends with `{"info": "end of results"}` or `{"info": "no results"}`; `{"warn": ...}` says the result limit
 (`?limit=N`) cut it short and `{"error": ...}` that the argument was refused. The host, an optional API key
@@ -27,6 +30,7 @@ from integrations.http import USER_AGENT, FetchResult, count_response, describe_
 
 SOURCE = "BGPDB"
 COMMANDS = ("ip", "prefix", "asn", "route")
+ROUTE_HOPS = 2   # route lookups aggregate the AS paths to their last 2 hops: upstream and origin
 CONNECT_TIMEOUT, READ_TIMEOUT = 10, 60
 UNREACHABLE = "unreachable"   # FetchResult.extras flag: the host did not answer (no connection / connect timeout)
 STOP_AFTER_FAILURES = 3       # consecutive unreachable lookups that stop the rest of the run's BGPDB lookups
@@ -99,12 +103,14 @@ def parse_ndjson(text):
 
 
 def request_url(command, argument, limit=None):
-    """The URL a lookup sends (None without a host): the argument stays readable (a CIDR's slash is a path part)."""
+    """The URL a lookup sends (None without a host): the argument stays readable (a CIDR's slash is a path part); a
+    route lookup always asks for the last ROUTE_HOPS hops."""
     base = bgpdb_base_url()
     if not base:
         return None
     url = f"{base}/{command}/{urllib.parse.quote(str(argument).strip(), safe='/:')}"
-    return url + (f"?limit={int(limit)}" if limit else "")
+    params = ([f"hops={ROUTE_HOPS}"] if command == "route" else []) + ([f"limit={int(limit)}"] if limit else [])
+    return url + (f"?{'&'.join(params)}" if params else "")
 
 
 def _query(command, argument, limit=None):
@@ -147,7 +153,7 @@ def _query(command, argument, limit=None):
 
 @cached_fetch(group="bgpdb")
 def lookup_ip(ip):
-    """`ip/{ip}`: each prefix covering the address and each origin AS that announced it (IPv4 or IPv6)."""
+    """`ip/{ip}` or `ip/{cidr}`: each prefix covering the address or range and each origin AS that announced it."""
     return _query("ip", ip)
 
 
@@ -165,14 +171,16 @@ def lookup_asn(asn):
 
 
 @cached_fetch(group="bgpdb")
-def lookup_route(target, limit=None):
-    """`route/{ip|cidr}`: every AS path seen towards the prefix."""
+def lookup_route(target, limit=None, hops=ROUTE_HOPS):
+    """`route/{ip|cidr}?hops=2`: the AS paths towards the prefix, aggregated to upstream and origin (`hops` keeps the
+    cache apart from answers fetched before the paths were aggregated)."""
     return _query("route", target, limit)
 
 
 def curl_command(command, argument, limit=None):
     """The same lookup as a curl command (no credential values: the key and HTTP auth come from the environment)."""
-    url = request_url(command, argument, limit) or f"https://$BGPDB_HOST/v1/{command}/{argument}"
+    url = request_url(command, argument, limit) or f"https://$BGPDB_HOST/v1/{command}/{argument}" + (
+        f"?hops={ROUTE_HOPS}" if command == "route" else "")
     options = bgpdb_options()
     parts = [f"curl -s '{url}'"]
     if options["api_key"]:

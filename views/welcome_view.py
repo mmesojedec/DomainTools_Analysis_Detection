@@ -1,18 +1,21 @@
 """
 First start: a dialog with the disclaimer (this is not an official DomainTools application), which must be accepted
 before anything else, then the API credentials (DomainTools username and API key, Certificate API, DNSDB, VPNDB, BGPDB host),
-saved to credentials.toml. A service left without a key is not queried until a key is entered (Settings → API
-credentials). The acceptance is kept in dt_settings.json; Settings → API credentials can show the dialog again.
+saved to credentials.toml, then a check that each one works (a notice, never a block). A service left without a key
+is not queried until a key is entered (Settings → API credentials). The acceptance is kept in dt_settings.json; Settings → API credentials can show the dialog again.
 """
 import streamlit as st
 
 from core.persistence import load_settings, save_setting
 from integrations.credentials import BGPDB, CERT_API, SERVICES, credential_overview, credentials_file, display_path
+from integrations.key_check import FAILED, summary
+from views.key_check_view import last_checks, render_key_checks, run_key_checks
 from views.sidebar import KEY_FIELDS, KEY_HELP, TOAST_KEY, _save_entered_keys
 
 ACCEPTED_SETTING = "disclaimer_accepted"   # dt_settings.json: the disclaimer version accepted
 DISCLAIMER_VERSION = 1
-STEP_KEY = "welcome_step"     # "disclaimer" / "keys" / "done" for this session
+STEP_KEY = "welcome_step"     # "disclaimer" / "keys" / "check" / "done" for this session
+CHECK_PENDING = "welcome_check_pending"   # the check step runs the checks once when it opens
 REOPEN_KEY = "welcome_reopen"
 PREFIX = "welcome_cred"       # widget keys of the dialog's key fields (apart from the Settings form's)
 DISCLAIMER = (
@@ -21,7 +24,8 @@ DISCLAIMER = (
     "for analysis and basic detection:\n"
     "- Iris Investigate, Domain History and the Certificates API;\n"
     "- DNSDB Scout (passive DNS);\n"
-    "- VPNDB (VPN, residential proxy and Tor attribution).\n\n"
+    "- VPNDB (VPN, residential proxy and Tor attribution);\n"
+    "- BGPDB (BGP routing, an internal DomainTools service; optional).\n\n"
     "It is provided as an example, without support. Its alerts, scores and verdicts are heuristics built on that "
     "data: check the evidence before you act on them.\n\n"
     "Every lookup uses your own API keys and counts against your own quotas. Keys are stored only on this computer, "
@@ -49,7 +53,44 @@ def _skip():
 
 def _save():
     if _save_entered_keys(PREFIX):
-        st.session_state[STEP_KEY] = "done"
+        _check()
+
+
+def _check():
+    st.session_state[STEP_KEY] = "check"
+    st.session_state[CHECK_PENDING] = True
+
+
+def _start():
+    """Closes the dialog; a key that does not work is named once more, as a notification."""
+    checks, _ = last_checks()
+    if checks and any(c.status == FAILED for c in checks):
+        st.session_state[TOAST_KEY] = summary(checks) + " Correct it on Settings → API credentials."
+    _skip()
+
+
+def _back():
+    st.session_state[STEP_KEY] = "keys"
+
+
+def _render_check_step():
+    st.markdown("#### Checking the API keys")
+    message = st.session_state.pop(TOAST_KEY, None)
+    if message:
+        st.info(message, icon=":material/info:")
+    if st.session_state.pop(CHECK_PENDING, False):
+        run_key_checks(notify=False)
+    checks, at = last_checks()
+    if checks:
+        render_key_checks(checks, at)
+        if any(c.status == FAILED for c in checks):
+            st.warning("A service whose key does not work is skipped, the same as one without a key. You can start "
+                       "anyway, correct the key now (**Back to the keys**), or later on Settings → API credentials.",
+                       icon=":material/warning:")
+    row = st.container(horizontal=True)
+    row.button("Start", type="primary", on_click=_start, icon=":material/arrow_forward:", width="content")
+    row.button("Back to the keys", on_click=_back, icon=":material/arrow_back:", width="content")
+    row.button("Check again", on_click=_check, type="tertiary", icon=":material/refresh:", width="content")
 
 
 @st.dialog("Welcome", width="large", dismissible=False)
@@ -63,6 +104,9 @@ def _welcome_dialog():
         st.warning(DISCLAIMER, icon=":material/info:")
         agree = st.checkbox("I understand that this is not an official DomainTools application", key="welcome_agree")
         st.button("Continue", type="primary", disabled=not agree, on_click=_accept, icon=":material/arrow_forward:")
+        return
+    if step == "check":
+        _render_check_step()
         return
     overview = {row["Service"]: row for row in credential_overview()["services"]}
     st.markdown("#### API credentials")
@@ -87,10 +131,16 @@ def _welcome_dialog():
                 column.text_input(label, key=f"{PREFIX}::{service}::{key}", type="password" if secret else "default",
                                   autocomplete="off", placeholder="already set; leave empty to keep" if row["Found"]
                                   else "", help=KEY_HELP.get(service))
-        st.form_submit_button("Save keys and start", type="primary", icon=":material/save:", on_click=_save)
-    st.button("Skip for now", on_click=_skip, type="tertiary", icon=":material/skip_next:",
-              help="Start without saving keys. Services without a key are not queried; add keys any time on "
-                   "Settings → API credentials.")
+        st.form_submit_button("Save and check the keys", type="primary", icon=":material/save:", on_click=_save,
+                              help="Saves the filled fields, then asks each service whether its key works.")
+    row = st.container(horizontal=True)
+    if any(row["Found"] for row in overview.values()):
+        row.button("Check the keys already set", on_click=_check, type="tertiary", icon=":material/network_check:",
+                   width="content", help="Checks the keys found now (environment, credentials.toml, files) without "
+                                         "saving anything.")
+    row.button("Skip for now", on_click=_skip, type="tertiary", icon=":material/skip_next:", width="content",
+               help="Start without saving keys. Services without a key are not queried; add keys any time on "
+                    "Settings → API credentials.")
 
 
 def render_welcome():

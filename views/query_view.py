@@ -2,7 +2,7 @@
 BGPDB tools."""
 import streamlit as st
 
-from core.lookup_queries import TOOLS, build_lookup_queries, one_line, request_counts, tool_bundle
+from core.lookup_queries import TOOLS, bgpdbq_command, build_lookup_queries, one_line, request_counts, tool_bundle
 from views.common import selected_rows, selection_key
 
 TOOL_HELP = {
@@ -99,7 +99,15 @@ def _render_query_tables(queries, tools):
     with st.expander(f"Queries to copy: {scope}", expanded=bool(rows)):
         st.code(tool_bundle(picked, tool), language=LANGUAGE.get(tool))
     with st.expander(f"Commands: {scope}", expanded=bool(rows)):
-        st.code("\n".join(dict.fromkeys(picked["Command"])), language="bash")
+        commands = picked["Command"]
+        if tool == "BGPDB":   # one form per lookup: curl (no tool needed) or the bgpdbq tool
+            form = st.segmented_control("Commands as", ["curl", "bgpdbq"], default="curl", key="queries_bgpdb_form",
+                                        help="The same lookups, once each: as curl commands (no tool to install; "
+                                             "they show every parameter the app sent, such as ?hops=2 on route "
+                                             "lookups) or as bgpdbq tool commands.") or "curl"
+            if form == "bgpdbq":
+                commands = picked["Query"].map(bgpdbq_command)
+        st.code("\n".join(dict.fromkeys(commands)), language="bash")
 
     st.download_button("Download all lookups (CSV)", queries.drop(columns=["Requests", "Pages"]).to_csv(index=False), file_name="lookup_queries.csv",
                        mime="text/csv", key="queries_download", help="Every tool, with the full queries and commands")

@@ -39,7 +39,7 @@ flowchart TD
     H --> I["Detection rules per domain / IP, then cross-domain clusters"]
     I --> J["Merge repeated alerts, apply suppressions"]
     J --> K["Unified Risk and DIF per domain"]
-    K --> L["Summary (or the Hunt map when the run continues a hunt) and the other pages"]
+    K --> L["Summary (the Hunt map when the run continues a hunt; a single target's profile) and the other pages"]
     K --> M["Save the run to history, and optionally an offline copy"]
 ```
 
@@ -53,8 +53,8 @@ Each line or token of the target box is classified before anything is looked up:
 | You type | Treated as | What happens |
 | --- | --- | --- |
 | `example.com`, `www.shop.example.com` | Domain | Reduced to its registered (apex) domain, e.g. `example.com`. Subdomains are still covered: the lookups include every subdomain. |
-| `8.8.8.8`, `2001:db8::1` | IP address | Looked up as an IP (passive DNS by IP, certificates naming the IP, certificate events on the IP) and checked in VPNDB. |
-| `104.21.59.0/24`, `2a00:1450::/32` | CIDR range | Looked up in VPNDB only, as a range (providers inside it, and every address of an IPv4 range with known exits); the other sources take single IPs. `/32` and `/128` are plain IPs. |
+| `8.8.8.8`, `2001:db8::1` | IP address | Looked up as an IP: passive DNS by IP (the names on it), Iris (the domains whose current IPs include it), certificates naming the IP, certificate events on the IP, BGP routing (even on a CDN, since you entered it) and VPNDB (IPv4). |
+| `104.21.59.0/24`, `2a00:1450::/32` | CIDR range | Looked up as a range: passive DNS (`rdata/ip/104.21.59.0,24`: every name that resolved into it), Iris (domains whose current IPs are in it, first to last address), certificates with a SAN IP in it, BGP (the announcement covering it and every prefix announced inside it) and VPNDB (providers inside it, and every address of an IPv4 range with known exits). Certificate events take single addresses only. `/32` and `/128` are plain IPs. |
 | A 64 / 40 / 32-character hex value, `cn:`, `san:`, `org:`, `issuer:`, `serial:`, ... | Certificate input | Goes through the [two review steps](#certificate-inputs-the-two-review-steps) first. |
 | `DomainTools LLC`, `DomainTools` (words without a dot) | Organization name | A certificate input: certificates whose subject organization contains the text. |
 
@@ -156,7 +156,7 @@ flowchart TD
         S9["8. CT log and SHA-256 events for the newest certificates (if on)"]
         S7["5. IP pivots (if on, DNSDB Scout)"]
         S7w["6-6c. VPNDB: verdicts, exits' history, neighbourhood, Tor overview (if on, with a key)"]
-        S7b["6d. BGPDB: prefixes and origins, AS paths, networks, neighbouring prefixes (if on, with a host)"]
+        S7b["6d. BGPDB: prefixes and origins, upstreams, networks, more-specific prefixes (if on, with a host)"]
     end
     W2 --> Z["Done"]
 ```
@@ -171,7 +171,7 @@ flowchart TD
 | 6 | VPN / proxy / Tor | VPNDB | Public IPv4 hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); up to the use case's *VPNDB hosting IPs per run* (500 by default, 100 per domain at most); CIDR targets | Which VPN, residential proxy or Tor operator is behind each IP, with confidence, sharing and IOC value; per range its providers and every address | One bulk request; full verdict of up to *VPNDB full verdicts per run* exits (50 by default); per range one prefix query, up to 200 addresses and a bulk request for up to 1,024 addresses | Only with a VPNDB key and *Check hosting IPs for VPN, residential proxy and Tor* on (on in every use case). CDN, private and IPv6 addresses are skipped. |
 | 6b | VPNDB context | VPNDB, DNSDB | The exits (weekly history, as many as the full verdicts), and with *VPNDB neighbourhood and leads*: the /24s around the other hosting IPs (30), current Iris ASNs (20), dedicated exits (DNSDB reverse IP, 10) | Was the IP an exit while the domain used it; hosted among exits; other domains on dedicated exits | 1 query each | Only with a VPNDB key and the VPNDB check on; the neighbourhood is off in the takeover, phishing and monitoring use cases; the DNSDB lookups need a DNSDB key. Feeds the exit rules, *Hosted Among Anonymizer Exits* and the VPNDB page. |
 | 6c | Tor network | VPNDB | Once per run | The Tor overview (`/tor`): relays and each network's, country's and prefix's share of Tor exit traffic | One call, not counted against the quota | With the VPNDB check and in *Check IP addresses*. Feeds the Tor network page (Infrastructure) and each IP card. |
-| 6d | BGP routing | BGPDB (internal) | Public hosting IPs (IPv4 and IPv6, no CDN): IP targets, current Iris IPs, then passive DNS (latest first); up to *BGPDB hosting IPs per run* (200 by default, 50 per domain) | `ip`: each covering prefix and origin network, RPKI / IRR, RIR; then `route` (AS paths of the 30 busiest prefixes), `asn` (up to 40 origin and upstream networks) and, with *BGPDB neighbouring prefixes*, `prefix` (the /20 or /40 around up to 10 prefixes) | 1 query per IP; 100 paths per prefix, 200 prefixes per range | Only with a BGPDB host and *Look up BGP routing of the hosting IPs (BGPDB)* on (on in every use case). Stops after 3 lookups in a row the host does not answer (off the VPN). BGPDB keeps about 30 days. Feeds the BGP page, the BGP routing alerts, the BGP Routing risk vector, the Domain profile's BGP card, the Tor network page (every network BGP saw), the Summary's BGP block, the Hunt map, the toolbar's *Network* filter, *Evidence → Records* and *Lookup queries*. |
+| 6d | BGP routing | BGPDB (internal) | Public hosting IPs (IPv4 and IPv6, no CDN except IP targets): IP targets, current Iris IPs, then passive DNS A / AAAA (latest first); up to *BGPDB hosting IPs per run* (200 by default, 50 per domain) | `ip` per /24 (IPv6 /48): each covering prefix and origin network, RPKI / IRR, RIR; then `route?hops=2` (the upstreams of the 30 busiest prefixes), `asn` (up to 40 origin and upstream networks) and, with *BGPDB more-specific prefixes*, `prefix` (what is announced inside up to 10 of the run's prefixes) | 1 query per /24 or /48; 100 paths per prefix, 200 prefixes per prefix asked | Only with a BGPDB host and *Look up BGP routing of the hosting IPs (BGPDB)* on (on in every use case). Stops after 3 lookups in a row the host does not answer (off the VPN). BGPDB keeps about 30 days. Feeds the BGP page, the BGP routing alerts, the BGP Routing risk vector, the Domain profile's BGP card, the Tor network page (every network BGP saw), the Summary's BGP block, the Hunt map, the toolbar's *Network* filter, *Evidence → Records* and *Lookup queries*. |
 | 7 | Certificate Events | Certificate API | Each domain (with subdomains) and IP | Where certificates were observed on hostnames / IPs | 2,500 events per target, last 365 days | Always. Hostname gap-fill if capped. |
 | 8 | CT / co-occurrence | Certificate API | The newest Certificate API certificates, taking turns between domains | CT log submissions (500 per certificate) and SHA-256 observations (1,000 per certificate) | Settings cap, default 10 certificates (two calls each) | Only when *CT log & co-occurrence telemetry* is on. |
 
@@ -345,14 +345,14 @@ The stage makes the same four lookups as the `bgpdbq` tool's commands, each answ
 
 ```mermaid
 flowchart TD
-    A["Hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); public IPv4 and IPv6, no CDN"] --> B["Up to BGPDB hosting IPs per run (200), 50 per domain"]
-    B --> C["ip/address: each covering prefix and origin network, first / last seen, collectors, RPKI, IRR, RIR"]
+    A["Hosting IPs: IP targets, current Iris IPs, then passive DNS A / AAAA (latest first); public IPv4 and IPv6, no CDN"] --> B["Up to BGPDB hosting IPs per run (200), 50 per domain"]
+    B --> C["ip/block: one lookup per /24 (IPv6 /48) for all its addresses: covering prefixes, origins, collectors, RPKI, IRR, RIR"]
     C --> D{"Host answering?"}
     D -- "No, 3 lookups in a row" --> X["Stop: the rest skipped, one row BGPDB stopped on Data sources"]
-    D -- "Yes" --> E["route/prefix: AS paths of the 30 busiest prefixes (100 paths each): the upstreams"]
+    D -- "Yes" --> E["route/prefix?hops=2: upstream and origin of the 30 busiest prefixes, every upstream kept"]
     E --> F["asn/number: up to 40 origin and upstream networks: RIR registration, visibility, neighbours"]
-    F --> G{"BGPDB neighbouring prefixes on?"}
-    G -- "Yes" --> H["prefix/range: the /20 (IPv6 /40) around up to 10 prefixes: who else announces there"]
+    F --> G{"BGPDB more-specific prefixes on?"}
+    G -- "Yes" --> H["prefix/announced prefix: every more-specific inside up to 10 prefixes, and by whom"]
     G -- "No" --> R
     H --> R["Routing rules: origin conflict, unauthorized origin, new prefix, young network, thin route"]
     R --> V["With VPNDB: exits on unstable routing; with the Tor overview: unauthorized origin that is a Tor exit network"]
@@ -362,6 +362,13 @@ flowchart TD
 - **Who is authorized.** RPKI decides when it has an answer; IRR only when RPKI has none. *Not in RPKI / IRR* is common
   and not a finding by itself. Clouds and DDoS-protection networks that announce their customers' space
   (bring-your-own-IP) lower the severity instead of raising a hijack.
+- **One lookup per /24.** All of the run's addresses in one /24 (IPv6 /48) share one `ip` lookup; each keeps the
+  prefixes that hold it.
+- **Every upstream.** `route` asks for the last two hops only (`?hops=2`), so most prefixes stay under the result
+  limit and each row is one upstream in front of the origin; most prefixes have several, listed most-seen first.
+  Prepending (`AS17318(x4)`) is dropped.
+- **Inside the prefix.** `prefix` asks for the announced prefix itself (the /22 the `ip` answer named), so it lists
+  what is announced *inside* it: a more-specific from another, unauthorized network is a more-specific hijack.
 - **The usual origin** of an IP is the network with the most updates. A private AS seen by one or two route collectors
   is that collector's peer leaking its internal number: shown in orange, never a finding.
 - **30 days.** A prefix first seen on the first days of BGPDB's window is *at least that old*, never new.
@@ -386,7 +393,7 @@ and how each finding is decided is in the [User Guide](USER_GUIDE.md#bgp-routing
 | Detection | Every rule runs per domain / IP (including the lifecycle and compound rules), then cross-domain checks (clusters, shared trackers, shared CNAME targets, domain hopping, bulk-registration cohorts, campaign waves, links to a domain you marked Malicious). A domain among the 10,000 most popular in Iris, or on the DomainTools zerolist, has its Medium and Medium-High confidence alerts lowered one step, with the reason in the alert. Your allowlist and your verdicts on a rule can move the confidence too | Yes |
 | Merge and suppress | Repeats become one alert per domain and rule; suppressed findings are hidden | Yes |
 | Scoring | Unified Risk score and DIF fingerprint per domain | Yes |
-| Profiles and comparisons | Certificate profile (each certificate field by field, flags, shape and issuer baseline, related certificates), Certificates → Families & anomalies, Field breakdown, Domain similarity (pairs, clusters, shared indicators) | Yes |
+| Profiles and comparisons | IP profile (each IP or CIDR range: hosting, BGP routing, VPNDB, domains and certificates on it, alerts; on-demand Iris and certificate-event lookups for hosting IPs), Certificate profile (each certificate field by field, flags, shape and issuer baseline, related certificates), Certificates → Families & anomalies, Field breakdown, Domain similarity (pairs, clusters, shared indicators) | Yes |
 | Analysis report | The run as one HTML page: High level overview, Detailed or Complete report, the sections you pick | Yes |
 | Save | Live runs go to run history (`dt_runs/`); **Save offline copy** (Start page Targets box, before Analyze; or after it on the status line) also stores the raw data (`dt_offline/`). Saved runs and datasets are what the **Runs** page lists (*Recent runs*) and searches (*Indicator Sightings*) | - |
 
@@ -410,5 +417,5 @@ and how each finding is decided is in the [User Guide](USER_GUIDE.md#bgp-routing
 | VPNDB ranges and networks | Known exits around the hosting IPs and on the Iris hosting ASNs; CIDR targets | Hosted Among Anonymizer Exits; Neighbourhood and CIDR ranges tabs |
 | DNSDB on dedicated exits | Other names on an exit few customers share | Leads tab (*Analyze*) |
 | VPNDB Tor overview | Where Tor exit traffic leaves: networks, countries, prefixes | Hosted Among Tor Exits; Tor network page, Tor share on each IP card |
-| BGPDB | Who announces the hosting IPs, since when, whether RPKI / IRR allow it; AS paths, networks, neighbouring prefixes | BGP routing alerts, *Unauthorized Origin Is a Tor Exit Network* (with the Tor overview), the BGP origin used by *Hosted Among Tor Exits*; BGP page, Domain profile, Tor network page, BGP Routing risk vector, toolbar *Network* filter |
+| BGPDB | Who announces the hosting IPs, since when, whether RPKI / IRR allow it; upstreams, networks, more-specific prefixes | BGP routing alerts, *Unauthorized Origin Is a Tor Exit Network* (with the Tor overview), the BGP origin used by *Hosted Among Tor Exits*; BGP page, Domain profile, IP profile, Tor network page, BGP Routing risk vector, toolbar *Network* filter |
 | CT / co-occurrence | CT log submissions, other hosts sharing a certificate | CT log panel in the Certificates page, certificate co-occurrence in *Evidence → Records* (context, not detections) |

@@ -55,6 +55,9 @@ def _value(row, name):
 def render_ip_card(row, key, ds=None):
     """Everything the run knows about `row["IP"]`, in tabs."""
     ip = row["IP"]
+    if key != "ipp":   # everywhere but on the IP profile itself: the way to the whole picture of the address
+        from views.ip_profile_view import open_button
+        open_button(ip, label="Open in IP profile", key=f"{key}::ipcard_profile::{ip}")
     tabs = st.tabs(TABS, key=f"{key}::ipcard::{ip}", on_change="rerun")
     with tabs[0]:
         _verdict(row, key)

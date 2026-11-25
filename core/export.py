@@ -77,7 +77,8 @@ def collect_iocs(ds, ip_intel=None):
     """Domains, IPs, certificate hashes, and name servers observed for the selected targets."""
     rows = []
     for domain in ds.selected_domains:
-        kind = ("ipv6-addr" if ":" in domain else "ipv4-addr") if is_ip_address(domain) else "domain-name"
+        kind = ("ipv6-addr" if ":" in domain else "ipv4-addr") if is_ip_address(domain) or "/" in str(domain) \
+            else "domain-name"   # a CIDR target is an ipv4-addr / ipv6-addr value in STIX and MISP
         rows.append({"Type": kind, "Value": domain, "Domain": domain, "Source": "Target"})
     events = ds.events_utc
     if events is not None and not events.empty:

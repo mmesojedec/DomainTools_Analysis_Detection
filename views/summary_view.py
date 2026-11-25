@@ -31,6 +31,7 @@ from core.triage import domain_verdicts, load_triage, open_alerts, triage_counts
 from core.use_cases import PROFILES_SETTING, find_case
 from integrations.cache import age_text
 from views import navigation
+from views.address_targets_view import render_address_targets
 from views.alert_tools import HEATMAP_SEVERITY_COLORS, SEVERITY_ORDER, THREAT_TYPE_KEY
 from views.anonymizer_view import alerts_button, domain_verdict_text, ip_check_only, render_ip_check, render_networks, selectable_table
 from views.bgp_page import alerts_button as bgp_alerts_button
@@ -444,6 +445,7 @@ def render_summary(ctx, window_banner):
     render_kpi_banner(profiles, ctx.thresholds["high_risk_score"])
     leads, start, _ = plan(ds, alerts)   # also keeps the suggested steps with the run, for the Hunt map
     _render_domains(profiles, alerts, verdicts, ds.anonymizers)
+    render_address_targets(ds, list(ctx.collected.targets), ctx.thresholds["high_risk_score"])
     if ds.prefixes is not None and not ds.prefixes.empty:   # CIDR targets (VPNDB)
         render_networks(ds)
     _render_glance(ds, alerts)

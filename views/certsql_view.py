@@ -289,8 +289,9 @@ def _render_results(state):
     certs, domains, ips, hosts = _with_fields(state, fields)
     _render_fingerprints(result.data)
     used = int(certs["Use"].sum())
-    tabs = st.tabs([f"Domains ({len(domains):,})", f"IPs ({len(ips):,})", f"Hostnames ({len(hosts):,})",
-                    f"Certificates ({used:,} of {len(certs):,} used)", "Breakdown", "Raw JSON"],
+    # Fixed tab names: the open tab is remembered by its name, so a count in it (which changes as certificates are
+    # ticked) would open the first tab after every tick. The counts are in each tab instead.
+    tabs = st.tabs(["Domains", "IPs", "Hostnames", "Certificates", "Breakdown", "Raw JSON"],
                    key="certsql_tabs", on_change="rerun")
     target_help = {
         "Via": st.column_config.Column("Via", help="SAN DNS / SAN IP: named in a certificate's Subject Alternative "
@@ -298,17 +299,19 @@ def _render_results(state):
         "Hostnames": st.column_config.NumberColumn("Hostnames", help="Hostnames under this domain in the certificates"),
         "Certificates": st.column_config.NumberColumn("Certificates", help="Certificates (ticked Use) naming it")}
     with tabs[0]:
-        st.caption("Registered domains the used certificates name, most named first. Shared CDN names (Cloudflare SNI, "
-                   "Akamai, …) are left out.")
+        st.caption(f"**{len(domains):,} domain(s).** Registered domains the used certificates name, most named first. "
+                   "Shared CDN names (Cloudflare SNI, Akamai, …) are left out.")
         domains = _editor(state, "domains", domains, target_help)
     with tabs[1]:
-        st.caption("Public IPs in the used certificates' SANs.")
+        st.caption(f"**{len(ips):,} IP(s).** Public IPs in the used certificates' SANs.")
         ips = _editor(state, "ips", ips, target_help)
     with tabs[2]:
-        st.caption("Every hostname (wildcards included) in the used certificates, with its registered domain. Analyzing "
-                   "a domain looks up all of its subdomains.")
+        st.caption(f"**{len(hosts):,} hostname(s).** Every hostname (wildcards included) in the used certificates, with "
+                   "its registered domain. Analyzing a domain looks up all of its subdomains.")
         st.dataframe(hosts, hide_index=True, width="stretch")
     with tabs[3]:
+        st.caption(f"**{used:,} of {len(certs):,} certificate(s) used.** Untick a certificate to leave its names out of the "
+                   "Domains, IPs and Hostnames tabs (and so out of the analysis).")
         _render_certificates(state, certs)
     with tabs[4]:
         _breakdown(certs, domains, used_hits(result.data, state["certs"]), fields)

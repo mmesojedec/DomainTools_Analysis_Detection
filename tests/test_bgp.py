@@ -96,10 +96,11 @@ def test_rules_raise_alerts_per_domain_and_the_vpndb_match():
     assert list(match["IP"]) == ["203.0.113.5"] and bgp.NEW_PREFIX in match.iloc[0]["Findings"]
 
 
-def test_covering_range_and_neighbours():
-    assert bgp.covering_range("198.202.211.0/24") == "198.202.208.0/20"
-    assert bgp.covering_range("8.0.0.0/9") is None and bgp.covering_range("2606:4700::/48") == "2606:4700::/40"
-    assert bgp.covering_range("185.199.108.0/24+") == "185.199.96.0/20"
+def test_lookup_blocks_and_more_specifics():
+    assert bgp.lookup_block("198.202.211.7") == "198.202.211.0/24"
+    assert bgp.lookup_block("2620:11c:f008::1:324") == "2620:11c:f008::/48"
+    assert bgp.covers("199.30.228.0/22", "199.30.229.9") and not bgp.covers("199.30.232.0/21", "199.30.229.9")
+    assert bgp.covers("185.199.108.0/24+", "185.199.108.153")
     rows = bgp.neighbour_rows("1.1.0.0/20", {"1.1.1.0/24"}, {"AS13335"},
                               [CLOUDFLARE, {**FRESH, "prefix": "1.1.2.0/24", "origin": "AS13335"}])
     assert [r["Prefix"] for r in rows] == ["1.1.2.0/24"] and rows[0]["Same Origin"]
@@ -109,7 +110,7 @@ def test_collect_bgp_queries_ip_route_asn_and_prefix(monkeypatch):
     calls = []
 
     def answer(command):
-        def fetch(target, limit=None):
+        def fetch(target, limit=None, hops=None):
             calls.append((command, target))
             data = {"ip": [CLOUDFLARE, LEAK], "route": [{"route": "1.1.1.0/24", "path": ["AS174", "AS13335"],
                                                          "collectors": 30}],
@@ -124,7 +125,8 @@ def test_collect_bgp_queries_ip_route_asn_and_prefix(monkeypatch):
     log = collector.StatusLog()
     found_origins, found_asns, routes, neighbours, raw = collector.collect_bgp(
         ["one.example"], ["1.1.1.1"], pd.DataFrame(), {}, log)
-    assert {c for c, _ in calls} == {"ip", "route", "asn", "prefix"}
+    assert {c for c, _ in calls} == {"ip", "route", "asn", "prefix"} and ("ip", "1.1.1.0/24") in calls   # per /24
+    assert ("prefix", "1.1.1.0/24") in calls   # the announced prefix itself: what is announced inside it
     assert set(found_origins["Origin"]) == {"AS13335", "AS577"} and set(found_asns["ASN"]) >= {"AS13335", "AS577", "AS174"}
     assert routes.iloc[0]["Upstream"] == "AS174" and neighbours.iloc[0]["Prefix"] == "1.1.2.0/24"
     assert len(raw) == len(calls) and len(log.rows) == len(calls)
@@ -165,7 +167,7 @@ def test_bgp_routing_vector_only_for_domains_with_bgpdb_data():
     assert any(ROUTING_VECTOR in text for _, text in score_drivers(one, alerts))
 
 
-def test_lookup_queries_give_bgpdbq_and_curl_for_each_bgpdb_lookup(monkeypatch):
+def test_lookup_queries_give_one_command_form_per_bgpdb_lookup(monkeypatch):
     from core.lookup_queries import build_lookup_queries
     monkeypatch.setattr("integrations.bgpdb.request_url",
                         lambda c, a, limit=None: f"https://bgpdb.example/v1/{c}/{a}" + (f"?limit={limit}" if limit else ""))
@@ -176,8 +178,12 @@ def test_lookup_queries_give_bgpdbq_and_curl_for_each_bgpdb_lookup(monkeypatch):
     assert list(queries["Tool"]) == ["BGPDB"] * 3
     route = queries.iloc[1]
     assert route["Query"] == "bgpdbq route 1.1.1.0/24 --limit=100"
-    assert "curl -s 'https://bgpdb.example/v1/route/1.1.1.0/24?limit=100'" in route["Command"]
+    assert route["Command"].startswith("curl -s 'https://bgpdb.example/v1/route/1.1.1.0/24?limit=100'")
+    assert "bgpdbq" not in route["Command"]   # one form per lookup: copying the commands runs each lookup once
     assert queries.iloc[0]["Query"] == "bgpdbq ip 1.1.1.1"
+    from core.lookup_queries import bgpdbq_command
+    assert bgpdbq_command(route["Query"]).startswith("bgpdbq route 1.1.1.0/24 --limit=100 | jq .")
+    assert bgpdbq_command("bgpdbq ip 1.1.1.0/24") == "bgpdbq ip 1.1.1.0/24 | jq ."
 
 
 def test_evidence_reads_a_bgpdb_answer_as_records():
@@ -354,3 +360,30 @@ def test_vpndb_focus_keeps_the_networks_and_exits_from_bgp():
     assert sorted(out["anonymizers"]["IP"]) == ["1.1.1.1", "2.2.2.2"]
     assert list(out["exit_weeks"]["IP"]) == ["2.2.2.2"] and list(out["neighbour_ranges"]["CIDR"]) == ["2.2.2.0/24"]
     assert list(out["hosting_asns"]["ASN"]) == [60729] and out["exit_neighbours"] is None
+
+
+def test_route_hops_prepending_and_several_upstreams():
+    answer = [  # route/199.30.228.0/22?hops=2, as BGPDB answers it
+        {"route": "199.30.228.0/22", "path": ["AS2914", "AS17318"], "first": "2026-10-26 07:04:19",
+         "last": "2026-11-25 12:07:28", "count": 1876, "collectors": 60, "peers": 361},
+        {"route": "199.30.228.0/22", "path": ["AS2914(x4)", "AS17318"], "first": "2026-11-04 09:35:31",
+         "last": "2026-11-04 09:35:31", "count": 1, "collectors": 1, "peers": 1},
+        {"route": "199.30.228.0/22", "path": ["AS174", "AS17318(x4)"], "count": 204, "collectors": 31, "peers": 56},
+        {"route": "199.30.228.0/22", "path": ["AS6939", "AS17318(x4)"], "count": 6534, "collectors": 68, "peers": 408},
+    ]
+    routes = pd.DataFrame(bgp.route_rows("199.30.228.0/22", answer), columns=bgp.ROUTE_COLUMNS)
+    assert len(routes) == 3 and set(routes["Origin"]) == {"AS17318"}   # "(x4)" is prepending, not another network
+    merged = routes[routes["Upstream"] == "AS2914"].iloc[0]
+    assert (merged["Updates"], merged["Collectors"], merged["Path"]) == (1877, 60, "AS2914 → AS17318")
+    assert bgp.prefix_upstreams(routes) == {"199.30.228.0/22": ["AS6939", "AS2914", "AS174"]}
+    assert bgp.main_upstreams(routes) == {"199.30.228.0/22": "AS6939"}
+
+
+def test_spf_ip6_values_are_not_garbled_and_not_hosting():
+    from core.helpers import extract_ip_addresses
+    assert extract_ip_addresses("v=spf1 ip6:2620:11c:f008::1:324 ip4:1.2.3.4 -all") == ["1.2.3.4",
+                                                                                     "2620:11c:f008::1:324"]
+    pdns = pd.DataFrame({"Domain": ["a.com", "a.com"], "Field": ["TXT", "A"],
+                         "Value": ["v=spf1 ip6:2620:11c:f008::1:324 -all", "93.184.215.14"],
+                         "Last Seen": [pd.Timestamp("2026-11-01")] * 2})
+    assert set(bgp.select_ips(["a.com"], pdns, {})) == {"93.184.215.14"}   # an SPF address is not hosting

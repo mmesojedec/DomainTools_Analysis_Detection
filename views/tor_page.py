@@ -19,7 +19,7 @@ HOW_TO_READ = (
     "shares that network with anonymized traffic (alert *Hosted Among Tor Exits*).",
     "Every network the run saw is matched against the Tor exit networks: the hosting networks (VPNDB, Iris) and, with "
     "BGPDB, each network that announced the run's prefixes (with or without authorization), the upstreams on their "
-    "AS paths and the origins of neighbouring prefixes. *Seen as* tells which. A Tor exit network that announced one "
+    "AS paths and the origins of more-specific prefixes announced inside them. *Seen as* tells which. A Tor exit network that announced one "
     "of the run's prefixes without authorization raises *Unauthorized Origin Is a Tor Exit Network*.",
     "Whether a hosting IP **is** a Tor relay or exit is on the **VPNDB** page and each IP card (*Tor network* tab).",
     "The data comes from **VPNDB** (`/tor`): the Tor Project's relay list placed with VPNDB's routing and country "
@@ -45,7 +45,7 @@ def run_network_roles(ds):
     """
     {AS number: ({roles}, {domains})}: every network the run saw, with how: hosting (VPNDB / Iris ASN), and from
     BGPDB the usual origin of a prefix, an unauthorized origin, an upstream on the AS paths and the origin of a
-    neighbouring prefix.
+    more-specific prefix announced inside one.
     """
     seen = {}
 
@@ -77,7 +77,7 @@ def run_network_roles(ds):
     neighbours = getattr(ds, "bgp_neighbours", None)
     if not _empty(neighbours):
         for asn in neighbours["Origin"]:
-            add(asn, "BGP neighbouring prefix")
+            add(asn, "BGP more-specific prefix")
     return seen
 
 
@@ -122,12 +122,12 @@ def _tor_network(ds):
         hosting = hits["Seen as"].str.contains("Hosting|BGP origin|unauthorized", regex=True)
         st.warning(f"{len(hits)} network(s) the run saw carry Tor exit traffic"
                    + (f", {int(hosting.sum())} of them hosting (or announcing) the run's IPs." if hosting.any() else
-                      ": all of them only as transit or neighbours, not as the hosting network."))
+                      ": all of them only as transit or inside the hosting prefixes, not as the hosting network."))
         st.dataframe(hits, hide_index=True, width="stretch", column_config={
             "Seen as": st.column_config.Column("Seen as", help="How the run saw the network: hosting its IPs (VPNDB / "
                                                "Iris ASN), announcing them (BGP origin), announcing them without "
                                                "authorization, carrying the routes (upstream / transit) or announcing a "
-                                               "prefix next to them (neighbouring prefix)")})
+                                               "more-specific prefix inside them (more-specific prefix)")})
     c_net, c_country = st.columns(2)
     for column, name, label in ((c_net, "Networks", "organization"), (c_country, "Countries", "country")):
         frame = tables[name]

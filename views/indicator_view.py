@@ -121,6 +121,9 @@ def _render_actions(ds, kind, value, certs, pivot, key):
                 _certsql_search("ja4x", value)
         elif kind in ("IP", "Host"):
             analyze_button([value], f"{kind} {value}", key=f"{key}::analyze", label="Analyze", direct=True)
+            if kind == "IP":
+                from views.ip_profile_view import open_button
+                open_button(value, label="IP profile", key=f"{key}::ip_profile")
             search = lead_search or (f"ip={value}" if kind == "IP" else "")
             if search:
                 iris_button(search, key=f"{key}::iris")

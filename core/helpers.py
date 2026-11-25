@@ -18,7 +18,9 @@ _FALLBACK_MULTI_SUFFIXES = {
 }
 
 _IPV4_PATTERN = re.compile(r"(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?![\d.])")
-_IPV6_CANDIDATE = re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Fa-f:])")
+# not inside a word ("ip6:2620:…" in an SPF record starts after "ip6:", never at its "6")
+_IPV6_CANDIDATE = re.compile(r"(?:(?<=ip6:)|(?<=IP6:)|(?<![0-9A-Za-z:]))(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}"
+                             r"(?![0-9A-Fa-f:])")
 _MARKDOWN_SPECIALS = re.compile(r"([\\`*_{}\[\]()#+!|~<>$])")
 
 
@@ -114,7 +116,7 @@ def is_cidr(value):
 def classify_targets(targets):
     """
     Classifies clean targets into domains, IPv4 addresses, IPv6 addresses and CIDR ranges (order preserved,
-    deduplicated). CIDR ranges are looked up in VPNDB only; the other sources take single addresses.
+    deduplicated). CIDR ranges go to the sources that take ranges (DNSDB, Certificate Search, Iris, BGPDB, VPNDB).
     """
     domains, ipv4s, ipv6s, cidrs = [], [], [], []
     for t in targets:

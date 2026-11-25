@@ -29,6 +29,7 @@ from config import (
     RESOLVE_TREE_LIMIT,
     SEED_DEFAULT_TARGETS,
     SEED_MAX_CERTIFICATES,
+    TARGET_IRIS_DOMAINS,
     TXT_SUPPLEMENT_FETCH_LIMIT,
     VPNDB_DETAIL_MAX,
     VPNDB_MAX_IPS,
@@ -74,7 +75,13 @@ from integrations.dnsdb import (
     parse_dnsdb_to_dataframe,
 )
 from integrations.domain_history import extract_ssl_data, fetch_domain_history, parse_history_to_dataframe
-from integrations.enrichment import extract_iris_profile, extract_ssl_data_from_enrichment, fetch_iris_batch, iris_batches
+from integrations.enrichment import (
+    extract_iris_profile,
+    extract_ssl_data_from_enrichment,
+    fetch_iris_batch,
+    fetch_irisql,
+    iris_batches,
+)
 from integrations.fetch_runner import _concat, _parallel, _record_all, _safe_call  # noqa: F401
 from integrations.http import FetchResult, StatusLog
 from integrations.risk import risk_from_iris
@@ -133,6 +140,7 @@ class CollectedData:
     bgp_routes: pd.DataFrame = field(default_factory=pd.DataFrame)     # BGPDB: AS paths towards the run's prefixes
     bgp_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB: prefixes announced around them
     bgp_raw: pd.DataFrame = field(default_factory=pd.DataFrame)        # every BGPDB answer as received
+    target_domains: pd.DataFrame = field(default_factory=pd.DataFrame)   # Iris: domains on each IP / CIDR target
     statuses: list = field(default_factory=list)
     seed_inputs: list = field(default_factory=list)                  # certificate input labels, e.g. "cn:Acme VPN"
     seeds: pd.DataFrame = field(default_factory=pd.DataFrame)        # one row per certificate input and what it found
@@ -346,7 +354,7 @@ def collect_pdns(targets, dnsdb_limit, log, txt_records=0, caa_lookup=False, cna
     makes DNSDB look up only records seen since a day before that dataset and add its older records (incremental);
     targets missing from it are looked up in full.
     """
-    domains = [t for t in targets if not is_ip_address(t)]
+    domains = [t for t in targets if not is_ip_address(t) and not is_cidr(t)]
     specs = supplement_specs(txt_records, caa_lookup, cname_lookup)
     supplements = {spec: [] for spec in specs}
     main_results, caa_results = {}, {}
@@ -1088,6 +1096,43 @@ def _certificate_stage(lookup_inputs, domains, ip_targets, seed_hits, host_focus
     return ssl, events, log
 
 
+TARGET_DOMAIN_COLUMNS = ["Target", "Domain", "Risk Score", "Active", "Create Date", "Registrar", "IPs", "ASNs",
+                         "Name Servers"]
+
+
+def collect_target_domains(targets, log, max_results=TARGET_IRIS_DOMAINS):
+    """
+    Iris Investigate's reverse lookup of the IP and CIDR targets: the domains whose current IPs are the address
+    (`ip matches`) or in the range (its first to last address), up to `max_results` per target, riskiest first. One
+    IrisQL search per target. Returns TARGET_DOMAIN_COLUMNS rows.
+    """
+    from core.irisql import TOO_MANY, domain_frame, similar_query
+
+    frames = []
+    results = _parallel(targets, lambda t: _safe_call(fetch_irisql, "Iris Investigate (domains on target)", t,
+                                                      similar_query(t), max_results, "risk_score"))
+    for target, result in zip(targets, results):
+        result = replace(result, source="Iris Investigate (domains on target)", target=target)
+        if TOO_MANY in str(result.error or ""):
+            result.error = (f"Iris matches more than 10,000 domains in {target}, so it returns none: search a smaller "
+                            "range, or open it in IrisQL and narrow the query (e.g. created in the last 30 days)")
+        log.record(result)
+        frame = domain_frame(result.data or [])
+        if not frame.empty:
+            frames.append(frame.assign(Target=target))
+    if not frames:
+        return pd.DataFrame(columns=TARGET_DOMAIN_COLUMNS)
+    return pd.concat(frames, ignore_index=True).reindex(columns=TARGET_DOMAIN_COLUMNS)
+
+
+def _target_domain_stage(targets, unavailable):
+    log = StatusLog()
+    if "iris" in unavailable:
+        _skip_stage("iris", targets, log)
+        return pd.DataFrame(columns=TARGET_DOMAIN_COLUMNS), log
+    return collect_target_domains(targets, log), log
+
+
 def _history_stage(domains, history_days, history_max, unavailable):
     log = StatusLog()
     if "history" in unavailable:
@@ -1131,8 +1176,8 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
     unavailable = set(unavailable or ()) | no_key
     classified = classify_targets(target_inputs)
     domains, cidrs = classified["domains"], classified["cidrs"]
-    lookup_inputs = [t for t in target_inputs if not is_cidr(t)]   # CIDR ranges go to VPNDB only
-    ip_targets = [t for t in lookup_inputs if is_ip_address(t)]
+    ip_targets = [t for t in target_inputs if is_ip_address(t)]
+    lookup_inputs = [t for t in target_inputs if not is_cidr(t)] + cidrs   # ranges: passive DNS and certificates too
     host_focus = {d: list(hosts) for d, hosts in (host_focus or {}).items() if d in domains and hosts}
     data = CollectedData(targets=list(target_inputs), domain_targets=domains,
                          host_focus=host_focus, dnsdb_limit=dnsdb_limit)
@@ -1151,15 +1196,15 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
         return data
 
     if cidrs and not vpndb_check:
-        log.add(VPNDB_SOURCE, ", ".join(cidrs[:3]), "No data", "CIDR ranges are looked up in VPNDB only: turn on "
+        log.add(VPNDB_SOURCE, ", ".join(cidrs[:3]), "No data", "CIDR ranges are not checked in VPNDB: turn on "
                 "Check hosting IPs for VPN, residential proxy and Tor (Settings → Collection options)")
-    elif cidrs:
-        log.add("Iris, passive DNS, certificates", ", ".join(cidrs[:3]), "No data",
-                "CIDR ranges are looked up in VPNDB only; the other sources take single IP addresses")
+    address_targets = ip_targets + cidrs   # Iris: the domains on each address and range
 
     step("Collecting Domain History, Iris Investigate, certificates and passive DNS at the same time...")
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         history = _background(executor, _history_stage, domains, history_days, history_max, unavailable)
+        on_targets = _background(executor, _target_domain_stage, address_targets, unavailable) \
+            if address_targets else None
         iris = _background(executor, _iris_stage, domains, unavailable)
         certs = _background(executor, _certificate_stage, lookup_inputs, domains, ip_targets, seed_hits, host_focus,
                             unavailable)
@@ -1177,7 +1222,10 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
         step("Waiting for Domain History, Iris Investigate and certificates...")
         (dh, dh_ssl, history_log), (data.enrichment, iris_log), (cert_ssl, cert_events, cert_log) = _wait_drawing(
             [history, iris, certs])
-    for part in (history_log, iris_log, cert_log, pdns_log):   # status rows in a fixed order, whatever finished first
+        target_log = StatusLog()
+        if on_targets is not None:
+            [(data.target_domains, target_log)] = _wait_drawing([on_targets])
+    for part in (history_log, iris_log, target_log, cert_log, pdns_log):   # status rows in a fixed order, whatever finished first
         log.rows.extend(part.rows)
     data.dh = dh
     data.ssl = _concat([dh_ssl, cert_ssl])
@@ -1203,7 +1251,8 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
         if bgp_check:
             step("Looking up BGP routing of the hosting IPs (BGPDB)...")
             (data.bgp_origins, data.bgp_asns, data.bgp_routes, data.bgp_neighbours,
-             data.bgp_raw) = collect_bgp(domains, ip_targets, data.pdns, data.enrichment, log, bgp_max_ips, bgp_context)
+             data.bgp_raw) = collect_bgp(domains, ip_targets, data.pdns, data.enrichment, log, bgp_max_ips, bgp_context,
+                                         cidr_targets=cidrs)
         if ct is not None:
             step("Fetching CT log and certificate co-occurrence telemetry...")
             [(data.ctl, data.cert_observations)] = _wait_drawing([ct])

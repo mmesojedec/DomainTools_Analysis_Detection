@@ -444,10 +444,12 @@ def render_collection_options(prefix=""):
     b1.number_input(OPTION_LABELS["opt_bgpdb_max_ips"], min_value=1, max_value=BGPDB_MAX_IPS * 5, step=50,
                     key=prefix + "opt_bgpdb_max_ips", disabled=bgp_off,
                     help="Public hosting addresses looked up (IP targets first, then each domain's current Iris IPs "
-                         "and passive DNS addresses, most recent first). One BGPDB query each.")
+                         "and passive DNS A / AAAA addresses, most recent first). One BGPDB query per /24 (IPv6 /48) "
+                         "they fall in.")
     b2.checkbox(OPTION_LABELS["opt_bgpdb_context"], key=prefix + "opt_bgpdb_context", disabled=bgp_off,
-                help="The prefixes announced in the /20 (IPv6: /40) around the run's prefixes, and by whom: neighbours "
-                     "of the same origin are leads. One query per range, up to 10 ranges.")
+                help="Every prefix announced inside the run's own prefixes (e.g. inside the /22 a hosting IP is "
+                     "announced in), and by whom: another, unauthorized origin there is a more-specific hijack; the "
+                     "same origin's are leads. One query per prefix, the 10 busiest.")
     st.checkbox(OPTION_LABELS["opt_vpndb_only"], key=prefix + "opt_vpndb_only",
                 help="No other source: for runs on IP addresses and CIDR ranges only. Looks up the IP targets (IPv4 and IPv6) and CIDR "
                      "ranges in VPNDB and nothing else: no Iris, passive DNS, Domain History or certificates. Domain "

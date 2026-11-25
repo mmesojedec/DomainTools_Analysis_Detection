@@ -3,6 +3,7 @@ BGPDB collection stage: the announced prefixes and origin networks of the run's 
 origin and upstream networks and the prefixes around them (core.bgp reads them). Stops early when the host does not
 answer (bgpdb.Breaker).
 """
+import ipaddress
 import json
 
 import pandas as pd
@@ -36,12 +37,15 @@ def _bgp_logged(log, raw, result, command, argument, limit=None):
     return result
 
 
-def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IPS, context=True):
+def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IPS, context=True, cidr_targets=()):
     """
-    BGPDB: the announced prefixes and origin networks of the run's hosting IPs (one `ip` lookup each, core.bgp.select_ips),
-    then the AS paths of the prefixes (`route`), the origin and upstream networks (`asn`) and, with `context`, the
-    prefixes announced in the range around them (`prefix`). Skipped without a BGPDB host. Returns
-    (origins, asns, routes, neighbours, raw) frames.
+    BGPDB: the announced prefixes and origin networks of the run's hosting IPs (core.bgp.select_ips), one `ip` lookup
+    per /24 (IPv6 /48) they fall in; then the AS paths of the prefixes (`route?hops=2`: each upstream in front of the
+    origin), the origin and upstream networks (`asn`) and, with `context`, every more-specific prefix announced
+    inside the run's own prefixes (`prefix` on the announced prefix, e.g. the /22 the `ip` answer named). A CIDR
+    target is looked up by its first address (the announcement covering it) and as a range of its own (every prefix
+    announced inside it). Skipped without a BGPDB host. Returns (origins, asns, routes, neighbours, raw) frames; the
+    neighbours frame keeps its name and columns (Covering Range = the prefix or range asked).
     """
     empty = (pd.DataFrame(columns=bgp.ORIGIN_COLUMNS), pd.DataFrame(columns=bgp.ASN_COLUMNS),
              pd.DataFrame(columns=bgp.ROUTE_COLUMNS), pd.DataFrame(columns=bgp.NEIGHBOUR_COLUMNS),
@@ -49,7 +53,7 @@ def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IP
     if not bgpdb.load_bgpdb_host():
         progress.skip("bgpdb", "No BGPDB host (Settings → API credentials)")
         return empty
-    chosen = bgp.select_ips(domains, pdns, enrichment, ip_targets, max_ips)
+    chosen = bgp.select_ips(domains, pdns, enrichment, ip_targets, max_ips, cidr_targets=cidr_targets)
     if not chosen:
         progress.skip("bgpdb", "No public hosting addresses to look up")
         return empty
@@ -62,15 +66,21 @@ def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IP
             lambda *args: _safe_call(lookup, bgpdb.SOURCE, f"{command} {argument}", *args), f"{command} {argument}",
             argument, *rest)
 
-    progress.start("bgpdb", len(ips), note=f"{len(ips)} IP(s): announced prefixes and origin networks")
-    results = _parallel(ips, guarded(bgpdb.lookup_ip, "ip"), key="bgpdb")
+    blocks = {}   # one `ip` lookup per /24 (IPv6 /48): its answer holds every prefix covering the run's addresses in it
+    for ip in ips:
+        blocks.setdefault(bgp.lookup_block(ip), []).append(ip)
+    progress.start("bgpdb", len(blocks), note=f"{len(ips)} IP(s) in {len(blocks)} /24 or /48 block(s): announced "
+                                              "prefixes and origin networks")
+    results = _parallel(list(blocks), guarded(bgpdb.lookup_ip, "ip"), key="bgpdb")
     rows = []
-    for ip, result in zip(ips, results):
-        _bgp_logged(log, raw, result, "ip", ip)
-        rows += bgp.origin_rows(ip, chosen[ip], result.data if result.ok else [])
+    for block, result in zip(blocks, results):
+        _bgp_logged(log, raw, result, "ip", block)
+        records = result.data if result.ok else []
+        for ip in blocks[block]:
+            rows += bgp.origin_rows(ip, chosen[ip], [r for r in records if bgp.covers(r.get("prefix"), ip)])
     origins = pd.DataFrame(rows, columns=bgp.ORIGIN_COLUMNS)
     if breaker.tripped and origins.empty:
-        log.record(FetchResult(bgpdb.SOURCE, f"{len(ips) - len(raw)} lookup(s) skipped",
+        log.record(FetchResult(bgpdb.SOURCE, f"{len(blocks) - len(raw)} lookup(s) skipped",
                                error=bgpdb.STOPPED.format(count=breaker.limit)))
         progress.skip("bgpdb", "BGPDB host not reachable (DomainTools network or VPN needed)")
         return origins, *empty[1:4], pd.DataFrame(raw, columns=bgp.RAW_COLUMNS)
@@ -82,7 +92,7 @@ def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IP
     progress.start("bgpdb", len(prefixes), note="AS paths of the announced prefixes")
     routes = []
     for prefix, result in zip(prefixes, _parallel(prefixes, lambda p: guarded(
-            bgpdb.lookup_route, "route")(p, BGPDB_ROUTE_LIMIT), key="bgpdb")):
+            bgpdb.lookup_route, "route")(p, BGPDB_ROUTE_LIMIT, bgpdb.ROUTE_HOPS), key="bgpdb")):
         _bgp_logged(log, raw, result, "route", prefix, BGPDB_ROUTE_LIMIT)
         routes += bgp.route_rows(prefix, result.data if result.ok else [])
     routes = pd.DataFrame(routes, columns=bgp.ROUTE_COLUMNS)
@@ -91,8 +101,9 @@ def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IP
         domains_of.setdefault(row["Origin"], set()).update(d.strip() for d in str(row["Domains"]).split(",") if d.strip())
     wanted = {asn: "origin" for asn in usual["Origin"]}
     wanted.update({asn: "origin" for asn in origins.loc[origins["Status"] == bgp.UNAUTHORIZED, "Origin"]})
-    for upstream in bgp.main_upstreams(routes).values():
-        wanted.setdefault(upstream, "upstream")
+    for upstreams in bgp.prefix_upstreams(routes).values():   # every upstream, the most-seen first
+        for upstream in upstreams:
+            wanted.setdefault(upstream, "upstream")
     asn_list = list(wanted)[:BGPDB_ASN_MAX]
     progress.start("bgpdb", len(asn_list), note="origin and upstream networks")
     asn_rows = []
@@ -102,14 +113,16 @@ def collect_bgp(domains, ip_targets, pdns, enrichment, log, max_ips=BGPDB_MAX_IP
             asn_rows.append(bgp.asn_row(record, wanted[asn], domains_of.get(asn, ())))
     asns = pd.DataFrame(asn_rows, columns=bgp.ASN_COLUMNS)
     neighbours = pd.DataFrame(columns=bgp.NEIGHBOUR_COLUMNS)
-    if context:
-        ranges = {}
-        for prefix in usual["Prefix"]:
-            cover = bgp.covering_range(prefix)
-            if cover:
-                ranges.setdefault(cover, set()).add(prefix)
+    ranges = {}   # CIDR targets first (always): every prefix announced inside each, next to the one covering it
+    for cidr in cidr_targets:
+        first = str(ipaddress.ip_network(cidr, strict=False)[0])
+        ranges[str(cidr)] = set(usual.loc[usual["IP"] == first, "Prefix"])
+    if context:   # then the run's own announced prefixes, busiest first: every more-specific announced inside each
+        for prefix in usual.sort_values("Updates", ascending=False)["Prefix"].astype(str).str.rstrip("+"):
+            ranges.setdefault(prefix, set()).add(prefix)
+    if ranges:
         covers = list(ranges)[:BGPDB_NEIGHBOUR_MAX]
-        progress.start("bgpdb", len(covers), note="prefixes announced around them")
+        progress.start("bgpdb", len(covers), note="more-specific prefixes announced inside them")
         run_origins = set(usual["Origin"])
         rows = []
         for cover, result in zip(covers, _parallel(covers, lambda c: guarded(

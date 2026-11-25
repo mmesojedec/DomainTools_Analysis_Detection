@@ -11,7 +11,7 @@ from core.anonymizers import by_ip, tor_exit_lookups, vpndb_lookups
 from core.caa import extract_domain_caa_policy
 from core.cname import build_cname_map
 from core.correlation import Correlation, collect_artifacts, correlate, detect_domain_hops
-from core.helpers import is_ip_address
+from core.helpers import is_cidr, is_ip_address
 from core.network_intel import build_ip_intel
 from core.pdns_features import add_event_gaps
 from core.resolver import build_index, build_tree
@@ -194,13 +194,13 @@ def detect_threat_flags(events_df, thresholds, risk_df=None, ssl_df=None, enrich
     now = pd.Timestamp.now(tz="UTC").tz_localize(None)
     cname_map = build_cname_map(events, cname_chases)
     cname_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in cname_map.groupby("Domain")} if not cname_map.empty else {}
-    names = [d for d in candidates if not is_ip_address(d)]
+    names = [d for d in candidates if not is_ip_address(d) and not is_cidr(d)]
     tree, _ = build_tree(build_index(events, resolutions, pdns_coverage, names), names)
     tree_by_domain = {dom: grp.reset_index(drop=True) for dom, grp in tree.groupby("Domain")} if not tree.empty else {}
 
     contexts, gated_alerts = {}, []
     for domain in sorted(candidates):
-        is_ip = is_ip_address(domain)
+        is_ip = is_ip_address(domain) or is_cidr(domain)   # IP and CIDR targets: no domain-only rules
         risk_display, numeric_risk, evidence = risk_lookup.get(domain, ("N/A", None, "None"))
 
         gated = False

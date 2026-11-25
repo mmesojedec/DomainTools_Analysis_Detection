@@ -151,7 +151,7 @@ def test_cidr_targets_are_recognized_and_kept_apart_from_single_ips():
     assert items == [("cidr", "104.21.59.0/24"), ("cidr", "2a00:1450::/32"), ("ip", "8.8.8.8")]
 
 
-def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
+def test_cidr_ranges_go_to_every_source(monkeypatch):
     seen = {}
     def record(key, value, returned):
         seen[key] = value
@@ -162,6 +162,8 @@ def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
     monkeypatch.setattr(collector, "collect_cert_events", lambda *a: pd.DataFrame())
     monkeypatch.setattr(collector, "collect_certificates", lambda targets, *a: record("certs", targets, pd.DataFrame()))
     monkeypatch.setattr(collector, "collect_pdns", lambda targets, *a: record("pdns", targets, (pd.DataFrame(), {})))
+    monkeypatch.setattr(collector, "_target_domain_stage", lambda targets, unavailable: record(
+        "iris_targets", targets, (pd.DataFrame(columns=collector.TARGET_DOMAIN_COLUMNS), collector.StatusLog())))
     monkeypatch.setattr(collector, "collect_anonymizers", lambda domains, ips, *a: record("ips", ips, pd.DataFrame()))
     monkeypatch.setattr(collector, "load_vpndb_key", lambda: "vpndb_test")
     monkeypatch.setattr(vpndb_stage, "load_vpndb_key", lambda: "vpndb_test")
@@ -174,14 +176,14 @@ def test_cidr_ranges_go_to_vpndb_only(monkeypatch):
                      "confidence": 2}] + [{"ip": f"104.21.59.{n}", "anonymous": False} for n in (0, 1, 2)]})))
     data = collector.collect_all(["a.com", "8.8.8.8", "104.21.59.0/24"], 5000, include_ct=False,
                                  vpndb_check=True)
-    assert seen["certs"] == seen["pdns"] == ["a.com", "8.8.8.8"] and seen["ips"] == ["8.8.8.8"]
+    assert seen["certs"] == seen["pdns"] == ["a.com", "8.8.8.8", "104.21.59.0/24"] and seen["ips"] == ["8.8.8.8"]
+    assert seen["iris_targets"] == ["8.8.8.8", "104.21.59.0/24"]   # Iris: the domains on each address and range
     assert seen["addresses"] == ("104.21.59.0/24", {"method": "observed", "size": 200, "max_pages": 1})
     row = data.prefixes.iloc[0]
     assert (row["CIDR"], row["Top Provider"], row["Known Exits"], row["Coverage"], row["ASN"]) == \
         ("104.21.59.0/24", "nordvpn", 12, "4.7%", 13335)
     assert row["Providers"] == "nordvpn 75% (Medium), surfshark 25% (Low)" and row["Covering Prefix"] == "104.21.0.0/16"
     assert list(data.prefix_addresses["IP"]) == ["104.21.59.3"] and data.prefix_addresses.iloc[0]["Category"] == "VPN"
-    assert any("VPNDB only" in r["Detail"] for r in data.statuses)
 
     assert len(seen["bulk"]) == 256 and seen["bulk"][0] == "104.21.59.0"   # every address of the range, one request
     assert list(data.range_ips["CIDR"].unique()) == ["104.21.59.0/24"] and len(data.range_ips) == 4

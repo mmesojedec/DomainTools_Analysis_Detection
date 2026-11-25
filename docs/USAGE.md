@@ -39,7 +39,7 @@ origin network, VPNDB verdict), hostnames, record types, alert severities and de
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick; watch a query for new domains |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
 | **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
-| **Overview** | *Summary* · *Domain profile* · *Certificate profile* · *Alerts* |
+| **Overview** | *Summary* · *Domain profile* · *Certificate profile* · *IP profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *BGP* · *CNAME Chains* · *DNS resolution* · *Certificates* |
 | **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* · *Domain similarity* |
 | **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
@@ -75,12 +75,16 @@ is in [Pages](USER_GUIDE.md#pages).
   the domains and IPs they name that you tick are analyzed, together with the matching certificates that name them.
   See [CertsQL](#certsql).
 - **Summary** opens after every Analyze or dataset load. A run that continues a hunt (started from a lead) opens on
-  *Hunt map → This hunt* instead. From top to bottom:
+  *Hunt map → This hunt* instead, and a run on a **single target** opens on that target's profile: one IP address or
+  CIDR range on the [IP profile](#ip-profile), one domain on the Domain profile, one certificate input that found one
+  certificate on the Certificate profile (the Summary is one click away). From top to bottom:
   - the **hunt trail** when this run was started from another run's lead (see [Hunting](USER_GUIDE.md#hunting-triage-status-leads-and-the-hunt-map));
   - the risk numbers (KPI banner);
   - every **domain** with its verdict, open alerts and **risk drivers** (select one to open its profile; a
     **Unicode** column is added for internationalized domains; with VPNDB verdicts a **VPNDB** column says how many
     of its checked IPs are VPN, proxy or Tor exits and whose, e.g. `1 of 58 IPs: Residential proxy birdproxies`);
+  - with IP or CIDR targets, **IP and range targets**: one row per address or range with what each source returned,
+    and *Open in IP profile* (see [IP and range targets](#ip-and-range-targets)), and VPNDB's **CIDR ranges**;
   - **Analysis Details**: alerts per severity, domains, IPs, ASNs, name servers, certificates, self-signed
     certificates, hostnames and passive DNS records, each with a link to the page that lists them (*Self-Signed
     tab* opens the Certificates page at that tab), and with VPNDB verdicts a **VPNDB** row: IPs checked, VPN /
@@ -103,6 +107,9 @@ is in [Pages](USER_GUIDE.md#pages).
     hostnames, with *Watch this list*;
   - the use-case plan, when the run was started from a use case;
   - **Lookups of the last Analyze** (see *Collection progress* below).
+- **IP profile** shows one IP address or CIDR range on one screen (hosting, BGP routing, VPNDB, the domains and
+  certificates seen on it, alerts; a range view for CIDR targets); see [IP profile](#ip-profile). IP and CIDR targets
+  are there, not on the Domain profile.
 - **Domain profile** shows one domain on one screen: risk, then the **DomainTools risk score** components as numbers
   (Proximity, Malware, Phishing, Spam, and last the Threat profile with the threats it predicts and the evidence it is
   based on; a note when Proximity is high while Malware, Phishing and Spam are low, see [Possible domain
@@ -130,18 +137,21 @@ is in [Pages](USER_GUIDE.md#pages).
 
 ### A typical session
 
-0. **First start only**: accept the disclaimer and enter your API keys in the dialog (or *Skip for now*). A service
-   without a key is not queried until you add one under *Settings → API credentials*.
+0. **First start only**: accept the disclaimer and enter your API keys in the dialog (or *Skip for now*). **Save and
+   check the keys** asks each service whether its key works; a key that does not is a notice, not a block (see
+   [Checking the keys](INSTALLATION.md#checking-the-keys)). A service without a working key is not queried until you
+   correct it under *Settings → API credentials*.
 1. **Start**: pick the use case that matches your question (optional), e.g. *Subdomain takeover check*.
 2. **Targets**: enter the targets (domains, IPs or certificates) in the Targets box on the Start page, check the
    options line in the sidebar (change them under *Settings* if needed) and click **Analyze**: paste and click
    straight away, no need to click outside the box first. Or load a saved dataset on **Data →
    Saved datasets**. Don't have the targets yet? Open **IrisQL** or **CertsQL** from the menu, search, and analyze
    the domains you pick.
-3. **Summary** opens: read the key numbers, then **Open the Hunt map** (Analyst mode) and work through **What to check next**; each
-   button opens the page that shows it.
-4. **Domain profile** for the domain that matters, then the detail pages it links to: **Alerts** for the evidence,
-   **CNAME Chains** to chase chains, **Certificates**, **DNS & Hosting**.
+3. **Summary** opens (a single target: its profile): read the key numbers, then **Open the Hunt map** (Analyst mode)
+   and work through **What to check next**; each button opens the page that shows it.
+4. **Domain profile** for the domain that matters (the **IP profile** for an address or range, the **Certificate
+   profile** for a certificate), then the detail pages it links to: **Alerts** for the evidence, **CNAME Chains** to
+   chase chains, **Certificates**, **DNS & Hosting**, **BGP**.
 5. Mark what you reviewed: a status per alert group on **Alerts**, a verdict per domain on its profile. Follow a lead
    with *Analyze* to start the next run of the hunt.
 6. **Export & report** (and **Evidence → Lookup queries**) to hand the findings over, including the *Confirmed
@@ -182,7 +192,7 @@ dataset** on *Data → Saved datasets*.
 
 | Control | What it does |
 | --- | --- |
-| **Targets: domains, IPs, or certificates** | The **Targets** box on the Start page. One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses go to every source; CIDR ranges (`104.21.59.0/24`) go to VPNDB only ([CIDR ranges](#cidr-ranges)). Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
+| **Targets: domains, IPs, or certificates** | The **Targets** box on the Start page. One target per line. Defanged input (`hxxp`, `[.]`) and URLs are cleaned. Subdomains are analyzed at their apex domain (`vpn.example.com` → `example.com`); lookups still cover the subdomains. International domains can be typed in Unicode or punycode ([International domains](#international-domains)). IPv4 and IPv6 addresses and CIDR ranges (`104.21.59.0/24`) go to every source that takes addresses ([CIDR ranges](#cidr-ranges)); the Summary shows them under *IP and range targets*. Certificate details (fingerprints, serials, and prefixed fields) are also accepted; see [Certificate inputs](#certificate-inputs). |
 | **Save offline copy** | In the Start page Targets box, after the links *Find targets with IrisQL*, *Find targets with CertsQL* and *Runs & Sightings*. Also saves everything this run collects to `dt_offline/` for later re-analysis. Forgot to tick it? Click **Save offline copy** on the status line at the top of any page after the run. |
 | **Clear** | After *Save offline copy*. Empties the Targets box; the loaded results stay until the next Analyze replaces them. The box stays empty when you come back to the Start page, until a new run (Analyze, IrisQL, CertsQL, a hunt lead) sets new targets. |
 | **Analyze** | Collects data and runs the detection engine, then opens the Summary. With certificate inputs, it first shows [two review steps](#certificate-inputs): the searches, then the domains / IPs to analyze. |
@@ -234,7 +244,7 @@ global defaults:
 | VPNDB | Only the VPNDB IP check | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
 | BGPDB | Look up BGP routing of the hosting IPs (BGPDB) | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. Only with a BGPDB host ([Credentials](INSTALLATION.md#credentials)); without one it is skipped. Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb). |
 | BGPDB | BGPDB hosting IPs per run | 200 | Public hosting addresses looked up; each is one BGPDB query. |
-| BGPDB | BGPDB neighbouring prefixes | On | The prefixes announced in the /20 (IPv6 /40) around up to 10 of the run's prefixes, and by whom; one query each. |
+| BGPDB | BGPDB more-specific prefixes | On | Every prefix announced inside up to 10 of the run's prefixes (the busiest), and by whom; one query each. |
 | Certificate API | CT log & co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
 | Certificate API | Max certificates for CT lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
 | Certificate API | Certificate inputs: pre-selected targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
@@ -559,6 +569,53 @@ The detections built on the chains (dangling CNAME, takeover-prone service, dyna
 retargeted CNAME, long chain / loop, CNAME target shared by several analyzed domains) are explained in
 [CNAME chains](USER_GUIDE.md#cname-chains) in the User Guide. The service lists are in `core/intel_data.py`.
 
+#### IP profile
+
+The **IP profile** page (*Overview*) shows one IP address or CIDR range of the run, the way the Domain profile shows a
+domain and the Certificate profile a certificate. Everything on it comes from the loaded data, with no request; the
+lookups a hosting IP did not get in the run can be made from it, one click each.
+
+**Which addresses.** The picker lists, in this order, the IP and CIDR targets, the analyzed domains' hosting IPs (passive
+DNS A / AAAA records, Iris, BGPDB, VPNDB) and the addresses the [DNS resolution](#dns-resolution) reached, each with what
+stands out (alerts, VPNDB verdict, an unauthorized route); within a group the ones with the most to see come first.
+*All N addresses* lists them as a table. A range's own addresses are not in the picker: they are on its range view.
+
+**The header** names the address, its kind and IP version (a range: how many addresses), and badges: routing status
+(Valid / Unauthorized / Not in RPKI / IRR), the VPNDB verdict and provider, a Tor role, *CDN* or *Private / reserved*,
+and the number of alerts naming it. *Why it matters* says in one sentence what stands out, and the tiles count the
+domains seen on it (and how many are the run's), the alerts naming it, the certificates served on it or naming it, and
+the upstreams in front of its origin.
+
+**The action row:** *Where else seen* (Runs → Indicator Sightings, local files), *Domains on it in IrisQL* (the domains
+whose current IPs are the address, or in the range), *Certificates in CertsQL* (certificates naming it), **Analyze N
+domain(s)** (the domains seen on it that are not in the run yet, the riskiest Iris domains first, as a new run linked to
+this one) and *Copy* (the address, and the BGPDB and DNSDB lookups as curl commands).
+
+**One address** has these cards:
+
+| Card | From | What it shows |
+| --- | --- | --- |
+| Hosting | Iris Investigate | ASN, ISP, country, how many domains Iris has on the IP (a strong, useful or weak pivot), the run's domains on it now |
+| BGP routing | BGPDB | The announced prefix, the origin network and its status, RIR, announced since, route collectors, other origins seen, every upstream, the more-specific prefixes inside it; a link to the BGP page |
+| VPN, proxy and Tor | VPNDB | The IP card: verdict, the full answer, weekly history, where the run saw it, its place in the Tor network. An IP the run did not check fetches its full verdict from the *Full VPNDB answer* tab (2 VPNDB queries). IPv6: not collected by VPNDB |
+| Domains seen on it | Passive DNS, Domain History, Iris | Each domain whose names resolved to it (an IP target: every name DNSDB saw on it), with the names, records and first / last seen; *Analyzed* marks the run's own. Select one of the run's for its Domain profile |
+| Domains on it in Iris | Iris Investigate | The IP and CIDR targets' reverse lookup (up to 500, riskiest first). For a hosting IP: **Find the domains on it in Iris** (1 Iris Investigate query), kept with the run |
+| Certificates served on it | Certificate events | Where the Certificate API saw each certificate served, with its hostname, issuer and JA4X. For a hosting IP the run did not ask about: **Look up the certificate events on this IP** (Certificate API, last 365 days). Select one for its Certificate profile |
+| Certificates naming it | Certificate Search | Certificates with the address among their SAN IPs |
+| Alerts naming it | Detections | Every active alert whose evidence names the address, or raised on the target itself |
+
+**A range** (a CIDR target) has a range view: its BGP routing (the announcement covering it and the prefixes announced
+inside it), VPNDB's verdict on the range, **Addresses in the range with data** (each address the run has names, a VPNDB
+verdict or alerts on; select one to open its own profile), the names passive DNS saw in it, the domains Iris has in it,
+the certificates served in it or naming an address in it, and the alerts.
+
+**Getting there.** The menu (*Overview → IP profile*); *Open in IP profile* on the Summary's IP and range targets, on
+each IP card (VPNDB page, IP check Summary), on the BGP page's IP detail and *Resolved addresses*, on the Domain
+profile's hosting IPs, on the Certificate profile's *where seen* addresses and in an IP indicator's dialog. An analysis
+of a **single** IP address or CIDR range opens straight on its IP profile (a single domain on its Domain profile, a
+single certificate input that found one certificate on its Certificate profile); with more targets it opens on the
+Summary. The Domain profile lists domains only: IP and CIDR targets are on the IP profile.
+
 #### Certificate profile
 
 The **Certificate profile** page (*Overview*) shows one certificate of the run, field by field. Pick a domain, an
@@ -821,14 +878,14 @@ cache (no request).
 | DomainTools Certificates | CertsQL for certificate search; JSON body for Certificate Events (hostname, IP, SHA-256, CT log) with the run's `start_time` | `curl` using `$DT_CERT_API_KEY` |
 | DNSDB Scout | Names and record type, e.g. `*.example.com`, type ANY (plus `example.com` when that lookup hit its limit); TXT / CAA / CNAME lookups with their type; CNAME chase steps as the exact name with type CNAME, A or AAAA; IPs as Rdata IP | `curl` to the DNSDB v2 API (one request per name) using `$DNSDB_API_KEY` |
 | VPNDB | Endpoint (`POST /bulk`, `GET /ip/{ip}`, `GET /ip/{ip}/history`, `GET /prefix/{cidr}`, `GET /prefix/{cidr}/addresses`, `GET /asn/{asn}`, `GET /tor`) and the path, or for a bulk request the IPs it sent, one per line | `curl` to the VPNDB API using `$VPNDB_API_KEY` |
-| BGPDB | The `bgpdbq` command, e.g. `bgpdbq ip 1.1.1.1`, `bgpdbq route 1.1.1.0/24 --limit=100`, `bgpdbq asn AS13335`, `bgpdbq prefix 1.1.0.0/20 --limit=200` (the limit the run used) | `bgpdbq … \| jq .` and the same request as `curl` to the BGPDB host (an API key from `$BGPDB_API_KEY`, HTTP auth from `$BGPDB_USER` / `$BGPDB_PASS`, when set up); DomainTools network or VPN needed |
+| BGPDB | The `bgpdbq` command, e.g. `bgpdbq ip 1.1.1.0/24` (one lookup per /24 or IPv6 /48 of the hosting IPs), `bgpdbq route 1.1.1.0/24 --limit=100` (the curl adds `?hops=2`, which the app sends), `bgpdbq asn AS13335`, `bgpdbq prefix 1.1.1.0/24 --limit=200` (the limit the run used) | The same request as `curl` to the BGPDB host, or as `bgpdbq … \| jq .` with *Commands as: bgpdbq* (one form per lookup, so a copied list runs each lookup once; curl by default, since it needs no tool and shows every parameter the app sent) (an API key from `$BGPDB_API_KEY`, HTTP auth from `$BGPDB_USER` / `$BGPDB_PASS`, when set up); DomainTools network or VPN needed |
 
 The `domaintools` commands use the CLI that comes with the DomainTools Python SDK (`domaintools_api` in
 `requirements.txt`). They pass `$DT_API_USERNAME` / `$DT_API_KEY`; when those are not set, the CLI reads `~/.dtapi`. The
 DNSDB curl commands are the requests the app sends, including the result limit used in the run.
 
 **Lookups by tool** shows one tool at a time: pick Iris Investigate, DomainTools API, DomainTools Certificates,
-DNSDB Scout or VPNDB (each shows its number of requests). Each lookup is one table row with its search type, target,
+DNSDB Scout, VPNDB or BGPDB (each shows its number of requests). Each lookup is one table row with its search type, target,
 query on one line (Certificate Events bodies as `key=value` pairs), the number of requests, and the status and record
 count from the Data sources page. A DNSDB lookup that hit its limit counts 2 requests: after `*.example.com` the app also
 looked up `example.com`, so the row holds both names and both curl commands. The table can be filtered by source and text. Select rows to copy only their queries and commands under
@@ -1071,15 +1128,29 @@ fetches the full verdict of each IPv4 target (up to 100).
   compound rules and the exit history do not apply).
 - **Evidence** (*Records* and *Lookup queries*) lists every VPNDB answer and request.
 
-IPv6 addresses are answered *not collected* (VPNDB gathers IPv4 only). In any other use case, IP targets are looked
-up in every source (Iris, passive DNS, certificates) and in VPNDB.
+IPv6 addresses are answered *not collected* (VPNDB gathers IPv4 only). This use case asks VPNDB only, and its Summary
+says so. In any other use case, IP and CIDR targets are looked up in every source that takes addresses (see [CIDR
+ranges](#cidr-ranges) and [IP and range targets](#ip-and-range-targets)).
 
 ### CIDR ranges
 
 A target in CIDR notation (`104.21.59.0/24`, `2a00:1450::/32`, also defanged or not aligned: `104.21.59.7/24` is read
-as `104.21.59.0/24`) is a range, not an address. Iris, passive DNS and certificates take single addresses, so a range
-is looked up in **VPNDB only** (Data sources says so), in any use case with the VPNDB check on and in *Check IP
-addresses*:
+as `104.21.59.0/24`) is a range, not an address. In every use case but *Check IP addresses* it goes to each source
+that takes a range:
+
+| Source | Asked | What comes back |
+| --- | --- | --- |
+| Passive DNS (DNSDB) | `rdata/ip/104.21.59.0,24` (your DNSDB limit) | Every name that resolved into the range, and when |
+| Iris Investigate | IrisQL `ip greater_than_or_equal` the first address `AND ip less_than_or_equal_to` the last, riskiest first (500 per target) | The domains whose current IPs are in the range. Iris refuses a range matching more than 10,000 domains: Data sources says so; search a smaller range, or open it in IrisQL and narrow it |
+| Certificate Search | `san_ip_v4 between ["104.21.59.0", "104.21.59.255"]` | Certificates naming an address in the range |
+| BGPDB | `ip` of the first address, then `prefix/104.21.59.0/24` | The announcement covering the range (prefix, origin, RPKI / IRR), and every prefix announced inside it, by whom |
+| VPNDB | As below | VPN / proxy providers in the range, and its addresses |
+
+Certificate events and Domain History take single addresses or domains, so they skip ranges. IP targets go to the
+same sources one address at a time (plus certificate events), and an address you enter is looked up in BGPDB and
+VPNDB even on a CDN, which the run otherwise leaves out for a domain's hosting.
+
+In VPNDB (with the VPNDB check on, or in *Check IP addresses*) a range gets:
 
 - **the range's verdict** (one query): which VPN or proxy providers have exits in it and their share, how many exits
   VPNDB knows there and what share of the range that is, whether one provider holds it (single tenant), the announced
@@ -1103,6 +1174,17 @@ address on its own for those.
 At most 20 ranges are looked up per run. The Summary and the VPNDB page (*CIDR ranges*) show a **CIDR ranges** table with one card per
 range holding its per-IP table (exits first), and Export & report has *CIDR ranges*, *CIDR addresses* and *CIDR IPs*. A single-address range (`/32`, `/128`) is a plain IP.
 
+### IP and range targets
+
+With an IP or CIDR target, the Summary has an **IP and range targets** table after the domains: one row per address or
+range with the names passive DNS saw on it (and when last), the domains Iris has on it (and how many are high-risk),
+the certificates naming it, its prefix, origin network and RPKI / IRR status, the prefixes announced inside a range,
+and its VPNDB verdict. Select a row for its names and Iris domains, **Open in IP profile** for everything on it (see
+[IP profile](#ip-profile)), and **Analyze N domain(s)** to run the riskiest Iris
+domains and the passive DNS names as a new run linked to this one (Hunt map). The BGP page has the routing, and the
+CIDR's inside prefixes are on *More-specific prefixes* (Covering Range = the range). A run with only IP or CIDR targets
+gets no domain alerts: the domain rules need domains, so analyze the domains found on them.
+
 *Not observed* is not an all-clear: VPNDB only knows the exits it measured or that public lists name, and it does not
 collect IPv6, so IPv6 addresses are not sent.
 
@@ -1115,25 +1197,28 @@ the same as the `bgpdbq` tool's commands:
 
 | Lookup | For | What comes back |
 | --- | --- | --- |
-| `ip/<address>` | Each hosting IP | Every prefix covering it and each network (origin AS) that announced it: first / last seen, updates, route collectors, RPKI and IRR validity, RIR allocation (registry, date, country), score |
-| `route/<prefix>` | The 30 busiest prefixes | Every AS path seen towards it (100 kept), with collectors and peers: the upstreams |
-| `asn/<asn>` | Up to 40 origin and upstream networks | RIR registration date and country, name, visibility, upstream and downstream neighbour counts |
-| `prefix/<range>` | The /20 (IPv6 /40) around up to 10 prefixes | The other prefixes announced there, and by whom |
+| `ip/<a /24>` | Each /24 (IPv6 /48) the hosting IPs fall in, one query for all of its addresses | Every prefix covering them and each network (origin AS) that announced it: first / last seen, updates, route collectors, RPKI and IRR validity, RIR allocation (registry, date, country), score. Each IP keeps the prefixes that hold it |
+| `route/<prefix>?hops=2` | The 30 busiest prefixes | The AS paths towards it cut to their last two hops, upstream → origin (100 kept), with collectors and peers: one row per **upstream**, and a prefix usually has several. Prepending (`AS17318(x4)`) is dropped and the paths it split are merged |
+| `asn/<asn>` | Up to 40 origin and upstream networks (origins first) | RIR registration date and country, name, visibility, upstream and downstream neighbour counts |
+| `prefix/<prefix>` | Up to 10 of the run's announced prefixes (the busiest; e.g. the /22 the `ip` answer named) and the CIDR targets | Every more-specific prefix announced inside it, and by whom |
 
 **The BGP page** (Infrastructure → BGP) has eight tabs, each with *How to read this*:
 
 1. **Overview**: the routing findings (also alerts) and one row per hosting IP with its prefix, usual origin, status
-   (*Valid*, *Unauthorized*, *Not in RPKI / IRR*), how many networks announced it, RIR and Iris country, upstream.
+   (*Valid*, *Unauthorized*, *Not in RPKI / IRR*), how many networks announced it, RIR and Iris country, and its
+   upstreams (up to 4, the most route collectors first).
    Select an IP for every origin, AS path and network BGPDB knows for it, with the lookups as curl commands.
-2. **Routing map**: domain → prefix → origin network → upstream as a Sankey (unauthorized flows in red), and the AS
-   paths towards one prefix as a graph (prefixes with an unauthorized origin listed first; thicker arrows: more
+2. **Routing map**: domain → prefix → origin network → each of its upstreams as a Sankey (unauthorized flows in red),
+   and the upstream → origin paths towards one prefix as a graph (prefixes with an unauthorized origin listed first; thicker arrows: more
    collectors).
 3. **Origin timeline**: one row per prefix and network, from first to last seen; green authorized, red unauthorized.
    A short red bar under a long green one is a hijack or a route leak.
 4. **Networks**: the origin and upstream networks, their RIR registration (age), visibility and neighbours, with a
    chart of age against visibility (the last year shaded).
-5. **Neighbouring prefixes**: per /20 around a prefix, the prefixes of the run's own networks (leads), of others, and
-   unauthorized ones. Aggregates of /20 or larger (a carrier's /9) have no neighbourhood.
+5. **More-specific prefixes**: every prefix announced inside the run's prefixes and CIDR targets: carved out by the
+   same origin (traffic engineering, or the operator's other space: leads), by another origin (a customer's
+   sub-allocation) and unauthorized ones (a more-specific hijack: the more specific route draws the traffic). Nothing
+   listed for a prefix means nothing smaller is announced inside it.
 6. **VPNDB match**: the run's VPN / proxy / Tor exits with their routing, and the origin networks that carry exits
    (with VPNDB's known exits on them). **Open VPNDB filtered to these** opens the VPNDB page with every tab narrowed
    to those networks and exit IPs: the toolbar shows a **BGP focus** control and *Filters applied* says *Filtered from
@@ -1158,7 +1243,7 @@ Elsewhere in the app:
 - **Domain profile**: a *BGP routing* card per domain (its IPs, prefixes, origin networks and their age, routing
   findings).
 - **Tor network**: every network the run saw (hosting from VPNDB and Iris; from BGPDB the origins, unauthorized
-  origins, upstreams on the AS paths and neighbouring origins) matched against the Tor exit networks, with *Seen as*.
+  origins, upstreams on the AS paths and origins of more-specific prefixes) matched against the Tor exit networks, with *Seen as*.
   *Hosted Among Tor Exits* takes the hosting network from BGPDB's origin when there is one, and a Tor-exit network that
   announced a hosting prefix without authorization raises *Unauthorized Origin Is a Tor Exit Network*.
 - **Alerts → MITRE ATT&CK**: the BGP alerts map to T1557 (Adversary-in-the-Middle, Credential Access), T1583 and
@@ -1176,7 +1261,7 @@ Elsewhere in the app:
 The Summary's *Analysis Details* has a **BGP** block (IPs routed, prefixes, origin networks, routing findings, and a
 few sentences on who announces the hosting and the worst findings), DNS & Hosting a one-line summary, and each Hunt map
 box a BGP line. Export & report has *BGP routing per IP*, *BGP routing findings*, *BGP origins*, *AS paths*, *BGP
-networks* and *Neighbouring prefixes*. How the findings are decided is in the
+networks* and *More-specific prefixes*. How the findings are decided is in the
 [User Guide](USER_GUIDE.md#bgp-routing-rules).
 
 Reading it right:

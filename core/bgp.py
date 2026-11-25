@@ -69,6 +69,7 @@ WINDOW_MARGIN_DAYS = 2    # ... but not within this many days of the window's fi
 RECENT_CONFLICT_DAYS = 7  # an unauthorized origin seen this recently makes a conflict High
 NEW_ASN_DAYS = 365        # an origin network registered at its RIR within this many days is young
 VERY_NEW_ASN_DAYS = 90
+UPSTREAMS_SHOWN = 4      # upstreams listed per prefix in the per-IP table (most collectors first)
 LOW_COLLECTORS = 10       # a prefix seen by fewer route collectors is barely visible (well-routed: 50+)
 RIR_PATTERN = re.compile(r"^(?P<rir>[A-Z]+)\s+(?P<date>\d{4}-\d{2}-\d{2})\s+(?P<country>[A-Z]{2}|ZZ)?")
 
@@ -83,7 +84,8 @@ def _ts(value):
 
 
 def _asn(value):
-    text = str(value or "").strip().upper()
+    """"AS13335", from 13335, "13335" or a path hop with its prepending count ("AS17318(x4)")."""
+    text = re.sub(r"\(X\d+\)$", "", str(value or "").strip().upper())
     return text if text.startswith("AS") else f"AS{text}" if text.isdigit() else text
 
 
@@ -176,16 +178,31 @@ def asn_row(record, role, domains=()):
 
 
 def route_rows(prefix, records):
-    """ROUTE_COLUMNS rows from a `route/{prefix}` answer: one per AS path."""
-    rows = []
+    """
+    ROUTE_COLUMNS rows from a `route/{prefix}` answer: one per AS path. The lookup asks for the last 2 hops
+    (`hops=2`: upstream and origin), so each row is one upstream of the prefix; a prefix usually has several. Prepending
+    ("AS17318(x4)") is dropped, and paths that are the same without it are merged (updates added, collectors and peers
+    the most any of them had, first and last seen the widest).
+    """
+    merged = {}
     for record in records or []:
-        path = [_asn(hop) for hop in record.get("path") or []]
-        rows.append({"Prefix": record.get("route") or prefix, "Path": " → ".join(path), "Hops": len(path),
-                     "Origin": path[-1] if path else "", "Upstream": path[-2] if len(path) > 1 else "",
-                     "First Seen": _ts(record.get("first")), "Last Seen": _ts(record.get("last")),
-                     "Updates": int(record.get("count") or 0), "Collectors": int(record.get("collectors") or 0),
-                     "Peers": int(record.get("peers") or 0)})
-    return rows
+        path = [hop for hop in (_asn(h) for h in record.get("path") or []) if hop]
+        path = [hop for i, hop in enumerate(path) if i == 0 or hop != path[i - 1]]   # prepending left after stripping
+        key = (record.get("route") or prefix, tuple(path))
+        first, last = _ts(record.get("first")), _ts(record.get("last"))
+        row = merged.get(key)
+        if row is None:
+            merged[key] = {"Prefix": key[0], "Path": " → ".join(path), "Hops": len(path),
+                           "Origin": path[-1] if path else "", "Upstream": path[-2] if len(path) > 1 else "",
+                           "First Seen": first, "Last Seen": last, "Updates": int(record.get("count") or 0),
+                           "Collectors": int(record.get("collectors") or 0), "Peers": int(record.get("peers") or 0)}
+            continue
+        row["Updates"] += int(record.get("count") or 0)
+        row["Collectors"] = max(row["Collectors"], int(record.get("collectors") or 0))
+        row["Peers"] = max(row["Peers"], int(record.get("peers") or 0))
+        row["First Seen"] = min((d for d in (row["First Seen"], first) if pd.notna(d)), default=pd.NaT)
+        row["Last Seen"] = max((d for d in (row["Last Seen"], last) if pd.notna(d)), default=pd.NaT)
+    return list(merged.values())
 
 
 def neighbour_rows(covering, run_prefixes, run_origins, records):
@@ -209,25 +226,30 @@ def neighbour_rows(covering, run_prefixes, run_origins, records):
     return rows
 
 
-def covering_range(prefix):
-    """
-    The range whose prefixes are the neighbourhood: the /20 around an IPv4 prefix, the /40 around an IPv6 one. None for
-    a prefix that size or larger: an aggregate (a carrier's /9) is not one operator's neighbourhood.
-    """
+def lookup_block(ip):
+    """The block one `ip` lookup asks for: the /24 around an IPv4 address, the /48 around an IPv6 one (every address of
+    the run in it shares the answer)."""
+    address = ipaddress.ip_address(str(ip))
+    return str(ipaddress.ip_network(f"{address}/{24 if address.version == 4 else 48}", strict=False))
+
+
+def covers(prefix, ip):
+    """Whether an announced prefix ("1.2.3.0/24", or "1.2.3.0/24+" for the more-specifics inside it) holds `ip`."""
     network = prefix_network(prefix)
-    if network is None:
-        return None
-    size = 20 if network.version == 4 else 40
-    return str(network.supernet(new_prefix=size)) if network.prefixlen > size else None
+    try:
+        return network is not None and ipaddress.ip_address(str(ip)) in network
+    except ValueError:
+        return False
 
 
 # ---- which IPs ---------------------------------------------------------------------------------------------------------
 
-def select_ips(domains, pdns, enrichment, ip_targets=(), max_ips=200, per_domain=50):
+def select_ips(domains, pdns, enrichment, ip_targets=(), max_ips=200, per_domain=50, cidr_targets=()):
     """
-    {ip: {domains}} to look up: the IP targets, then per domain its current Iris IPs and its passive DNS addresses,
-    most recently seen first, up to `per_domain` each and `max_ips` in all. Public IPv4 and IPv6, no CDN addresses
-    (their routing is the CDN's, the same for every customer).
+    {ip: {domains}} to look up: the IP targets, the first address of each CIDR target (its covering announcement), then
+    per domain its current Iris IPs and its passive DNS addresses, most recently seen first, up to `per_domain` each
+    and `max_ips` in all. Public IPv4 and IPv6. A domain's CDN addresses are left out (their routing is the CDN's, the
+    same for every customer), but an address or range entered as a target is always looked up.
     """
     from core.helpers import extract_ip_addresses
     from integrations.enrichment import extract_iris_profile
@@ -238,12 +260,16 @@ def select_ips(domains, pdns, enrichment, ip_targets=(), max_ips=200, per_domain
         return is_public_ip(ip) and not cdn_for_ip(ip)
 
     for ip in ip_targets:
-        if keep(ip) and len(chosen) < max_ips:
+        if is_public_ip(ip) and len(chosen) < max_ips:
             chosen.setdefault(str(ip), set()).add(str(ip))
+    for cidr in cidr_targets:
+        first = str(ipaddress.ip_network(cidr, strict=False)[0])
+        if is_public_ip(first) and len(chosen) < max_ips:
+            chosen.setdefault(first, set()).add(str(cidr))
     addresses = {}
     if pdns is not None and not pdns.empty and {"Domain", "Value"} <= set(pdns.columns):
-        frame = pdns
-        if "Last Seen" in frame.columns:
+        frame = pdns[pdns["Field"].astype(str).str.upper().isin(("A", "AAAA"))] if "Field" in pdns.columns else pdns
+        if "Last Seen" in frame.columns:   # hosting addresses only: never an SPF ip4: / ip6: value of a TXT record
             frame = frame.assign(_seen=pd.to_datetime(frame["Last Seen"], errors="coerce")).sort_values(
                 "_seen", ascending=False, na_position="last")
         for domain, value in zip(frame["Domain"], frame["Value"].astype(str)):
@@ -330,13 +356,19 @@ def _most_specific(frame):
         .drop_duplicates("IP").drop(columns="_len").reset_index(drop=True)
 
 
-def main_upstreams(routes):
-    """{prefix: the upstream AS of its most-seen path}."""
+def prefix_upstreams(routes):
+    """{prefix: every upstream AS seen in front of its origin, the most collectors (then updates) first}."""
     if routes is None or routes.empty:
         return {}
-    ranked = routes[routes["Upstream"].astype(str) != ""].sort_values(["Prefix", "Collectors", "Updates"],
-                                                                       ascending=[True, False, False])
-    return dict(zip(ranked.drop_duplicates("Prefix")["Prefix"], ranked.drop_duplicates("Prefix")["Upstream"]))
+    seen = routes[routes["Upstream"].astype(str) != ""].groupby(["Prefix", "Upstream"], as_index=False).agg(
+        Collectors=("Collectors", "max"), Updates=("Updates", "sum"))
+    ranked = seen.sort_values(["Prefix", "Collectors", "Updates"], ascending=[True, False, False])
+    return {prefix: list(group["Upstream"]) for prefix, group in ranked.groupby("Prefix", sort=False)}
+
+
+def main_upstreams(routes):
+    """{prefix: the upstream AS of its most-seen path}."""
+    return {prefix: ups[0] for prefix, ups in prefix_upstreams(routes).items() if ups}
 
 
 def findings(origins, asns=None, routes=None, now=None):
@@ -407,7 +439,7 @@ def findings(origins, asns=None, routes=None, now=None):
                 main["First Seen"], main["Last Seen"])
     if not asns.empty:
         origin_groups = {asn: grp for asn, grp in usual.groupby("Origin")}
-        upstreams = main_upstreams(routes)
+        upstreams = prefix_upstreams(routes)
         for _, net in asns[asns["Role"] == "origin"].iterrows():
             group = origin_groups.get(net["ASN"])
             if group is None:
@@ -419,7 +451,7 @@ def findings(origins, asns=None, routes=None, now=None):
                     f"{net['ASN']} {net['AS Name']} was registered at {net['RIR'] or 'its RIR'} on "
                     f"{registered:%Y-%m-%d} ({age} days ago)" + (f", {net['RIR Country']}" if net["RIR Country"] else ""),
                     registered)
-            sole = [up for p in group["Prefix"] for up in [upstreams.get(p)] if up]
+            sole = [up for p in group["Prefix"] for up in upstreams.get(p, [])]
             parent = next((up for up in sole if same_organisation(net["AS Name"], names.get(up, ""))), None)
             if pd.notna(net["Upstreams"]) and int(net["Upstreams"]) == 1 and int(net["Downstreams"] or 0) == 0 \
                     and not parent:   # a company's own network behind its parent (Cloudflare Spectrum → Cloudflare)
@@ -471,7 +503,7 @@ def ip_table(origins, routes=None, found=None, enrichment=None):
         for entry in extract_iris_profile(obj)["ips"]:
             if entry.get("country"):
                 iris_country.setdefault(entry["ip"], entry["country"])
-    upstream = main_upstreams(routes)
+    upstream = prefix_upstreams(routes)
     best = _most_specific(main_origins(origins))
     found = _frame(found, FINDING_COLUMNS)
     rows = []
@@ -483,7 +515,9 @@ def ip_table(origins, routes=None, found=None, enrichment=None):
                      "AS Name": row["AS Name"], "Status": row["Status"],
                      "Origins": 1 + len(others), "Announced Since": row["First Seen"], "Collectors": row["Collectors"],
                      "RIR": row["RIR"], "RIR Country": row["RIR Country"], "Iris Country": iris_country.get(row["IP"], ""),
-                     "Upstream": upstream.get(row["Prefix"], ""), "Findings": ", ".join(names)})
+                     "Upstream": ", ".join(upstream.get(row["Prefix"], [])[:UPSTREAMS_SHOWN])
+                     + (" …" if len(upstream.get(row["Prefix"], [])) > UPSTREAMS_SHOWN else ""),
+                     "Findings": ", ".join(names)})
     return pd.DataFrame(rows, columns=IP_COLUMNS)
 
 
@@ -499,7 +533,7 @@ def summary(origins, asns=None, routes=None, found=None):
             "conflicts": int(by_kind.get(CONFLICT, 0)), "new_prefixes": int(by_kind.get(NEW_PREFIX, 0)),
             "new_asns": int(by_kind.get(NEW_ASN, 0)), "thin": int(by_kind.get(THIN_ROUTE, 0)),
             "unauthorized_main": int(by_kind.get(UNAUTHORIZED_ORIGIN, 0)),
-            "upstreams": len(set(main_upstreams(routes).values())), "findings": int(len(found))}
+            "upstreams": len({u for ups in prefix_upstreams(routes).values() for u in ups}), "findings": int(len(found))}
 
 
 # ---- VPNDB match ------------------------------------------------------------------------------------------------------

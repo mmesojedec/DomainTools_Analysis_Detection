@@ -139,8 +139,8 @@ EXPORT_SETS = [
               lambda c: _frame(c.ds.bgp_routes)),
     ExportSet("bgp_networks", "Tables", "BGP networks (BGPDB)", "The origin and upstream networks: RIR registration, "
               "visibility, upstream and downstream counts", lambda c: _frame(c.ds.bgp_asns)),
-    ExportSet("bgp_neighbours", "Tables", "Neighbouring prefixes (BGPDB)", "Prefixes announced around the run's "
-              "prefixes, and whether one of the run's own networks announces them", lambda c: _frame(c.ds.bgp_neighbours)),
+    ExportSet("bgp_neighbours", "Tables", "More-specific prefixes (BGPDB)", "Prefixes announced inside the run's "
+              "prefixes and CIDR targets, and whether one of the run's own networks announces them", lambda c: _frame(c.ds.bgp_neighbours)),
     ExportSet("data_source_status", "Tables", "Data source status", "Outcome of every lookup (OK / Partial / Error)",
               lambda c: pd.DataFrame(getattr(c.collected, "statuses", []) or []).drop(columns="Request",
                                                                                    errors="ignore")),

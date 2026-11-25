@@ -2,7 +2,7 @@
 BGP page (BGPDB): who announces the run's hosting IPs, since when, whether the registries allow it, through which
 networks, and what else is announced next to them. Tabs: Overview (findings and the IP table), Routing map (domain →
 prefix → origin → upstream, and the AS paths of a prefix), Origin timeline (who announced each prefix when), Networks
-(the origin and upstream ASes), Neighbouring prefixes (leads), VPNDB match and Responses (as received, as curl).
+(the origin and upstream ASes), More-specific prefixes (inside the run's prefixes), VPNDB match and Responses (as received, as curl).
 """
 import pandas as pd
 import plotly.express as px
@@ -17,7 +17,7 @@ from views.common import chart, selected_rows, selection_key
 
 PAGE_TAB_KEY = "bgp_tab"
 TAGLINE = "Who announces the hosting IPs on the internet, since when, and whether the registries allow it."
-TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "Neighbouring prefixes", "VPNDB match",
+TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "More-specific prefixes", "VPNDB match",
         "Resolved addresses", "Responses"]
 RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN, bgp.MOVED]
 SEVERITY_BADGES = {"Critical": "red", "High": "red", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
@@ -40,14 +40,16 @@ HOW_TO_READ = {
         "Select an IP to see every origin, path and network BGPDB knows for it.",
     ),
     "Routing map": (
-        "Left to right: your domain → the prefix of its IP → the network that announces it → the upstream network "
-        "that carries it (from the most-seen AS path). A flow takes the colour of its usual origin: **green** = "
+        "Left to right: your domain → the prefix of its IP → the network that announces it → the upstream networks "
+        "that carry it (each network seen in front of the origin on the AS paths, the most route collectors first; "
+        "up to 4). A flow takes the colour of its usual origin: **green** = "
         "authorized, **red** = without authorization, **grey** = not in RPKI / IRR.",
         "A **prefix box** takes the colour of the worst origin ever seen for it, so a thin red link to another network "
-        "behind a green flow still shows. **Orange** = a private AS number (64512–65534, 65535, …) seen by one route "
-        "collector: that collector's peer leaking its internal AS, not a hijack and not a finding.",
-        "Below: every AS path seen towards one prefix. The thicker the arrow, the more route collectors saw it; the "
-        "origin is the last network on the right.",
+        "behind a green flow still shows. **Orange** = a private AS number (64496–65535, 4200000000+, …) seen by one "
+        "or two route collectors: that collector's peer leaking its internal AS, not a hijack and not a finding.",
+        "Below: the AS paths seen towards one prefix, cut to their last two hops (upstream → origin, BGPDB "
+        "`hops=2`; prepending such as `AS17318(x4)` is dropped). The thicker the arrow, the more route collectors saw "
+        "it; the origin is on the right.",
     ),
     "Origin timeline": (
         "One row per prefix and network that announced it, from the first to the last time BGPDB saw it (a "
@@ -65,11 +67,13 @@ HOW_TO_READ = {
         "A network with one upstream and no downstreams is a stub: normal for small companies, and for bulletproof "
         "hosters behind a single provider.",
     ),
-    "Neighbouring prefixes": (
-        "The other prefixes announced in the range around each of the run's prefixes (the /20; IPv6 the /40), and "
-        "by whom. Prefixes of /20 or larger (a carrier's aggregate) have no neighbourhood here.",
-        "**Same origin** = announced by a network that also hosts your domains: the operator's other address space, a "
-        "lead to check (VPNDB, passive DNS).",
+    "More-specific prefixes": (
+        "Every prefix announced **inside** each of the run's announced prefixes (BGPDB `prefix` on the prefix the "
+        "`ip` lookup returned, e.g. the /22) and inside each CIDR target, and by whom. *Covering Range* is the "
+        "prefix or range asked. Nothing listed means nothing smaller is announced inside it.",
+        "**Same origin** = carved out by a network that also hosts your domains (traffic engineering, or the "
+        "operator's other space: a lead for VPNDB and passive DNS). **Another origin** = a customer's sub-allocation, "
+        "or, when **unauthorized**, a more-specific hijack: the more specific route wins, so it draws the traffic.",
     ),
     "VPNDB match": (
         "The run's VPN / proxy / Tor exits (VPNDB) with their routing (BGPDB).",
@@ -147,9 +151,15 @@ def _resolved(ds):
     cols[2].metric("Unauthorized", int((rows["Status"] == bgp.UNAUTHORIZED).sum()))
     cols[3].metric(f"Seen by < {res.LOW_VISIBILITY} collectors", int((rows["Collectors"] < res.LOW_VISIBILITY).sum()))
     cols[4].metric("Not looked up yet", len(pending))
-    st.dataframe(rows, hide_index=True, width="stretch", column_config={
-        "Reached By": st.column_config.TextColumn(width="large"),
-        "Warnings": st.column_config.TextColumn(width="large")})
+    picked = st.dataframe(rows, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                          key="bgp_resolved_table", column_config={
+                              "Reached By": st.column_config.TextColumn(width="large"),
+                              "Warnings": st.column_config.TextColumn(width="large")})
+    chosen = picked.selection.rows if picked and picked.selection else []
+    if chosen:
+        from views.ip_profile_view import open_button
+        open_button(rows.iloc[chosen[0]]["IP"], label=f"Open {rows.iloc[chosen[0]]['IP']} in IP profile",
+                    key="bgp_resolved_open")
     st.download_button("Download (CSV)", lambda: rows.to_csv(index=False).encode(), "bgp_resolved_addresses.csv",
                        "text/csv", on_click="ignore", icon=":material/download:", key="bgp_resolved_csv")
 
@@ -278,6 +288,8 @@ def iris_pivot(ds, key):
 def _ip_card(ds, ip):
     origins = ds.bgp_origins[ds.bgp_origins["IP"] == ip]
     with st.container(border=True):
+        from views.ip_profile_view import open_button
+        open_button(ip, label="Open in IP profile", key=f"bgp_ip_profile::{ip}")
         main = bgp.main_origins(origins).iloc[0]
         st.markdown(f"**{ip}** · {main['Prefix']} · {main['Origin']} {main['AS Name']} "
                     f":{STATUS_BADGES.get(main['Status'], 'gray')}-badge[{main['Status']}]")
@@ -294,7 +306,7 @@ def _ip_card(ds, ip):
         if not nets.empty:
             st.dataframe(nets.drop(columns=["Domains"]), hide_index=True, width="stretch",
                          column_config={"Registered": st.column_config.DateColumn(format="YYYY-MM-DD")})
-        st.code("\n".join([curl_command("ip", ip), curl_command("route", main["Prefix"], 50),
+        st.code("\n".join([curl_command("ip", bgp.lookup_block(ip)), curl_command("route", main["Prefix"], 50),
                            curl_command("asn", main["Origin"])]), language="bash")
 
 
@@ -302,13 +314,13 @@ def _ip_card(ds, ip):
 
 def sankey_figure(origins, routes):
     """
-    Domain → prefix (its usual origin's colour) → every origin AS seen → upstream AS; unauthorized origins in red,
+    Domain → prefix (its usual origin's colour) → every origin AS seen → its upstream ASes (up to UPSTREAMS_SHOWN); unauthorized origins in red,
     collector-local private-AS leaks in orange. A prefix node takes the colour of the worst origin seen for it, so a
     thin red or orange link behind a green flow still shows. A "/24+" prefix stands for more-specific announcements
     inside the /24.
     """
     usual = bgp.main_origins(origins)
-    upstream = bgp.main_upstreams(routes)
+    upstreams = bgp.prefix_upstreams(routes)
     labels, index, links = [], {}, {}
 
     def node(label):
@@ -328,9 +340,9 @@ def sankey_figure(origins, routes):
                 link(domain.strip(), row["Prefix"], row["Status"])
     for _, row in origins.drop_duplicates(["Prefix", "Origin"]).iterrows():   # prefix → every origin seen
         link(row["Prefix"], f"{row['Origin']} {row['AS Name']}".strip(), row["Status"])
-    for _, row in usual.iterrows():
-        if upstream.get(row["Prefix"]):
-            link(f"{row['Origin']} {row['AS Name']}".strip(), f"via {upstream[row['Prefix']]}", row["Status"])
+    for _, row in usual.iterrows():   # origin → each upstream it is seen behind (most collectors first)
+        for up in upstreams.get(row["Prefix"], [])[:bgp.UPSTREAMS_SHOWN]:
+            link(f"{row['Origin']} {row['AS Name']}".strip(), f"via {up}", row["Status"])
     colors = {bgp.VALID: "rgba(67,160,71,0.45)", bgp.UNAUTHORIZED: "rgba(229,57,53,0.7)",
               bgp.UNVERIFIED: "rgba(158,158,158,0.45)", bgp.LOCAL_LEAK: "rgba(251,140,0,0.7)"}
     prefix_status = {}
@@ -470,23 +482,24 @@ def _networks(ds):
                                 "Last Seen": st.column_config.DatetimeColumn(format="YYYY-MM-DD")})
 
 
-# ---- Neighbouring prefixes --------------------------------------------------------------------------------------------
+# ---- More-specific prefixes --------------------------------------------------------------------------------------------
 
 def _neighbours(ds):
     near = ds.bgp_neighbours
     if _empty(near):
-        st.caption("No neighbouring prefixes in this run (*BGPDB neighbouring prefixes* is off, or none were found).")
+        st.caption("No more-specific prefixes in this run: nothing smaller is announced inside the run's prefixes, or "
+                   "*BGPDB more-specific prefixes* is off.")
         return
     same = near[near["Same Origin"].astype(bool)]
     row = st.columns(3)
-    row[0].metric("Neighbouring prefixes", f"{len(near):,}")
+    row[0].metric("More-specific prefixes", f"{len(near):,}")
     row[1].metric("Announced by the run's own networks", f"{len(same):,}", help="Leads: the operator's other space")
     row[2].metric("Unauthorized", f"{int((near['Status'] == bgp.UNAUTHORIZED).sum()):,}")
     group = near.apply(lambda r: "Same origin as the run" if r["Same Origin"] else
-                       "Unauthorized" if r["Status"] == bgp.UNAUTHORIZED else "Other networks", axis=1)
+                       "Unauthorized" if r["Status"] == bgp.UNAUTHORIZED else "Another origin", axis=1)
     counts = near.assign(Group=group).groupby(["Covering Range", "Group"]).size().reset_index(name="Prefixes")
     fig = px.bar(counts, x="Prefixes", y="Covering Range", color="Group", orientation="h",
-                 color_discrete_map={"Same origin as the run": "#42a5f5", "Other networks": "#757575",
+                 color_discrete_map={"Same origin as the run": "#42a5f5", "Another origin": "#757575",
                                      "Unauthorized": "#e53935"})
     fig.update_layout(margin={"l": 10, "r": 10, "t": 10, "b": 10}, legend_title_text="")
     chart(fig, key="bgp_neighbours", height=max(220, 40 * counts["Covering Range"].nunique() + 120))

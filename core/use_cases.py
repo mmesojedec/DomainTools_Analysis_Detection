@@ -63,7 +63,7 @@ COLLECTION_DEFAULTS = {
     "opt_vpndb_only": False,
     "opt_bgpdb": True,                      # BGP routing of the hosting IPs (BGPDB; only with a BGPDB host)
     "opt_bgpdb_max_ips": BGPDB_MAX_IPS,     # hosting IPs looked up in BGPDB (one query each)
-    "opt_bgpdb_context": True,              # prefixes announced around the run's prefixes (BGPDB)
+    "opt_bgpdb_context": True,              # prefixes announced inside the run's prefixes (BGPDB)
     "opt_ct": True,
     "opt_ct_max": CT_LOOKUP_DEFAULT_MAX_HASHES,
     "opt_seed_preselect": SEED_DEFAULT_TARGETS,
@@ -81,7 +81,7 @@ OPTION_LABELS = {   # the one name of each option: Settings widgets, Start cards
     "opt_vpndb_max_ips": "VPNDB hosting IPs per run", "opt_vpndb_details": "VPNDB full verdicts per run",
     "opt_vpndb_context": "VPNDB neighbourhood and leads",
     "opt_bgpdb": "Look up BGP routing of the hosting IPs (BGPDB)", "opt_bgpdb_max_ips": "BGPDB hosting IPs per run",
-    "opt_bgpdb_context": "BGPDB neighbouring prefixes",
+    "opt_bgpdb_context": "BGPDB more-specific prefixes",
     "opt_ct": "CT log & co-occurrence telemetry", "opt_ct_max": "Max certificates for CT lookups",
     "opt_seed_preselect": "Certificate inputs: pre-selected targets", "opt_force_refresh": "Force refresh",
     WINDOW_KEY: "Analysis window",
@@ -361,10 +361,12 @@ def query_plan(settings):
     if s["opt_bgpdb"]:
         context = bool(s["opt_bgpdb_context"])
         rows.append({"Key": "bgpdb", "Source": "BGPDB", "Lookup": "BGP routing of the IPs the domains use (only with a "
-                     "BGPDB host): announced prefix, origin network, RPKI / IRR, RIR; AS paths and the origin and "
-                     "upstream networks" + ("; prefixes announced in the range around them" if context else ""),
-                     "Limit": f"{int(s['opt_bgpdb_max_ips'])} IPs per run (one query each), {BGPDB_ROUTE_MAX} prefixes, "
-                              f"{BGPDB_ASN_MAX} networks" + (f", {BGPDB_NEIGHBOUR_MAX} ranges" if context else "")})
+                     "BGPDB host): announced prefix, origin network, RPKI / IRR, RIR; the upstreams in front of each "
+                     "origin (AS paths, last 2 hops) and the origin and upstream networks"
+                     + ("; prefixes announced inside the run's prefixes" if context else ""),
+                     "Limit": f"{int(s['opt_bgpdb_max_ips'])} IPs per run (one query per /24 or /48), "
+                              f"{BGPDB_ROUTE_MAX} prefixes, {BGPDB_ASN_MAX} networks"
+                              + (f", {BGPDB_NEIGHBOUR_MAX} prefixes" if context else "")})
     if s["opt_ct"]:
         rows.append({"Key": "ct", "Source": "Certificate API", "Lookup": "CT log entries and co-occurrence of the newest certificates",
                      "Limit": f"{int(s['opt_ct_max'])} certificates per run, 2 calls each ({CERT_CTL_LIMIT:,} entries)"})

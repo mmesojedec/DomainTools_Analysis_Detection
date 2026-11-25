@@ -56,16 +56,24 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
   anomalies* groups certificates made the same way (issuer, key, validity band, extension layout, policy, serial
   length, SAN profile) and lists what each does differently from its issuer, from normal CT logging, and bulk or
   tool-made patterns; *Field breakdown* shows how often each field is filled across the run and its rare values.
+- **Profiles IP addresses and ranges** (*IP profile*): one IP or CIDR range on one screen, like the Domain and
+  Certificate profiles: hosting (Iris), BGP routing (origin, RPKI / IRR, every upstream, more-specifics), the VPNDB
+  verdict, the domains seen on it (passive DNS, Domain History, Iris), the certificates served on it or naming it, and
+  the alerts naming it; a range view lists the range's addresses with data. Hosting IPs the run did not look up in
+  full get Iris and certificate-event lookups on demand. A single IP or range target opens straight on its profile, a
+  single domain on its Domain profile, and every page that shows an address links to it.
 - **Compares domains** (*Domain similarity*): how alike the domains are built, from Iris, passive DNS, certificates,
   VPNDB and BGPDB, with similar pairs, clusters and the indicators each cluster shares.
 - **Attributes anonymizers** with VPNDB: which hosting IPs are VPN, residential proxy or Tor exits and whose, whether
   an exit is shared (it identifies the service, not the actor) or dedicated, whether the IP was an exit while the
   domain used it, the ranges and networks around the hosting, and other domains on dedicated exits. Every use case
-  checks VPNDB within its own query budget; *Check IP addresses* looks up IPs and CIDR ranges in VPNDB only, with
+  checks VPNDB within its own query budget; IP and CIDR targets also go to passive DNS, Iris, certificates and BGPDB
+  (Summary → *IP and range targets*); *Check IP addresses* looks up IPs and CIDR ranges in VPNDB only, with
   every address of a range checked.
 - **Reads the BGP routing** of the hosting IPs with BGPDB (an internal DomainTools service; optional): the announced
-  prefix and the network that announces it, whether RPKI / IRR authorize it, the RIR allocation, the AS paths and
-  upstreams, the networks' age and visibility, and the prefixes announced around them. Alerts on origin conflicts
+  prefix and the network that announces it, whether RPKI / IRR authorize it, the RIR allocation, every upstream in
+  front of the origin, the networks' age and visibility, and the more-specific prefixes announced inside the run's
+  prefixes. One `ip` lookup covers a /24 (IPv6 /48), and `route?hops=2` keeps the AS paths to upstream and origin. Alerts on origin conflicts
   (possible hijacks), unauthorized origins, newly announced prefixes, young networks and thin routes, and on VPNDB
   exits that sit on such routing, on an unauthorized origin that carries Tor exit traffic, and on hosting that moved
   to a new network since the last saved run. Clouds and DDoS-protection networks that announce their customers' space
@@ -134,8 +142,9 @@ streamlit run app.py
 ```
 
 **First start.** A dialog shows the disclaimer (not an official DomainTools application); accept it. The dialog
-then asks for your API credentials (below). Enter them and click **Save keys and start**, or **Skip for now** and
-add them later under *Settings → API credentials → Enter API keys*. **A service without a key is not queried**:
+then asks for your API credentials (below). Enter them and click **Save and check the keys**: each service is asked
+whether its key works (see [Checking the keys](docs/INSTALLATION.md#checking-the-keys)), then **Start**. Or click
+**Skip for now** and add them later under *Settings → API credentials → Enter API keys*. **A service without a key is not queried**:
 its lookups are skipped, and the sidebar names it (close that notice with its ×).
 
 | Key | Needed for |
@@ -152,7 +161,7 @@ service uses. Environment variables and the `~/.dtapi` / `~/.dtdnsdb` files work
 over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
-`san:`, `spki:`, ... lines) in the Targets box and click **Analyze**: the **Summary** opens, and the
+`san:`, `spki:`, ... lines) in the Targets box and click **Analyze**: the **Summary** opens (a single IP, range or domain opens on its profile), and the
 **Hunt map** (Analyst mode) lists what to check next. The top menu groups every page (Start, IrisQL, CertsQL, Runs,
 Overview, Infrastructure, Hunt, Evidence, Data, Settings); see
 [The app at a glance](docs/USAGE.md#the-app-at-a-glance) and [Certificate inputs](docs/USAGE.md#certificate-inputs).
@@ -172,6 +181,8 @@ core/
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
   irisql.py                    IrisQL page logic: field checks, examples, result tables, the curl command (JSON body)
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
+  ip_profile.py                IP profile data: the run's addresses ranked, and per address its domains, certificates, routing, badges
+  address_targets.py           IP and CIDR targets: what each source returned per address or range, the domains found on it
   query_breakdown.py           IrisQL / CertsQL Breakdown figures: tiles, risk bands, monthly counts, concentration, validity classes
   account.py                   Account Information rows: product names, usage, limits and what is left, expiry; the products each collection stage needs
   api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, what is left, Data sources statistics
@@ -206,7 +217,7 @@ core/
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
   anonymizers.py               VPNDB verdicts of the run's hosting IPs: which IPs are checked, one row per IP, shared exits,
                                Iris cross-check, exit history overlap, neighbouring /24s, hosting ASNs, exit neighbours
-  bgp.py                       BGPDB answers as tables (origins, networks, AS paths, neighbouring prefixes), the routing
+  bgp.py                       BGPDB answers as tables (origins, networks, upstreams, more-specific prefixes), the routing
                                findings, the per-IP table, the VPNDB match and the run's prefixes / ASNs for the Hunt map
   network_intel.py             CDN attribution, ASN-aware network keys, hosting watchlist, origin-IP discovery
   lookalike.py                 Typosquatting, homoglyph/IDN, combosquatting, and brand-in-subdomain analysis
@@ -258,6 +269,7 @@ integrations/
   http.py                      Shared requests session with retry/backoff, DomainTools SDK retries, per-lookup query count, FetchResult, StatusLog
   cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime and each source's own
   credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
+  key_check.py                 Check API keys: one cheap request per service (Account Information, DNSDB rate limit, VPNDB /tor, BGPDB asn)
   certificates.py              Certificate Search (incl. CertsQL searches) / Events / CTL APIs and X.509 normalization
   dnsdb.py                     DNSDB v2 (SAF/NDJSON streaming, incremental lookups), Scout-style CNAME chasing, the key's quota
   vpndb.py                     VPNDB API: VPN / residential proxy / Tor attribution of IPs, prefixes, ASNs; every operation, paging, bulk, quota
@@ -273,7 +285,8 @@ views/                         One module per page + sidebar, alert tools, certi
   navigation.py                Top menu (page groups, Analyst mode), links and filtered jumps between pages
   sidebar.py                   Sidebar: Analyst options (selection, analysis window, display options); Run again;
                                API credential notice and the Enter API keys form
-  welcome_view.py              First start: the disclaimer, then the API credentials (Settings can show it again)
+  welcome_view.py              First start: the disclaimer, the API credentials, then the check that each key works (Settings can show it again)
+  key_check_view.py            Check API keys: run the checks, one line per service, notification (welcome dialog and Settings)
   results_toolbar.py           Results toolbar: window, domains, network (BGPDB origin, VPNDB verdict), hostnames, record types,
                                alert and threshold filters
   home_view.py                 Start page (Targets box, Save offline copy, Clear and Analyze, use cases, the last run)
@@ -284,9 +297,11 @@ views/                         One module per page + sidebar, alert tools, certi
   query_editor.py              IrisQL / CertsQL query editor with autocomplete (CodeMirror 5, bundled in views/assets/codemirror)
   query_layout.py              IrisQL / CertsQL layout: query left, code tabs and Last search card right, Breakdown tiles
   assets/                      query_editor.js / .css and the bundled CodeMirror 5
+  address_targets_view.py      Summary → IP and range targets: one row per address or range, its names and Iris domains, Analyze
   summary_view.py              Summary: KPIs, domains, analysis details, linked domains, hunt pointer, top alerts, run statistics, what's new
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
+  ip_profile_view.py           IP profile: one IP or CIDR range (hosting, BGP, VPNDB, domains, certificates, alerts; range view; on-demand lookups)
   profile_view.py              Domain profile: one domain on one screen (DomainTools risk score components, Iris, VPNDB and BGP routing cards), with an action row
                                (sightings, IrisQL, CertsQL, copy)
   cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags and anomalies, anatomy with shape, related, where seen)
@@ -312,7 +327,7 @@ views/                         One module per page + sidebar, alert tools, certi
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
                                on dedicated exits, CIDR address grids
   bgp_page.py                  BGP page: routing findings and the hosting IPs, routing map (Sankey, AS-path graph), origin
-                               timeline, networks, neighbouring prefixes, VPNDB match, resolved addresses, responses;
+                               timeline, networks, more-specific prefixes, VPNDB match, resolved addresses, responses;
                                Summary / DNS lines
   tor_page.py                  Tor network page (Infrastructure): network-wide Tor statistics from VPNDB's /tor overview
                                and every network the run saw (hosting, BGP origins, upstreams) among the Tor exit networks

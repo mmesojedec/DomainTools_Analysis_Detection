@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 
 from core.cname import QUERY_LIMIT, classify_target
-from core.helpers import is_ip_address, refang_domain
+from core.helpers import is_ip_address, normalize_cidr, refang_domain
 from core.pdns_features import build_pdns_frame
 from integrations.cache import FROM_CACHE, cached_fetch
 from integrations.credentials import DNSDB_MISSING, load_dnsdb_key
@@ -67,6 +67,8 @@ def _lookup_urls(clean_target, rrtype="ANY", include_wildcard=True):
     """
     if is_ip_address(clean_target):
         return [f"{DNSDB_BASE_URL}/rdata/ip/{urllib.parse.quote(clean_target, safe='')}"]
+    if cidr := normalize_cidr(clean_target):   # DNSDB writes a range as address,length: every name in it
+        return [f"{DNSDB_BASE_URL}/rdata/ip/{urllib.parse.quote(cidr.replace('/', ','), safe=',')}"]
     wildcard = include_wildcard and not clean_target.startswith("*")
     names = [f"*.{clean_target}", clean_target] if wildcard else [clean_target]
     return [f"{DNSDB_BASE_URL}/rrset/name/{urllib.parse.quote(name, safe='*')}/{rrtype}" for name in names]
@@ -127,7 +129,8 @@ def _fetch(source, clean_target, urls, limit, api_key, rrtype="ANY", since=None)
 @cached_fetch(group="pdns")
 def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True, since=None):
     """
-    Fetches passive DNS records from DNSDB v2. IP targets query rdata/ip/{ip}; domain targets query
+    Fetches passive DNS records from DNSDB v2. IP targets query rdata/ip/{ip} and CIDR targets rdata/ip/{address,length}
+    (every name that resolved into the range); domain targets query
     rrset/name/*.{domain}/{rrtype}, which includes the domain's own records, and rrset/name/{domain}/{rrtype} only when
     the wildcard lookup stops at its limit (so the apex's records are complete even on busy domains).
     A specific `rrtype` (e.g. "TXT", "CAA") is used for supplemental lookups and does not apply to IP targets;
@@ -135,9 +138,10 @@ def fetch_dnsdb_history(target, limit=5000, rrtype="ANY", include_wildcard=True,
     seconds) returns only records last seen after it, for an incremental lookup (collect_pdns `base`).
     """
     api_key = load_dnsdb_key()
-    clean_target = str(target).strip() if is_ip_address(target) else refang_domain(target)
+    address = is_ip_address(target) or normalize_cidr(target) is not None
+    clean_target = (normalize_cidr(target) or str(target).strip()) if address else refang_domain(target)
     source = SOURCE if rrtype == "ANY" else f"DNSDB {rrtype} Lookup"
-    if rrtype != "ANY" and is_ip_address(clean_target):
+    if rrtype != "ANY" and address:
         return FetchResult(source, clean_target, data=[], note=f"{rrtype} lookups do not apply to IP targets")
     if not api_key:
         return FetchResult(source, clean_target, data=[], error=DNSDB_MISSING)

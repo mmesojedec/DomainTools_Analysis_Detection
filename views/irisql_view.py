@@ -278,16 +278,17 @@ def _render_results(state):
     _render_watch_controls(state)
 
     domains, ips = state["domains"], state["ips"]
-    tabs = st.tabs([f"Domains ({len(domains):,})", f"IPs ({len(ips):,})", "Breakdown", "Raw JSON"],
-                   key="irisql_tabs", on_change="rerun")
+    # Fixed tab names: the open tab is remembered by its name (a count in it would reopen the first tab when it changes)
+    tabs = st.tabs(["Domains", "IPs", "Breakdown", "Raw JSON"], key="irisql_tabs", on_change="rerun")
     with tabs[0]:
+        st.caption(f"**{len(domains):,} domain(s).**")
         domains = _editor(state, "domains", domains, {
             "Risk Score": st.column_config.ProgressColumn("Risk Score", min_value=0, max_value=100, format="%d"),
             "Create Date": st.column_config.DateColumn("Create Date"),
             "First Seen": st.column_config.DateColumn("First Seen"),
             "Expiration Date": st.column_config.DateColumn("Expiration Date")})
     with tabs[1]:
-        st.caption("The domains' current hosting IPs in Iris. *Result Domains*: how many listed domains use the IP; "
+        st.caption(f"**{len(ips):,} IP(s).** The domains' current hosting IPs in Iris. *Result Domains*: how many listed domains use the IP; "
                    "*Iris Domains*: how many domains Iris has on it in total (a large number is shared hosting).")
         ips = _editor(state, "ips", ips, {
             "Result Domains": st.column_config.NumberColumn("Result Domains", format="%d"),
