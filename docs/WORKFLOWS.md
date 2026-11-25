@@ -20,6 +20,7 @@ alerts, scores and detections see the [User Guide](USER_GUIDE.md).
 - [DNS resolution logic](#dns-resolution-logic)
 - [Certificate logic](#certificate-logic)
 - [VPNDB logic](#vpndb-logic)
+- [BGPDB logic](#bgpdb-logic)
 - [After collection](#after-collection)
 - [What each source feeds](#what-each-source-feeds)
 
@@ -335,6 +336,44 @@ Every VPNDB lookup is a row on the Data sources page with the request it made (*
 rebuilds it as a curl command), and its answer is kept as received (*Evidence → Records → VPNDB Responses*, *Export &
 report → VPNDB responses*). A
 miss (`observed: false`) counts as *No data*, not an error; a quota or key problem is an error with VPNDB's own note.
+
+## BGPDB logic
+
+BGPDB is an internal DomainTools service with the BGP routing table history of about the last 30 days. It needs a
+BGPDB host (Settings → API credentials, or the `bgpdbq` tool's `~/.bgpdbq.conf`) and the DomainTools network or VPN.
+The stage makes the same four lookups as the `bgpdbq` tool's commands, each answer read as NDJSON:
+
+```mermaid
+flowchart TD
+    A["Hosting IPs: IP targets, current Iris IPs, then passive DNS (latest first); public IPv4 and IPv6, no CDN"] --> B["Up to BGPDB hosting IPs per run (200), 50 per domain"]
+    B --> C["ip/address: each covering prefix and origin network, first / last seen, collectors, RPKI, IRR, RIR"]
+    C --> D{"Host answering?"}
+    D -- "No, 3 lookups in a row" --> X["Stop: the rest skipped, one row BGPDB stopped on Data sources"]
+    D -- "Yes" --> E["route/prefix: AS paths of the 30 busiest prefixes (100 paths each): the upstreams"]
+    E --> F["asn/number: up to 40 origin and upstream networks: RIR registration, visibility, neighbours"]
+    F --> G{"BGPDB neighbouring prefixes on?"}
+    G -- "Yes" --> H["prefix/range: the /20 (IPv6 /40) around up to 10 prefixes: who else announces there"]
+    G -- "No" --> R
+    H --> R["Routing rules: origin conflict, unauthorized origin, new prefix, young network, thin route"]
+    R --> V["With VPNDB: exits on unstable routing; with the Tor overview: unauthorized origin that is a Tor exit network"]
+    V --> M["With an earlier saved run: Hosting Moved to a New Network"]
+```
+
+- **Who is authorized.** RPKI decides when it has an answer; IRR only when RPKI has none. *Not in RPKI / IRR* is common
+  and not a finding by itself. Clouds and DDoS-protection networks that announce their customers' space
+  (bring-your-own-IP) lower the severity instead of raising a hijack.
+- **The usual origin** of an IP is the network with the most updates. A private AS seen by one or two route collectors
+  is that collector's peer leaking its internal number: shown in orange, never a finding.
+- **30 days.** A prefix first seen on the first days of BGPDB's window is *at least that old*, never new.
+- **DNS resolution** adds the routing of the addresses its records reach beyond the hosting IPs (CNAME, MX and NS
+  targets, SPF hosts), up to 300 per click, on the DNS resolution page; they show on BGP → *Resolved addresses*.
+- **Cache.** BGPDB answers are kept 6 hours by default (Settings → Storage & cache), so re-running the same IPs costs
+  no query within that time. Answers already in the cache are used even when the host does not answer.
+
+Every lookup is a row on the Data sources page, and every answer is kept as received (BGP → *Responses*, *Evidence →
+Records → BGPDB Responses*); *Evidence → Lookup queries → BGPDB* rebuilds each as a `bgpdbq` and a curl command. The
+values the rules use (14 days, 7 days, 10 collectors, ...) are in the [Reference](REFERENCE.md#other-built-in-values),
+and how each finding is decided is in the [User Guide](USER_GUIDE.md#bgp-routing-rules).
 
 ## After collection
 

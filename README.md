@@ -26,7 +26,7 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
 | [Use Cases](docs/USE_CASES.md) | The investigations the tool supports: what to enter, where to look in the results, and what each one surfaces |
 | [Installation](docs/INSTALLATION.md) | Requirements, install, **credentials** (entering keys in the app, environment, `credentials.toml`, files, the API Credentials panel), starting the app, development |
 | [Usage](docs/USAGE.md) | Running an analysis, every option, offline datasets, where local data is stored, troubleshooting |
-| [Reference](docs/REFERENCE.md) | Everything preconfigured: what each **use case** looks up, the **brand watchlist**, every **collection limit**, the **built-in lists** (hosting watchlist, impersonated brands, takeover-prone services, ...) and the files the app keeps |
+| [Reference](docs/REFERENCE.md) | Everything preconfigured: what each **use case** looks up, the **brand watchlist**, every **collection limit**, the values the **BGP routing** rules use, the **built-in lists** (hosting watchlist, impersonated brands, takeover-prone services, ...) and the files the app keeps |
 | [User Guide](docs/USER_GUIDE.md) | Reading the results: alerts and grouping, **severity / confidence / category**, the full **detection catalogue**, **MITRE ATT&CK mapping**, **Unified Risk** vectors, **DIF fingerprints**, clusters and domain hopping, thresholds, run history, suppressions and exports |
 
 ## What it does
@@ -67,16 +67,27 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
   prefix and the network that announces it, whether RPKI / IRR authorize it, the RIR allocation, the AS paths and
   upstreams, the networks' age and visibility, and the prefixes announced around them. Alerts on origin conflicts
   (possible hijacks), unauthorized origins, newly announced prefixes, young networks and thin routes, and on VPNDB
-  exits that sit on such routing. A BGP page (Sankey, AS-path graph, origin timeline, networks, neighbours, VPNDB
-  match), a BGP block on the Summary and a BGP line on each Hunt map box.
+  exits that sit on such routing, on an unauthorized origin that carries Tor exit traffic, and on hosting that moved
+  to a new network since the last saved run. Clouds and DDoS-protection networks that announce their customers' space
+  (bring-your-own-IP) are recognized instead of called hijacks. A BGP page (Sankey, AS-path graph, origin timeline,
+  networks, neighbours, VPNDB match, the DNS resolution's addresses, every answer as curl), a BGP card on the Domain
+  profile, a BGP block on the Summary, a BGP line on each Hunt map box, a *Network* filter in the results toolbar, a
+  BGP Routing risk vector, routing context in the IOC, MISP and STIX exports, and *Open in IrisQL* for the other
+  domains Iris sees on an origin network or prefix. Without the DomainTools network or VPN, the lookups stop after 3
+  unanswered ones.
 - **Finds targets with IrisQL**: an Iris Investigate query in IrisQL (`domain contains "domaintools"`) lists the
   matching domains with their risk, dates, registrar and hosting; tick domains and IPs, pick a use case and analyze
   them. The query editor suggests the fields, then only the operators each field accepts, then the value in the right
-  form. Search works on the first click after typing, and Clear empties the query and its results. A watched query,
+  form. The page is split: the query on the left, the same search as curl, SDK command and Python script on the right
+  with a *Last search* card, and the results full width below; *Breakdown* adds tiles (median risk, high-risk, new
+  and expiring domains, spread) and charts (risk bands, created per month, concentration on the top IPs and name
+  server). Search works on the first click after typing, and Clear empties the query and its results. A watched query,
   checked again later, shows only the domains that are new.
 - **Finds targets with CertsQL**: a Certificate Search query in CertsQL (`san_dns contains "login"`) lists the
   matching certificates with the domains, IPs and hostnames they name; the query is checked against the CertsQL field catalog before it is sent, with the same autocomplete as IrisQL. **Fields** adds any certificate field (the API's `select`) as a column to every results tab. Tick
-  domains and IPs and analyze them.
+  domains and IPs and analyze them. Same split layout as IrisQL; *Breakdown* adds tiles (issuers, median validity,
+  DV / OV / EV, self-signed, expired and expiring, short-lived) and charts (expiring per month, validity classes,
+  names per certificate, IPs in SANs).
 - **Ranks pivots** (*Hunt map → All pivots*): every IP, name server, email, registrant, certificate and tracker in Iris Investigate, by how many
   domains share it, so rare links to the same operator come first; one click finds their other domains in Iris.
 - **Triages subdomains** on shared platforms (pages.dev, workers.dev, free subdomain services) by phishing words,
@@ -99,8 +110,8 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
   its monthly quota, or expires within 30 days or has expired; every lookup records the queries it made (Data sources, Runs), sources missing from the account are
   skipped, and the Account page shows DomainTools, DNSDB and VPNDB quotas. Independent sources are collected at the
   same time, each source keeps cached results for its own lifetime, and failed lookups can be retried on their own.
-- **Rebuilds every lookup** as a query or `domaintools` / curl command to re-run in the DomainTools, DNSDB and VPNDB
-  tools, and keeps every VPNDB answer as received.
+- **Rebuilds every lookup** as a query or `domaintools` / `bgpdbq` / curl command to re-run in the DomainTools,
+  DNSDB, VPNDB and BGPDB tools, and keeps every VPNDB and BGPDB answer as received.
 - **Exports** (*Data → Export & report*) detections, IOCs (CSV / JSON), STIX 2.1 bundles and HTML / Markdown evidence
   reports, and hands IOCs, tables and raw records to other teams as CSV / NDJSON (*Select all* / *Select none*).
 - **Reports** the run as one **analysis report** (HTML, print to PDF) structured like the app, with its charts in the
@@ -161,6 +172,7 @@ core/
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
   irisql.py                    IrisQL page logic: field checks, examples, result tables, the curl command (JSON body)
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
+  query_breakdown.py           IrisQL / CertsQL Breakdown figures: tiles, risk bands, monthly counts, concentration, validity classes
   account.py                   Account Information rows: product names, usage, limits and what is left, expiry; the products each collection stage needs
   api_usage.py                 API usage: service / product of each lookup, queries per run, failed lookups, what is left, Data sources statistics
   query_assist.py              IrisQL / CertsQL editor suggestions: fields, each field's operators, value templates, flagged lines
@@ -189,7 +201,7 @@ core/
   cert_profile.py              Certificate profile: fields grouped as in X.509, flags, related certificates, where seen, field breakdown
   cert_shape.py                Certificate shape: how a certificate was made (11 normalised traits), families, near shapes, CertsQL query
   cert_anomalies.py            Certificate anomalies across the run: issuer baseline, Certificate Transparency, bursts and templates
-  lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools and DNSDB tools
+  lookup_queries.py            A run's lookups rebuilt as queries and commands for the DomainTools, DNSDB, VPNDB and BGPDB tools
   rule_catalog.py              Detection reference: per-rule trigger, rationale, severity and confidence levels
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
   anonymizers.py               VPNDB verdicts of the run's hosting IPs: which IPs are checked, one row per IP, shared exits,
@@ -230,6 +242,7 @@ core/
     resolver_rules.py          DNS resolution rules (dangling NS, MX and SPF records, CNAMEs to lapsed domains, internal IPs in public DNS)
     ssl_rules.py               Certificate rules (CAA, Mega-SAN, bare-IP, churn, CA/B validity, short-lived, ...)
     cert_anomaly_rules.py      Certificate anomaly rules across the run (foreign signing key under an issuer name, late CT logging, too few SCTs)
+    risk_rules.py              DomainTools risk score rules (high proximity with a low threat profile, possible domain hijack)
     enrichment_rules.py        Iris rules (piracy panels, shared trackers, current MX / SPF) and lower confidence for popular or zerolisted domains
     intel_rules.py             Registration age, hosting watchlist, redirects, parking, ASN-aware flux, volume anomalies,
                                CDN origin exposure, lookalikes
@@ -269,12 +282,14 @@ views/                         One module per page + sidebar, alert tools, certi
   certsql_view.py              CertsQL page: Certificate Search query, pick certificates / domains / IPs, analyze them
   irisql_view.py               IrisQL page: query Iris Investigate, pick domains / IPs, analyze them with a use case; watched queries
   query_editor.py              IrisQL / CertsQL query editor with autocomplete (CodeMirror 5, bundled in views/assets/codemirror)
+  query_layout.py              IrisQL / CertsQL layout: query left, code tabs and Last search card right, Breakdown tiles
+  assets/                      query_editor.js / .css and the bundled CodeMirror 5
   summary_view.py              Summary: KPIs, domains, analysis details, linked domains, hunt pointer, top alerts, run statistics, what's new
   hunt_actions.py              Hunt buttons shared by pages: analyze a value as a new linked run, find a value's domains in Iris
   idn_display.py               "Show international domains in Unicode": decodes xn-- names where tables, text and charts are drawn
   profile_view.py              Domain profile: one domain on one screen (DomainTools risk score components, Iris, VPNDB and BGP routing cards), with an action row
-  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags and anomalies, anatomy with shape, related, where seen)
                                (sightings, IrisQL, CertsQL, copy)
+  cert_profile_view.py         Certificate profile: one certificate field by field (summary, flags and anomalies, anatomy with shape, related, where seen)
   risk_view.py                 Alerts page: KPI banner, threat engine status, alert list and DomainTools risk scores
   alert_tools.py               Alerts tools: heatmap (click to filter), MITRE ATT&CK view, filters, suppressions, run diff, export tools
   indicator_view.py            One indicator in focus (dialog): what the run knows about it, its alerts, sightings, next steps
@@ -297,7 +312,8 @@ views/                         One module per page + sidebar, alert tools, certi
                                heatmap, providers, countries, exposure timeline, Iris cross-check, neighbourhood, leads
                                on dedicated exits, CIDR address grids
   bgp_page.py                  BGP page: routing findings and the hosting IPs, routing map (Sankey, AS-path graph), origin
-                               timeline, networks, neighbouring prefixes, VPNDB match, responses; Summary / DNS lines
+                               timeline, networks, neighbouring prefixes, VPNDB match, resolved addresses, responses;
+                               Summary / DNS lines
   tor_page.py                  Tor network page (Infrastructure): network-wide Tor statistics from VPNDB's /tor overview
                                and every network the run saw (hosting, BGP origins, upstreams) among the Tor exit networks
   ip_card.py                   One IP in full: VPNDB verdict and whole answer, weekly history, where the run saw it,
@@ -320,6 +336,7 @@ views/                         One module per page + sidebar, alert tools, certi
   hunt_combine_view.py         Hunt map's Combined hunts tab: several hunts on one map, combined result, join / detach
   export_view.py               Export & report: analysis report (report type, section picker, All / None, limits), confirmed indicators, detections, IOCs, STIX, reports, tables and raw records
   docs_view.py                 In-app documentation (Settings → Documentation, /docs)
+  common.py                    Shared rendering helpers: Plotly charts, selected rows, raw tables
 visualizations/sankey.py       Hostname ➔ Cert ➔ IP Sankey with step navigation
 visualizations/network_graph.py Infrastructure graph (numpy force-directed layout)
 scripts/generate_docs_tables.py Regenerates the User Guide and Reference tables from the code

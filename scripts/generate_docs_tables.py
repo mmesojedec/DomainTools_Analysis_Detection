@@ -15,11 +15,14 @@ sys.path.insert(0, str(ROOT))
 
 import config  # noqa: E402
 from config import THRESHOLD_SPECS  # noqa: E402
+from core import bgp, query_breakdown, resolver  # noqa: E402
 from core.intel_data import MITRE_TACTICS, RULE_METADATA, TACTIC_ORDER  # noqa: E402
 from core.risk_profile import DIF_SEGMENTS  # noqa: E402
 from core.rule_catalog import RULE_CATALOG  # noqa: E402
+from core.threat_detection import anonymizer_rules  # noqa: E402
 from core.use_cases import GLOBAL_DEFAULTS, HISTORY_MODES, OPTION_LABELS, PROFILE_KEYS, USE_CASES, builtin_settings  # noqa: E402
 from core.window import WINDOW_PRESETS  # noqa: E402
+from integrations import bgpdb  # noqa: E402
 
 GUIDE = ROOT / "docs" / "USER_GUIDE.md"
 REFERENCE = ROOT / "docs" / "REFERENCE.md"
@@ -154,6 +157,27 @@ def other_values_table():
         ("Quota banner (products this app uses, DNSDB key)", f"yellow from {config.QUOTA_WARN_PERCENT}% of the quota "
                                                              f"used or {config.EXPIRY_WARN_DAYS} days before expiry; "
                                                              "red when used up or expired"),
+        ("BGP: new prefix", f"first announced by its usual origin in the last {bgp.NEW_DAYS} days, and not within "
+                            f"{bgp.WINDOW_MARGIN_DAYS} days of the first day of BGPDB's window (then it is at least "
+                            "that old)"),
+        ("BGP: recent origin conflict (High)", f"unauthorized announcement seen in the last "
+                                               f"{bgp.RECENT_CONFLICT_DAYS} days of the data"),
+        ("BGP: young origin network", f"registered at its RIR within {bgp.NEW_ASN_DAYS} days (Medium-High within "
+                                      f"{bgp.VERY_NEW_ASN_DAYS})"),
+        ("BGP: thin route", f"seen by fewer than {bgp.LOW_COLLECTORS} route collectors, or a single upstream and no "
+                            "downstream networks"),
+        ("BGP: barely visible resolved address (DNS resolution)", f"seen by fewer than {resolver.LOW_VISIBILITY} "
+                                                                  "route collectors"),
+        ("BGP: private AS shown as a collector-local leak", f"AS0, AS23456, AS64496–65535 and AS4200000000+ seen by "
+                                                            f"at most {bgp.LOCAL_COLLECTORS} route collectors"),
+        ("BGP: bring-your-own-IP and DDoS-protection networks", ", ".join(
+            f"{asn} {name}" for asn, name in bgp.BYOIP_NETWORKS.items())),
+        ("BGP: Tor exit network (Tor overview)", f"{anonymizer_rules.TOR_NETWORK_SHARE:.1%} of Tor exit traffic or "
+                                                 f"{anonymizer_rules.TOR_NETWORK_EXITS}+ exit addresses"),
+        ("BGPDB lookups stop (host not answering)", f"after {bgpdb.STOP_AFTER_FAILURES} lookups in a row without "
+                                                    "an answer"),
+        ("Risk bands (IrisQL Breakdown)", ", ".join(name for name, _, _ in query_breakdown.RISK_BANDS)),
+        ("Validity classes (CertsQL Breakdown)", ", ".join(name for name, _, _ in query_breakdown.VALIDITY_CLASSES)),
     ]
     lines = ["| What | Value |", "| --- | --- |"]
     lines += [f"| {what} | {_cell(value)} |" for what, value in rows]
@@ -228,7 +252,7 @@ SECTIONS = {   # name -> (start marker, end marker, generator); the text between
 REFERENCE_SECTIONS = {   # the text up to the next heading is replaced
     "use cases": ("Options per use case (generated from `core/use_cases.py`):\n\n", "A dot (·)", use_case_table),
     "limits": ("Limits (generated from `config.py`):\n\n", "## Other built-in values", limits_table),
-    "other": ("Values (generated from `config.py` and `core/window.py`):\n\n", "## Built-in lists", other_values_table),
+    "other": ("Values (generated from `config.py`, `core/window.py`, `core/bgp.py`, `core/resolver.py`, `integrations/bgpdb.py`, the Tor rules and `core/query_breakdown.py`):\n\n", "## Built-in lists", other_values_table),
     "lists": ("The lists (generated from the modules named under each one):\n\n", "## Files the app keeps", lists_section),
 }
 REFERENCE_SECTIONS = {name: (start, end, lambda generate=generate: generate() + "\n\n")

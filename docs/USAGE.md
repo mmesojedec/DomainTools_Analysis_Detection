@@ -29,8 +29,8 @@ their text is shown.
 
 The **menu at the top** groups every page; the **sidebar** holds the **Analyst options** (the selected use case and
 options, API credentials, display options). Targets are entered on the **Start** page. Once a run or dataset is loaded,
-every results page has a **results toolbar** under its status line: the analysis window, domains, hostnames, record
-types, alert severities and detection thresholds, applied at once to the loaded data with no new lookups (see
+every results page has a **results toolbar** under its status line: the analysis window, domains, network (BGPDB
+origin network, VPNDB verdict), hostnames, record types, alert severities and detection thresholds, applied at once to the loaded data with no new lookups (see
 [5. Results toolbar](#5-results-toolbar)).
 
 | Menu | Pages |
@@ -40,7 +40,7 @@ types, alert severities and detection thresholds, applied at once to the loaded 
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
 | **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
 | **Overview** | *Summary* · *Domain profile* · *Certificate profile* · *Alerts* |
-| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *CNAME Chains* · *DNS resolution* · *Certificates* |
+| **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *BGP* · *CNAME Chains* · *DNS resolution* · *Certificates* |
 | **Hunt** | *Hunt map* (tabs *This hunt*, *Combined hunts*, *All investigations*, *All pivots*) · *Hostname Inventory* · *Subdomain Triage* · *Domain similarity* |
 | **Evidence** | Two tabs: *Records* (the raw records) and *Lookup queries* (every lookup as a query and command) |
 | **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: analysis report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
@@ -69,7 +69,8 @@ is in [Pages](USER_GUIDE.md#pages).
   **Analyze**. Your own saved profiles are listed below the use cases. See [Use cases and
   profiles](#use-cases-and-profiles).
 - **IrisQL** (next to Start in the menu) finds the targets for you: an IrisQL query lists the matching domains from
-  Iris Investigate, and the ones you tick (and their IPs) are analyzed with the use case you pick. See [IrisQL](#irisql).
+  Iris Investigate, and the ones you tick (and their IPs) are analyzed with the use case you pick. The query is on
+  the left, the same search as curl and Python on the right, and the results full width below. See [IrisQL](#irisql).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
   the domains and IPs they name that you tick are analyzed, together with the matching certificates that name them.
   See [CertsQL](#certsql).
@@ -86,7 +87,9 @@ is in [Pages](USER_GUIDE.md#pages).
     proxy exits, residential proxy exits and Tor relays / exits, with the exits listed in an expander (shared ones
     counted); and, when the certificates have one, **JA4X** values worth a look (a known tool or device, a
     code-generated layout, or one shared by your domains off public CAs; see
-    [JA4X](USER_GUIDE.md#ja4x-how-certificates-were-generated));
+    [JA4X](USER_GUIDE.md#ja4x-how-certificates-were-generated)); with BGPDB routing a **BGP** block: IPs routed,
+    prefixes, origin networks and routing findings, with a few sentences on who announces the hosting and the worst
+    findings (see [BGP routing](#bgp-routing-bgpdb));
   - **Linked domains**: the infrastructure clusters in one sentence each;
   - **Hunt**: one box with the open alerts to decide, the indicators to confirm first and the leads worth
     following, the first step, and **Open the Hunt map**. The hunting work itself (alert decisions, *What to check
@@ -1117,7 +1120,7 @@ the same as the `bgpdbq` tool's commands:
 | `asn/<asn>` | Up to 40 origin and upstream networks | RIR registration date and country, name, visibility, upstream and downstream neighbour counts |
 | `prefix/<range>` | The /20 (IPv6 /40) around up to 10 prefixes | The other prefixes announced there, and by whom |
 
-**The BGP page** (Infrastructure → BGP) has seven tabs, each with *How to read this*:
+**The BGP page** (Infrastructure → BGP) has eight tabs, each with *How to read this*:
 
 1. **Overview**: the routing findings (also alerts) and one row per hosting IP with its prefix, usual origin, status
    (*Valid*, *Unauthorized*, *Not in RPKI / IRR*), how many networks announced it, RIR and Iris country, upstream.
@@ -1180,9 +1183,13 @@ Reading it right:
 - **RPKI decides**, IRR only when RPKI has nothing. *Not in RPKI / IRR* is common and not a finding on its own.
 - **30 days**: a prefix first seen on the first days of BGPDB's window is *at least that old*, never new.
 - **`/24+`** in a prefix means the more-specific announcements inside that block.
-- **Orange = private AS at one collector.** A private or reserved AS number (64512–65534, 65535, 4200000000+) seen by
-  one or two route collectors is that collector's peer leaking its internal AS, not a hijack: shown in orange, never a
-  finding.
+- **Orange = private AS at one collector.** A private or reserved AS number (AS0, AS23456, 64496–65535,
+  4200000000+) seen by one or two route collectors is that collector's peer leaking its internal AS, not a hijack:
+  shown in orange, never a finding.
+- **Bring-your-own-IP.** Clouds and DDoS-protection networks (Cloudflare, AWS, Google, Microsoft, Akamai, Fastly,
+  Imperva, Oracle) announce their customers' space while the registry often still names the customer: such an
+  "unauthorized" origin is Low or Medium, with *likely bring-your-own-IP or DDoS protection* in the detail. The list
+  and the other values the routing rules use are in the [Reference](REFERENCE.md#other-built-in-values).
 - **Colours on the Routing map.** A flow takes the colour of its usual origin; a prefix box takes the colour of the
   worst origin ever seen for it. A green flow into a red box means the usual origin is authorized but another network
   announced the prefix at some point (the thin red link to it).

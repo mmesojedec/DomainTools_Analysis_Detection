@@ -1,6 +1,7 @@
 # Reference
 
-Everything the app has preconfigured: what each use case looks up, the limits of every lookup, the built-in lists the
+Everything the app has preconfigured: what each use case looks up, the limits of every lookup, the values the BGP routing rules and
+the IrisQL / CertsQL Breakdown use, the built-in lists the
 detections match against, your brand watchlist, and the files the app keeps. The tables are generated from the code
 (`python scripts/generate_docs_tables.py`), so they always match what the app does.
 
@@ -212,7 +213,7 @@ Limits (generated from `config.py`):
 
 ## Other built-in values
 
-Values (generated from `config.py` and `core/window.py`):
+Values (generated from `config.py`, `core/window.py`, `core/bgp.py`, `core/resolver.py`, `integrations/bgpdb.py`, the Tor rules and `core/query_breakdown.py`):
 
 | What | Value |
 | --- | --- |
@@ -227,6 +228,17 @@ Values (generated from `config.py` and `core/window.py`):
 | Run snapshots kept per target set (default; change on Settings → Storage & cache) | 10 newest |
 | Rows shown in raw tables | 50,000 |
 | Quota banner (products this app uses, DNSDB key) | yellow from 95% of the quota used or 30 days before expiry; red when used up or expired |
+| BGP: new prefix | first announced by its usual origin in the last 14 days, and not within 2 days of the first day of BGPDB's window (then it is at least that old) |
+| BGP: recent origin conflict (High) | unauthorized announcement seen in the last 7 days of the data |
+| BGP: young origin network | registered at its RIR within 365 days (Medium-High within 90) |
+| BGP: thin route | seen by fewer than 10 route collectors, or a single upstream and no downstream networks |
+| BGP: barely visible resolved address (DNS resolution) | seen by fewer than 5 route collectors |
+| BGP: private AS shown as a collector-local leak | AS0, AS23456, AS64496–65535 and AS4200000000+ seen by at most 2 route collectors |
+| BGP: bring-your-own-IP and DDoS-protection networks | AS13335 Cloudflare, AS209242 Cloudflare Spectrum, AS16509 Amazon AWS, AS14618 Amazon AWS, AS15169 Google, AS396982 Google Cloud, AS8075 Microsoft, AS20940 Akamai, AS16625 Akamai, AS32787 Akamai Prolexic, AS54113 Fastly, AS19551 Imperva Incapsula, AS31898 Oracle Cloud |
+| BGP: Tor exit network (Tor overview) | 0.5% of Tor exit traffic or 10+ exit addresses |
+| BGPDB lookups stop (host not answering) | after 3 lookups in a row without an answer |
+| Risk bands (IrisQL Breakdown) | 0–39, 40–69, 70–89, 90–100 |
+| Validity classes (CertsQL Breakdown) | ≤ 10 days, 11–47 days, 48–100 days, 101–200 days, 201–398 days, > 398 days |
 
 ## Built-in lists
 
@@ -401,4 +413,5 @@ All in the project folder, local and git-ignored.
 | `dt_triage.json` | Triage status of alerts and verdicts on domains (New, Investigating, Benign, Malicious) with notes |
 
 API credentials are read from environment variables, `~/.config/dt-analytics/credentials.toml` (where keys entered
-in the app are saved) or the `~/.dt*` files, all outside the project; see [Credentials](INSTALLATION.md#credentials).
+in the app are saved), the `~/.dt*` files or, for the BGPDB host, the `bgpdbq` tool's `~/.bgpdbq.conf` (read,
+never written), all outside the project; see [Credentials](INSTALLATION.md#credentials).
