@@ -161,9 +161,9 @@ def test_irisql_page_is_always_in_the_menu():
 
 def test_start_irisql_and_certsql_are_plain_links_before_overview():
     from views import navigation
-    assert list(navigation.SECTIONS)[:5] == ["Start", "IrisQL", "CertsQL", "Runs", "Overview"]
+    assert list(navigation.SECTIONS)[:6] == ["Start", "IrisQL", "CertsQL", "DNSDB", "Runs", "Overview"]
     assert navigation.SPECS["irisql"].title == "IrisQL"
-    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "Runs"}
+    assert set(navigation.DIRECT) == {"Start", "IrisQL", "CertsQL", "DNSDB", "Runs"}
     sections = list(navigation.SECTIONS)
     assert sections.index("Evidence") == sections.index("Hunt") + 1   # Evidence right after Hunt
 

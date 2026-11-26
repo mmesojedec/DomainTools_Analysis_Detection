@@ -241,6 +241,11 @@ def _render_actions(domain):
                           "whose name contains its name; edit it, then Search (one Iris Investigate query)"):
             set_query(IRISQL_KEY, similar_query(domain))
             navigation.go("irisql")
+        if st.button("Search in DNSDB", key="profile_dnsdb", icon=":material/saved_search:", type="tertiary",
+                     help="Opens the DNSDB page with *.domain (every name under it); edit it there (a regex, a "
+                          "record type, a time window), then Search (one DNSDB query)"):
+            from views.dnsdb_view import open_search
+            open_search(domain if is_ip_address(domain) or is_cidr(domain) else f"*.{domain}")
         if st.button("Its certificates in CertsQL", key="profile_certsql", icon=":material/badge:", type="tertiary",
                      help="Opens CertsQL with a query for certificates naming this IP (or an address in the range), "
                           "or this domain or its subdomains; Search there runs it"):

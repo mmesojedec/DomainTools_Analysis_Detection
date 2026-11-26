@@ -20,6 +20,7 @@ SECTIONS = {
     "Start": (PageSpec("home", "Start", ":material/home:"),),
     "IrisQL": (PageSpec("irisql", "IrisQL", ":material/manage_search:"),),
     "CertsQL": (PageSpec("certsql", "CertsQL", ":material/badge:"),),
+    "DNSDB": (PageSpec("dnsdb_search", "DNSDB", ":material/saved_search:"),),
     "Runs": (PageSpec("recent", "Runs", ":material/schedule:"),),
     "Overview": (PageSpec("summary", "Summary", ":material/dashboard:"),
                  PageSpec("profile", "Domain profile", ":material/domain:"),
@@ -45,7 +46,7 @@ SECTIONS = {
                  PageSpec("account", "Account", ":material/account_circle:"),
                  PageSpec("docs", "Documentation", ":material/menu_book:")),
 }
-DIRECT = ("Start", "IrisQL", "CertsQL", "Runs")   # one-page groups: plain links in the menu, no dropdown
+DIRECT = ("Start", "IrisQL", "CertsQL", "DNSDB", "Runs")   # one-page groups: plain links in the menu, no dropdown
 # Pages merged into a tab of another page: links and jumps to the old key open that tab
 ALIASES = {
     "history": ("recent", "recent_tab", "Compare & trends", "Compare runs"),

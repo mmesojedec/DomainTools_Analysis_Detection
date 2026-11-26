@@ -19,6 +19,7 @@ their text is shown.
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
+- [DNSDB](#dnsdb)
 - [Runs and Indicator Sightings](#runs-and-indicator-sightings)
 - [Account](#account)
 - [Offline datasets](#offline-datasets)
@@ -38,6 +39,7 @@ origin network, VPNDB verdict), hostnames, record types, alert severities and de
 | **Start** | *Start*: enter targets and click **Analyze**, or pick a use case first (see below) |
 | **IrisQL** | *IrisQL*: find domains with an IrisQL query, then analyze the ones you pick; watch a query for new domains |
 | **CertsQL** | *CertsQL*: find certificates with a CertsQL query, then analyze the domains and IPs they name |
+| **DNSDB** | *DNSDB*: search DNSDB by name, wildcard, IP, CIDR, regex or glob, with the query, dnsdbq and a DNSDB Scout link shown first; then analyze the domains and IPs in the records |
 | **Runs** | Three tabs: *Recent runs* (the newest saved runs as a timeline, cards or a table), *Compare & trends* (run details, comparisons, trends, one domain across runs, watched lists, manage runs) and *Indicator Sightings* (every saved run and offline dataset where one indicator was observed); see [Runs and Indicator Sightings](#runs-and-indicator-sightings) |
 | **Overview** | *Summary* · *Domain profile* · *Certificate profile* · *IP profile* · *Alerts* |
 | **Infrastructure** | *DNS & Hosting* · *VPNDB* · *Tor network* · *BGP* · *CNAME Chains* · *DNS resolution* · *Certificates* |
@@ -46,13 +48,13 @@ origin network, VPNDB verdict), hostnames, record types, alert severities and de
 | **Data** | *Saved datasets*: load, rename and delete offline datasets (see [Offline datasets](#offline-datasets)) · *Export & report*: analysis report, detections, IOCs, STIX, reports and data files · *Data sources*: the run in numbers (targets, lookups, share answered, records, API queries, cache hits, collection time), lookups per source by outcome, tabs *By source*, *By target*, *Needs attention*, *API queries* (with what each product has left) and *All lookups* (filters), the lookup cache, re-runs (also of the failed lookups only) |
 | **Settings** | *Settings*: tabs *Collection options*, *Detection thresholds*, *Brands & allowlist*, *Storage & cache*, *API credentials* · *Account*: the DomainTools account of your API credentials and every product's limits, usage this month and today, and expiry (see [Account](#account)) · *Documentation*: these guides |
 
-Start, IrisQL, CertsQL and Runs are plain links in the menu; the others open a dropdown (*Evidence*, right after *Hunt*, has one page).
+Start, IrisQL, CertsQL, DNSDB and Runs are plain links in the menu; the others open a dropdown (*Evidence*, right after *Hunt*, has one page).
 
 Each page has its own address (e.g. `/cname`), so the browser's Back button and bookmarks work. What each page shows
 is in [Pages](USER_GUIDE.md#pages).
 
 - **Start** has the **Targets** box with **Analyze** (the only place to enter targets), three links: **Find targets
-  with IrisQL**, **Find targets with CertsQL** and **Runs & Sightings** (see [Runs and Indicator
+  with IrisQL**, **Find targets with CertsQL**, **Search DNSDB** and **Runs & Sightings** (see [Runs and Indicator
   Sightings](#runs-and-indicator-sightings)), the **Save offline copy** checkbox and **Clear** (empties the box). The last run is named below them. Then it asks *What do you want to do?*
   Eight use cases: *Triage a suspicious domain*, *Map related
   infrastructure*, *Hunt C2 infrastructure*, *Subdomain takeover check*, *Phishing & lookalikes*, *Monitor
@@ -74,6 +76,9 @@ is in [Pages](USER_GUIDE.md#pages).
 - **CertsQL** (after IrisQL) does the same from certificates: a CertsQL query lists the matching certificates, and
   the domains and IPs they name that you tick are analyzed, together with the matching certificates that name them.
   See [CertsQL](#certsql).
+- **DNSDB** (after CertsQL) searches DNSDB passive DNS directly: a domain, `*.domain`, an IP, a CIDR, a regex or a
+  glob. The DNSDB request, curl, dnsdbq and a DNSDB Scout share link are shown before anything is sent; the records'
+  domains and IPs can then be analyzed. See [DNSDB](#dnsdb).
 - **Summary** opens after every Analyze or dataset load. A run that continues a hunt (started from a lead) opens on
   *Hunt map → This hunt* instead, and a run on a **single target** opens on that target's profile: one IP address or
   CIDR range on the [IP profile](#ip-profile), one domain on the Domain profile, one certificate input that found one
@@ -126,6 +131,8 @@ is in [Pages](USER_GUIDE.md#pages).
   - **Similar domains / IPs in IrisQL**: opens IrisQL with `DOMAIN CONTAINS "<name>"` for a domain, `ip matches
     "<IP>"` (the domains hosted on it) for an IP, or the range's first and last address for a CIDR range; edit it,
     then **Search** (one Iris Investigate query);
+  - **Search in DNSDB**: opens the [DNSDB](#dnsdb) page with `*.<domain>` (every name under it), ready to edit and
+    **Search** (one DNSDB query);
   - **Its certificates in CertsQL**: opens CertsQL with a query for certificates naming the domain or its
     subdomains, the IP (`san_ip_v4` / `san_ip_v6 equals`), or an address in the CIDR range; **Search** there runs it;
   - **Copy**: the domain name, ready to copy.
@@ -587,7 +594,8 @@ domains seen on it (and how many are the run's), the alerts naming it, the certi
 the upstreams in front of its origin.
 
 **The action row:** *Where else seen* (Runs → Indicator Sightings, local files), *Domains on it in IrisQL* (the domains
-whose current IPs are the address, or in the range), *Certificates in CertsQL* (certificates naming it), **Analyze N
+whose current IPs are the address, or in the range), *Search in DNSDB* (the [DNSDB](#dnsdb) page with the address or
+range: the names that resolved into it), *Certificates in CertsQL* (certificates naming it), **Analyze N
 domain(s)** (the domains seen on it that are not in the run yet, the riskiest Iris domains first, as a new run linked to
 this one) and *Copy* (the address, and the BGPDB and DNSDB lookups as curl commands).
 
@@ -873,6 +881,7 @@ cache (no request).
 | --- | --- | --- |
 | IrisQL | The IrisQL query the run's targets were picked from (only for a run started from the IrisQL page); Requests counts one per page of results | `domaintools iris_investigate --irisql …` and the `curl` request with the query as the body |
 | CertsQL | The CertsQL query the run's targets were picked from (only for a run started from the CertsQL page); Requests counts one per page | The Certificate Search `curl` request (`$DT_CERT_API_KEY`, else `$DT_API_KEY`) |
+| DNSDB Scout (DNSDB search) | The DNSDB page search the run's targets were picked from (only for a run started there), with its type | Its `curl` request and, as a comment, its `dnsdbq` / `dnsdbflex` command |
 | Iris Investigate | Domain list to paste into the search box | `domaintools iris_investigate --domains …` |
 | DomainTools API | Domain (Domain History; Risk Evidence in offline datasets saved before the risk scores came from Iris Investigate) | `domaintools domain_history --query …` / `domaintools risk_evidence --domain …` |
 | DomainTools Certificates | CertsQL for certificate search; JSON body for Certificate Events (hostname, IP, SHA-256, CT log) with the run's `start_time` | `curl` using `$DT_CERT_API_KEY` |
@@ -1629,6 +1638,116 @@ mixes key usages, stands out there.
 Under **Analyze the selection**, choose **Domains**, **IPs** or **Domains & IPs**, pick the **Use case** and click
 the Analyze button, as on the IrisQL page. *Runs → Compare & trends* notes the run as *via CertsQL: …*, and **Evidence → Lookup queries → CertsQL**
 shows the query and its curl request.
+
+## DNSDB
+
+**DNSDB** searches DNSDB passive DNS directly, the way DNSDB Scout does: you type what to look for, the page shows the
+DNSDB query it makes before anything is sent, and **Search** runs it (one DNSDB query, on the DNSDB key). The records
+come back with the domains and IPs they name, to tick and analyze as a new run. Open it with **DNSDB** in the top menu
+(after CertsQL), **Search DNSDB** on the Start page, or **Search in DNSDB** on the Domain profile (`*.domain`) and the
+IP profile (the address or range).
+
+**Step 1: search**
+
+1. Type into **Search for**. **Search type** follows what you type (*Auto*; the caption under it names the search picked), or set it
+   yourself:
+
+   | You type | Auto picks | DNSDB request |
+   | --- | --- | --- |
+   | `example.com` (defanged `example[.]com` works too) | RRset: name | `lookup/rrset/name/example.com`: the name's own records |
+   | `*.example.com` | RRset: name | `lookup/rrset/name/*.example.com`: every name under it (and itself) |
+   | `www.example.*` | RRset: name | `lookup/rrset/name/www.example.*`: every name starting with it, any TLD |
+   | `203.0.113.7`, `2001:db8::1` | RData: IP | `lookup/rdata/ip/203.0.113.7`: names that resolved to it |
+   | `203.0.113.0/24`, `2001:db8::/48` | RData: IP | `lookup/rdata/ip/203.0.113.0,24` (DNSDB writes a CIDR as address,length; IPv6 colons as `%3A`) |
+   | `203.0.113.1-203.0.113.50` | RData: IP | `lookup/rdata/ip/203.0.113.1-203.0.113.50`: an address range |
+   | `^login[0-9]*\.paypal\.` (regex signs `^ $ \ ( ) \| + ? { }`) | Flexible: regex | `regex/rrnames/…` (Flexible Search, egrep-style, no back-references) |
+   | `*paypal*.`, `ex[a-c]mple.com.` (any other `*` or `[`) | Flexible: glob | `glob/rrnames/…` |
+
+   Also by hand: **RData: name** (records whose value is the name: who points to it by CNAME, NS, MX, …), **RRset:
+   raw (hex)** and **RData: raw (hex)** (wire-format values).
+2. The options:
+
+   | Option | What it does |
+   | --- | --- |
+   | **Record type** | ANY (every type but DNSSEC), a single type, or ANY-DNSSEC. An IP search returns A and AAAA only (the type is not sent). Flexible Search on record values covers SOA, CNAME, HINFO, MX, NS, NAPTR, PTR, RP, SRV, SPF and TXT |
+   | **Search in** (Flexible) | *Owner names* (`rrnames`) or *Record values* (`rdata`) |
+   | **Exclude** (Flexible) | Results matching it (a regex or glob, like the search) are left out (`exclude=`) |
+   | **Bailiwick** (RRset name) | Only records from that zone's servers, e.g. `com` for the delegation NS records |
+   | **Records** | DNSDB's `limit` (10 to 1,000,000; Flexible Search counts names or values). One search is one query whatever the limit |
+   | **Seen after / Seen before** (UTC) | Time fencing: records seen at any time in the window (`time_last_after`, `time_first_before`); with **Strict Mode**, first and last seen inside it (`time_first_after`, `time_last_before`) |
+   | **Aggregated** (lookups) | On: one record per name, type and value over all time. Off: one per time slice (`aggr=f`, dnsdbq `-g`) |
+   | **Pre-select the most seen** | Domains and IPs ticked right after the search |
+
+   The page checks the search before it is sent and says what DNSDB would refuse: a `*` a lookup cannot take (use
+   glob), a regex that does not parse or uses a back-reference, a DNSSEC type in Flexible Search, a type Flexible
+   Search does not index on record values, an IP that is not an address / CIDR / range, raw values that are not hex,
+   a window that ends before it starts. Tips appear under it: a glob that does not end with `.` or `*` (DNSDB names end
+   with a dot), a regex with no `^` or `$` (it matches anywhere in a name).
+3. On the right, **The same search outside the app** says in one sentence what the search asks, and shows it as:
+   - **curl**: the DNSDB v2 request, the key read from `$DNSDB_API_KEY` (`-g` so curl leaves `[ ]` in a glob alone);
+   - **dnsdbq**: the `dnsdbq` command for a lookup (`-r`, `-n`, `-i`, `-R`, `-N`, with `-b`, `-t`, `-l`, `-A`, `-B`,
+     `-c`, `-g`), as Scout writes it. dnsdbq has no regex or glob search: for a Flexible Search it is the documented
+     chain `dnsdbflex … -F | dnsdbq -f -j` (dnsdbflex finds the names, dnsdbq fetches their records, one query each);
+   - **dnsdbflex**: the [dnsdbflex](https://docs.domaintools.com/api/dnsdb/cli-tools/dnsdbq-flex/) command
+     (`--regex` / `--glob`, `--exclude`, `-s rrnames|rdata`, `-t`, `-l`, `-A`, `-B`, `-c`). It returns the matching
+     names or values, not their records. A name lookup is written as the same glob, ending with a dot as DNSDB names
+     do (`example.com` → `--glob example.com.`, `*.example.com` → `--glob '*.example.com.'`); an RData name lookup as
+     a glob on `rdata`. An IP, a raw value, or a type Flexible Search does not index has no dnsdbflex form;
+   - **Scout share link**: the link Scout's own *Share Link* makes (`https://scout.dnsdb.info/dashboard?share=…`, the
+     search's Scout form as base64 JSON). **Open in DNSDB Scout** opens it: Scout fills in the search and runs it with
+     your Scout login. There is no link (and no button) while the search has a problem, for a raw RRset search (Scout
+     has no form for it), or over 1,800 characters.
+4. Click **Search**. The same search again within the cache lifetime (passive DNS group) costs no query. **Clear**
+   empties the search and its results.
+
+**Several values at once.** Paste one value per line (domains, defanged domains, IPs, CIDRs, wildcards, up to 1,000
+lines; blank lines, repeats and trailing commas are dropped):
+
+```text
+83.228.209.234
+xwfa3ak[.]cc
+spr7tsc.cc
+```
+
+The caption under *Search type* then reads *Auto per line* with how many lines get which search (e.g. *RRset: name ×2, RData: IP ×1*),
+or applies the type you pick to every line. **Every name under each domain (`*.domain`)** looks each plain domain up
+with its subdomains. The form's options (record type, limit, time window, aggregation) apply to every line; the
+bailiwick only to RRset lines, *Search in* and *Exclude* only to Flexible Search lines. **Search** is off (it runs one
+value at a time); the right side shows **N searches** as a table: each line's value as sent, its search type and
+its own **Open in DNSDB Scout** link. A line DNSDB would refuse (or one Scout has no form for) has an empty cell
+there, and a *Problem* column says why (the column only appears when a line has one). Under the table, **All commands
+and links** (open) has the same switch as for one value: all the **curl**, **dnsdbq** or **dnsdbflex** commands, or
+all the **Scout share links**, ready to copy (lines with no dnsdbflex form, such as IPs, are counted and left out).
+With **Label each line** (on) each entry sits under a `# value · search type` line, a blank line apart:
+
+```text
+# nytimes.com · RRset: name
+https://scout.dnsdb.info/dashboard?share=…
+
+# 83.228.209.234 · RData: IP
+https://scout.dnsdb.info/dashboard?share=…
+```
+
+Off, the list is one bare entry per line, to paste into a script or another tool. **Download the searches (CSV)** saves every line with its
+type, Scout link, curl, dnsdbq and dnsdbflex.
+To analyze the values themselves, paste them on **Start**.
+
+**Step 2: results and analysis**
+
+The tiles count the records (`+` when DNSDB stopped at the limit: narrow the search or raise *Records*), the domains,
+the IPs and the queries. The tabs:
+
+| Tab | What it shows |
+| --- | --- |
+| Records | Each record as DNSDB returned it: owner name, type, value(s), bailiwick, count, first and last seen (Flexible Search: names or values and their type) |
+| Domains | The registered domains of the owner names (*Via* Owner name) and of the names in CNAME, NS, MX, PTR, SRV and SOA values (*Via* the type), records naming each, distinct names behind it, last seen; the searched domain itself is left out. Tick to analyze |
+| IPs | The public addresses in A and AAAA records (the searched address itself is left out). Tick to analyze |
+| Breakdown | Record types, first and last seen, records per type, top domains, first seen per month |
+| Raw JSON | The first 20 records, and the download of all of them |
+
+**Analyze the selection** works as on IrisQL and CertsQL: domains, IPs or both, a use case, **Analyze**. The run lists
+the search on *Data sources* (Source *DNSDB search*), and *Evidence → Lookup queries* shows it under DNSDB Scout as
+its curl and dnsdbq commands.
 
 ## Runs and Indicator Sightings
 

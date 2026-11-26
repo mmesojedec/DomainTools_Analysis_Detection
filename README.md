@@ -15,7 +15,7 @@ telemetry.
 ![Start page: pick a use case, enter targets in the Targets box and click Analyze](docs/images/start-page.png)
 
 *The Start page: enter domains, IPs or certificates in the Targets box and click **Analyze**, or first pick a use
-case (it sets the lookups, limits and analysis window). Next to Analyze: find targets with IrisQL or CertsQL, open
+case (it sets the lookups, limits and analysis window). Next to Analyze: find targets with IrisQL, CertsQL or DNSDB, open
 Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar holds the Analyst options.*
 
 ## Documentation
@@ -96,6 +96,10 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
   domains and IPs and analyze them. Same split layout as IrisQL; *Breakdown* adds tiles (issuers, median validity,
   DV / OV / EV, self-signed, expired and expiring, short-lived) and charts (expiring per month, validity classes,
   names per certificate, IPs in SANs).
+- **Searches DNSDB directly**: a domain, `*.domain`, an IP, a CIDR, an address range, a regex or a glob on the
+  **DNSDB** page; Auto picks the lookup or Flexible Search, and the request is shown as curl, dnsdbq, dnsdbflex and a
+  DNSDB Scout share link (with *Open in DNSDB Scout*) before anything is sent. Tick the domains and IPs in the records
+  and analyze them. Paste many values, one per line, for a curl, dnsdbq and dnsdbflex command and a Scout link for each.
 - **Ranks pivots** (*Hunt map → All pivots*): every IP, name server, email, registrant, certificate and tracker in Iris Investigate, by how many
   domains share it, so rare links to the same operator come first; one click finds their other domains in Iris.
 - **Triages subdomains** on shared platforms (pages.dev, workers.dev, free subdomain services) by phishing words,
@@ -162,7 +166,7 @@ over the file; see [Credentials](docs/INSTALLATION.md#credentials).
 
 Pick a use case on the **Start** page (optional), enter target domains, IPs or certificate fingerprints (or `cn:`,
 `san:`, `spki:`, ... lines) in the Targets box and click **Analyze**: the **Summary** opens (a single IP, range or domain opens on its profile), and the
-**Hunt map** (Analyst mode) lists what to check next. The top menu groups every page (Start, IrisQL, CertsQL, Runs,
+**Hunt map** (Analyst mode) lists what to check next. The top menu groups every page (Start, IrisQL, CertsQL, DNSDB, Runs,
 Overview, Infrastructure, Hunt, Evidence, Data, Settings); see
 [The app at a glance](docs/USAGE.md#the-app-at-a-glance) and [Certificate inputs](docs/USAGE.md#certificate-inputs).
 
@@ -181,6 +185,7 @@ core/
   cert_inputs.py               Target input recognition, certificate-input CertsQL queries, derived targets
   irisql.py                    IrisQL page logic: field checks, examples, result tables, the curl command (JSON body)
   certsql.py                   CertsQL page logic: field catalog checks, examples, certificate / domain / IP tables
+  dnsdb_search.py              DNSDB page logic: input detection, request URL, curl / dnsdbq / dnsdbflex / Scout share link, record tables
   ip_profile.py                IP profile data: the run's addresses ranked, and per address its domains, certificates, routing, badges
   address_targets.py           IP and CIDR targets: what each source returned per address or range, the domains found on it
   query_breakdown.py           IrisQL / CertsQL Breakdown figures: tiles, risk bands, monthly counts, concentration, validity classes
@@ -293,6 +298,7 @@ views/                         One module per page + sidebar, alert tools, certi
   collection_progress.py       Live progress of a collection and the Summary's Lookups of the last Analyze
   analyze_selection.py         IrisQL / CertsQL step 2: analyze the ticked domains, IPs or both with a use case
   certsql_view.py              CertsQL page: Certificate Search query, pick certificates / domains / IPs, analyze them
+  dnsdb_view.py                DNSDB page: build a DNSDB search, show it as curl / dnsdbq / dnsdbflex / Scout link, analyze the results
   irisql_view.py               IrisQL page: query Iris Investigate, pick domains / IPs, analyze them with a use case; watched queries
   query_editor.py              IrisQL / CertsQL query editor with autocomplete (CodeMirror 5, bundled in views/assets/codemirror)
   query_layout.py              IrisQL / CertsQL layout: query left, code tabs and Last search card right, Breakdown tiles

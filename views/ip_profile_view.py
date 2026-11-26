@@ -135,6 +135,11 @@ def _actions(ds, address):
                           "Search there runs it (one Iris Investigate query)"):
             set_query(IRISQL_KEY, similar_query(address))
             navigation.go("irisql")
+        if st.button("Search in DNSDB", key="ipp_dnsdb", icon=":material/saved_search:", type="tertiary",
+                     help="Opens the DNSDB page with this address (or range): names that resolved into it, with the "
+                          "query, dnsdbq command and Scout link shown first; Search there runs it (one DNSDB query)"):
+            from views.dnsdb_view import open_search
+            open_search(address)
         if st.button("Certificates in CertsQL", key="ipp_certsql", icon=":material/badge:", type="tertiary",
                      help="Opens CertsQL with certificates naming this address (or an address in the range)"):
             set_query(CERTSQL_KEY, certificates_query(address))

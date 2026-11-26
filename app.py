@@ -55,6 +55,8 @@ from views.cname_view import render_cname_lens
 from views.collection_progress import PROGRESS_KEY, live_progress
 from views.collection_progress import summary as collection_summary
 from views.common import empty_state, install_copy_fallback, render_outside_window, render_window_banner
+from views.dnsdb_view import ORIGIN_KEY as DNSDB_ORIGIN_KEY
+from views.dnsdb_view import render_dnsdb_page
 from views.docs_view import DOCS_PATH, doc_url, render_doc_page
 from views.export_view import render_export_lens
 from views.history_view import render_offline_datasets, render_run_history
@@ -342,7 +344,7 @@ def collect_targets(settings, targets, seed_inputs=(), resolution=None, selected
         collected.derived = derived[derived["Target"].isin(selected)].drop(columns="Analyze").reset_index(drop=True) \
             if not derived.empty else derived
         collected.statuses = list(resolution.statuses) + list(collected.statuses)
-    for origin_key in (IRISQL_ORIGIN_KEY, CERTSQL_ORIGIN_KEY):   # targets picked from an IrisQL / CertsQL search
+    for origin_key in (IRISQL_ORIGIN_KEY, CERTSQL_ORIGIN_KEY, DNSDB_ORIGIN_KEY):   # targets from a query page
         origin = st.session_state.pop(origin_key, None)
         if origin:
             collected.statuses = [origin] + list(collected.statuses)
@@ -767,6 +769,7 @@ PAGE_FUNCTIONS = {
     "home": page_home,
     "irisql": render_irisql_page,
     "certsql": render_certsql_page,
+    "dnsdb_search": render_dnsdb_page,
     "recent": lambda: render_recent_page(CTX.timezone, page_history),
     "summary": data_page(lambda: render_summary(CTX, _window_banner)),
     "profile": data_page(lambda: render_profile(CTX)),

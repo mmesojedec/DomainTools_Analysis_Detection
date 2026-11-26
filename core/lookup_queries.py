@@ -38,7 +38,15 @@ from integrations.cache import FROM_CACHE
 from integrations.certificates import CERT_API_BASE_URL, build_search_queries, events_start_time
 from integrations.collector import ct_hashes
 from integrations.credentials import vpndb_base_url
-from integrations.dnsdb import CHASE_SOURCE, MAX_BATCH_SIZE, RDATA_SOURCE, _lookup_urls, client_params, rdata_url
+from integrations.dnsdb import (
+    CHASE_SOURCE,
+    MAX_BATCH_SIZE,
+    RDATA_SOURCE,
+    SEARCH_SOURCE,
+    _lookup_urls,
+    client_params,
+    rdata_url,
+)
 from integrations.enrichment import iris_batches
 
 LOOKUP_SUFFIXES = (" Lookup", " Supplement")   # record-type lookups (" Supplement": saved before the rename)
@@ -254,6 +262,14 @@ def build_lookup_queries(collected, created=None):
                 rows.append(_row(status, "CertsQL", "CertsQL query", request["query"],
                                  certsql_commands(request["query"], limit, request.get("sort"))["curl"],
                                  pages=request.get("pages")))
+        elif source == SEARCH_SOURCE:   # the DNSDB page search that picked the targets
+            from core import dnsdb_search
+            request = status.get("Request") or {}
+            if request.get("value"):
+                search = dnsdb_search.from_dict(request)
+                rows.append(_row(status, "DNSDB Scout", f"DNSDB search ({search.label})",
+                                 dnsdb_search.clean_value(search.mode, search.value),
+                                 dnsdb_search.curl(search) + "\n# " + dnsdb_search.cli(search)))
         elif source == "VPNDB":
             built = _vpndb(status, vpndb_url) if not status.get("Detail", "").startswith("No VPNDB key") else None
             if built:

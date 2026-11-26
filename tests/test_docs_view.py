@@ -101,7 +101,7 @@ def test_mermaid_blocks_are_split_out_in_order():
 def test_real_guides_keep_every_section_and_diagram():
     guides = load_guides()
     workflow = "\n".join(t.body for t in guides["workflows"] if t.level < 3)
-    assert sum(1 for kind, _ in split_markdown(workflow) if kind == "mermaid") == 11   # VPNDB logic, IrisQL and CertsQL searches, DNS resolution, BGPDB logic added
+    assert sum(1 for kind, _ in split_markdown(workflow) if kind == "mermaid") == 12   # VPNDB logic, IrisQL, CertsQL and DNSDB searches, DNS resolution, BGPDB logic added
     assert [t.title for t in guides["use-cases"] if t.level == 2] == [
         "Triage and threat hunting", "Certificates and attack surface", "Infrastructure and hosting",
         "Monitoring, re-use and sharing"]

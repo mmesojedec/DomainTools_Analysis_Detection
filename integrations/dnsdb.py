@@ -337,3 +337,44 @@ def fetch_cname_rdata(name, limit=5000):
     if not clean:
         return FetchResult(RDATA_SOURCE, str(name), data=[], error="Empty target")
     return _fetch(RDATA_SOURCE, clean, [rdata_url(clean)], limit, api_key, "CNAME")
+
+
+SEARCH_SOURCE = "DNSDB search"
+
+
+@cached_fetch(group="pdns")
+def fetch_dnsdb_search(request_url):
+    """
+    One DNSDB request built on the DNSDB search page (core.dnsdb_search.url: a lookup or a Flexible Search, with its
+    limit, time fence and options in the URL): data = the records as DNSDB returns them. One request, so one query of
+    the quota; `truncated` when DNSDB stopped at the limit.
+    """
+    api_key = load_dnsdb_key()
+    target = request_url.split("/dnsdb/v2", 1)[-1].split("?", 1)[0]
+    if not api_key:
+        return FetchResult(SEARCH_SOURCE, target, data=[], error=DNSDB_MISSING)
+    headers = {"Accept": "application/x-ndjson", "X-API-Key": api_key}
+    try:
+        with get_session().get(request_url, headers=headers, timeout=REQUEST_TIMEOUT, stream=True) as resp:
+            if resp.status_code == 404:
+                return FetchResult(SEARCH_SOURCE, target, data=[], record_count=0)
+            if not resp.ok:
+                body = ""
+                try:
+                    body = resp.text.strip()[:300]
+                except Exception:   # pragma: no cover - a broken stream
+                    pass
+                error = describe_http_status(resp.status_code) + (f": {body}" if body and "<" not in body else "")
+                return FetchResult(SEARCH_SOURCE, target, data=[], error=error)
+            objects, condition, message = parse_saf_lines(resp.iter_lines())
+    except Exception as exc:
+        return FetchResult(SEARCH_SOURCE, target, data=[], error=describe_exception(exc))
+    if condition == "failed":
+        return FetchResult(SEARCH_SOURCE, target, data=objects, record_count=len(objects),
+                           error=f"DNSDB query failed: {message or 'unknown error'}")
+    limited = condition == "limited"
+    note = (message or "Result limit reached") if limited else None
+    if message and not limited and condition == "succeeded" and not objects:
+        note = message   # "No results found"
+    return FetchResult(SEARCH_SOURCE, target, data=objects, truncated=limited, record_count=len(objects), note=note,
+                       extras={"condition": condition or ""})

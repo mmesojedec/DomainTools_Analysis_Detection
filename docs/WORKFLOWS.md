@@ -14,6 +14,7 @@ alerts, scores and detections see the [User Guide](USER_GUIDE.md).
 - [Certificate inputs: the two review steps](#certificate-inputs-the-two-review-steps)
 - [IrisQL: finding the targets first](#irisql-finding-the-targets-first)
 - [CertsQL: finding the targets by certificate](#certsql-finding-the-targets-by-certificate)
+- [DNSDB: finding the targets in passive DNS](#dnsdb-finding-the-targets-in-passive-dns)
 - [Collection order](#collection-order)
 - [Passive DNS logic](#passive-dns-logic)
 - [CNAME chasing](#cname-chasing)
@@ -116,6 +117,25 @@ flowchart TD
 The certificates carried into the run matter when the search found them by what they are (e.g. `ja4x equals` the
 Cobalt Strike fingerprint): a domain's own certificate lookup may not return them, so without this the JA4X that
 picked the domain would be missing from its analysis.
+
+## DNSDB: finding the targets in passive DNS
+
+Used when what you have is a naming pattern or an address rather than a list of domains (**DNSDB** in the menu,
+*Search DNSDB* on the Start page, *Search in DNSDB* on the Domain and IP profiles): every name under a domain, a
+look-alike pattern, the names that resolved into a range.
+
+```mermaid
+flowchart TD
+    A["DNSDB page: a domain, *.domain, www.example.*, an IP, CIDR or range, a regex or a glob"] --> B["Search type: Auto picks lookup (RRset / RData IP) or Flexible Search (regex / glob), or set it"]
+    B --> C["Checked before sending; shown as the DNSDB request, curl, dnsdbq / dnsdbflex and a DNSDB Scout share link"]
+    C --> D["Search: one DNSDB query (cached), up to 'Records'"]
+    D --> E["Records, the domains (owner names, CNAME / NS / MX / PTR / SRV / SOA targets) and the public IPs (A / AAAA)"]
+    E --> F["Tick domains and IPs, pick a use case"]
+    F --> G["Analyze: a normal run on them (Source: DNSDB search)"]
+```
+
+The Scout share link is the same link Scout's *Share Link* makes: Scout's form fields as compact JSON, base64, in
+`?share=`. Opening it fills the search in Scout, which runs it on the analyst's own Scout login.
 
 ## Collection order
 

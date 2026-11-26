@@ -120,6 +120,8 @@ STICKY_KEYS = (*COLLECTION_DEFAULTS, *(spec.state_key for spec in THRESHOLD_SPEC
                "irisql_query", "irisql_max_results", "irisql_sort", "irisql_preselect",   # IrisQL search (irisql_view)
                "certsql_query", "certsql_max_results", "certsql_sort", "certsql_sort_order", "certsql_preselect", "certsql_fields",   # CertsQL (certsql_view)
                "irisql_analyze_scope", "certsql_analyze_scope",   # domains / IPs / both (analyze_selection)
+               "dnsdb_search_value", "dnsdb_search_mode", "dnsdb_search_field", "dnsdb_search_rrtype",   # DNSDB (dnsdb_view)
+               "dnsdb_search_limit", "dnsdb_search_preselect", "dnsdb_search_aggregated", "dnsdb_analyze_scope",
                "hunt_map_details", "hunt_map_layout", "hunt_map_size", "hunt_map_open")   # Hunt map → Map options
 
 
@@ -244,7 +246,8 @@ def is_analyst():
 LIVE_MODE = "Live lookups"
 IRISQL_MODE = "IrisQL"
 CERTSQL_MODE = "CertsQL"
-QUERY_MODES = {IRISQL_MODE: "irisql", CERTSQL_MODE: "certsql"}   # data source -> its query page
+DNSDB_MODE = "DNSDB"
+QUERY_MODES = {IRISQL_MODE: "irisql", CERTSQL_MODE: "certsql", DNSDB_MODE: "dnsdb_search"}   # data source -> its query page
 HISTORY_TAB_KEY = "history_tab"            # Runs → Compare & trends' tab row
 OFFLINE_SELECT_KEY = "offline_manage"       # the dataset picked on Data → Saved datasets
 OFFLINE_LOAD_KEY = "offline_load"           # a dataset whose Load button was clicked: the next app run loads it

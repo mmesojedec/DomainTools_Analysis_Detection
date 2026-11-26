@@ -107,6 +107,7 @@ def render_home(has_data, render_recent):
                       help="Paste or type the targets, then click: no need to click outside the box first")
             navigation.link("irisql", label="Find targets with IrisQL", icon=":material/manage_search:")
             navigation.link("certsql", label="Find targets with CertsQL", icon=":material/badge:")
+            navigation.link("dnsdb_search", label="Search DNSDB", icon=":material/saved_search:")
             navigation.link("recent", label="Runs & Sightings", icon=":material/schedule:")
             st.checkbox("Save offline copy", key=SAVE_OFFLINE_KEY,
                         help="Also saves everything this run collects to dt_offline/ (local, git-ignored) so it can be "
