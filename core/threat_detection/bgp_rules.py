@@ -1,5 +1,5 @@
 """
-BGP routing rules (BGPDB): the findings core.bgp.findings computes for the run's hosting IPs, one alert per finding
+BGP routing rules (BGPDB or RIPEstat): the findings core.bgp.findings computes for the run's hosting IPs, one alert per finding
 kind and domain, and the VPNDB match: an anonymizer exit whose prefix is newly announced or announced without
 authorization.
 """
@@ -44,7 +44,7 @@ def rule_origin_conflict(ctx):
         "T1557 (Adversary-in-the-Middle)",
         "Another network announced the prefix that hosts this domain without authorization (RPKI / IRR name a "
         "different origin) while the authorized origin was also announcing it: a BGP hijack or route leak, so traffic "
-        f"to the domain may have gone to the wrong network while it lasted. {len(rows)} conflict(s) in BGPDB.",
+        f"to the domain may have gone to the wrong network while it lasted. {len(rows)} conflict(s) in the BGP routing data.",
         _iocs(rows), flag="bgp_conflict", evidence=_records(rows))
 
 
@@ -67,7 +67,7 @@ def rule_new_prefix(ctx):
     ctx.add(
         "Newly Announced Prefix", "Medium", "T1583 (Acquire Infrastructure)",
         f"The domain is hosted on a prefix that its network only started announcing in the last {bgp.NEW_DAYS} days "
-        "(BGPDB): fresh address space comes and goes with short-lived campaign infrastructure.",
+        "(BGP routing): fresh address space comes and goes with short-lived campaign infrastructure.",
         _iocs(rows), flag="bgp_new_prefix", evidence=_records(rows))
 
 
@@ -117,7 +117,7 @@ def rule_exit_on_unstable_routing(ctx):
                 for ip, verdict, row in hits]
     ctx.add(
         "Anonymizer Exit on Unstable Routing", "High", "T1090 (Proxy)",
-        "VPNDB names these hosting IPs as VPN / proxy / Tor exits, and BGPDB shows their prefix is newly announced or "
+        "VPNDB names these hosting IPs as VPN / proxy / Tor exits, and BGP routing shows their prefix is newly announced or "
         "announced without authorization: an anonymizer on unstable, unregistered address space is rarely a "
         "mainstream service.",
         "\n".join(lines[:MAX_IOC_LINES]), flag="anonymizer_unstable_routing", evidence=evidence)
@@ -146,7 +146,7 @@ def rule_unauthorized_origin_tor_network(ctx):
                 for row, entry in hits]
     ctx.add(
         "Unauthorized Origin Is a Tor Exit Network", "Medium-High", "T1557 (Adversary-in-the-Middle)",
-        "A network that announced this domain's hosting prefix without authorization (BGPDB) also carries Tor exit "
+        "A network that announced this domain's hosting prefix without authorization (BGP routing) also carries Tor exit "
         "traffic (VPNDB Tor overview): privacy or bulletproof-style hosting, where traffic drawn by the announcement "
         "is hard to trace.",
         "\n".join(lines[:MAX_IOC_LINES]), flag="bgp_tor_origin", confidence="Medium", evidence=evidence)
@@ -164,7 +164,7 @@ def rule_hosting_moved_network(ctx):
             "Hosting Moved to a New Network", "Medium" if moved else "Low", "T1583 (Acquire Infrastructure)",
             ("The domain's hosting is now announced by a different network than in its earlier run"
              if moved else "A new network now announces part of the domain's hosting, next to the earlier one(s)")
-            + f" (BGPDB, compared with the run of {when} UTC): re-hosting after a takedown or a block, or a campaign "
+            + f" (BGP routing, compared with the run of {when} UTC): re-hosting after a takedown or a block, or a campaign "
             "moving to fresh infrastructure; also routine CDN or provider changes.",
             f"Before: {', '.join(old)}\nNow: {', '.join(added + kept)}"
             + (f"\nNew prefix(es): {', '.join(prefixes[:MAX_IOC_LINES])}" if prefixes else ""),

@@ -327,7 +327,17 @@ PARTS = {
                    lambda s: _on(s.get("bgp_check", False), "Up to 30 prefixes, 100 paths each")),
     "bgp_neighbours": ("More-specific prefixes", "BGPDB", "Prefixes announced inside the run's prefixes",
                        lambda s: _on(s.get("bgp_context", False), "Up to 10 prefixes, 200 inside each")),
-    "bgp_raw": ("BGPDB responses", "BGPDB", "Every BGPDB answer as received", lambda s: "–"),
+    "bgp_raw": ("BGP responses", "BGPDB / RIPEstat", "Every BGPDB or RIPEstat answer as received", lambda s: "–"),
+    "alt_bgp_origins": ("BGP origins (other source)", "BGPDB / RIPEstat", "The other routing source's origins, for "
+                        "the BGP page's switch", lambda s: _on(s.get("bgp_check", False), "Next to the main source")),
+    "alt_bgp_asns": ("BGP networks (other source)", "BGPDB / RIPEstat", "The other routing source's networks",
+                     lambda s: "–"),
+    "alt_bgp_routes": ("AS paths (other source)", "BGPDB / RIPEstat", "The other routing source's AS paths",
+                       lambda s: "–"),
+    "alt_bgp_neighbours": ("More-specific prefixes (other source)", "BGPDB / RIPEstat", "The other routing source's "
+                           "more-specific prefixes", lambda s: "–"),
+    "bgp_registration": ("IP registration", "RIPEstat", "Registry network object and abuse contact of each hosting IP",
+                         lambda s: _on(s.get("bgp_check", False), "Up to 50 IPs")),
     "seeds": ("Certificate inputs", "Certificate API", "What each certificate input found",
               lambda s: f"Up to {SEED_MAX_CERTIFICATES} certificates per input"),
     "derived": ("Derived targets", "Certificate API", "Targets picked from the certificate inputs",

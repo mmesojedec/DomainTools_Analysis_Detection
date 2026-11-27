@@ -181,8 +181,16 @@ def _single(ctx, address, naming):
 def _hosting(ds, address):
     st.markdown("**Hosting** (Iris Investigate)")
     intel = (getattr(ds, "ip_intel", None) or {}).get(address)
+    on = getattr(ds, "target_domains", None)
+    found = on[on["Target"] == address] if on is not None and not on.empty else pd.DataFrame()
     if not intel:
-        st.caption("Iris has it on none of the run's domains (an IP target, a past or a resolved address).")
+        if not found.empty:
+            st.caption(f"None of the run's domains has it as a current IP in Iris, but Iris has **{len(found):,} "
+                       "other domain(s)** on it now: see *Domains on it in Iris* below.")
+        else:
+            st.caption("None of the run's domains has it as a current IP in Iris (it is an IP target, a past or a "
+                       "resolved address). Other domains in Iris may use it: *Find the domains on it in Iris* below "
+                       "(one Iris Investigate query, the same as IrisQL `ip matches`).")
         return
     count = intel.get("count")
     strength = ("" if not count else "strong pivot" if count <= PIVOT_STRONG_MAX else "useful pivot"
@@ -195,7 +203,33 @@ def _hosting(ds, address):
 
 
 def _routing(ds, address):
-    st.markdown("**BGP routing** (BGPDB)")
+    from views.bgp_page import source_view
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown("**BGP routing**", width="content")
+        view, source = source_view(ds, "ipp_bgp_source")
+        if view is ds and not getattr(ds, "alt_bgp_source", ""):
+            st.caption(f"({source})", width="content")
+    _routing_facts(view, address, source)
+    _registration(ds, address)
+
+
+def _registration(ds, address):
+    """The address's registry network object and abuse contact (RIPEstat), when the run looked them up."""
+    frame = getattr(ds, "bgp_registration", None)
+    if frame is None or frame.empty or address not in set(frame["IP"].astype(str)):
+        return
+    row = frame[frame["IP"].astype(str) == address].iloc[0]
+    st.markdown("**Registration** (RIPEstat)")
+    registered = pd.to_datetime(row.get("Registered"), errors="coerce")
+    facts = {"Range": row.get("Range"), "Net name": row.get("Net Name"), "Organisation": row.get("Organisation"),
+             "Description": row.get("Description"), "Type": row.get("Type"), "Country": row.get("Country"),
+             "RIR": row.get("RIR"), "Registered": f"{registered:%Y-%m-%d}" if pd.notna(registered) else "",
+             "Abuse contact": row.get("Abuse Contact")}
+    st.dataframe(pd.DataFrame([{"Field": k, "Value": str(v)} for k, v in facts.items() if v]), hide_index=True,
+                 width="stretch")
+
+
+def _routing_facts(ds, address, source="BGPDB"):
     route = ipp.routing(ds, address)
     main = route["main"]
     if main is None:
@@ -204,8 +238,7 @@ def _routing(ds, address):
             st.dataframe(resolved.astype(str), hide_index=True, width="stretch")
             st.caption("From the DNS resolution's routing lookups.")
         else:
-            st.caption("Not looked up in BGPDB (no BGPDB host, BGP routing off, a private address, or over the run's "
-                       "limit).")
+            st.caption("Not looked up (BGP routing off, a private address, or over the run's limit).")
         return
     status = main["Status"]
     colour = {"Valid": "green", "Unauthorized": "red"}.get(status, "gray")
@@ -213,7 +246,7 @@ def _routing(ds, address):
                 f":{colour}-badge[{status}]")
     facts = {"RIR": f"{main.get('RIR') or ''} {main.get('RIR Country') or ''}".strip(),
              "Announced since": f"{main['First Seen']:%Y-%m-%d}" if pd.notna(main.get("First Seen")) else "",
-             "Route collectors": str(main.get("Collectors") or ""),
+             "Route collectors" if source == "BGPDB" else "RIS peers seeing it": str(main.get("Collectors") or ""),
              "Other origins seen": ", ".join(sorted(set(route["origins"]["Origin"]) - {main["Origin"]})),
              "Upstreams": ", ".join(route["upstreams"][:8])}
     st.dataframe(pd.DataFrame([{"Field": k, "Value": v} for k, v in facts.items() if v]), hide_index=True,

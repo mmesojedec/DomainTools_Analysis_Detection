@@ -129,18 +129,21 @@ EXPORT_SETS = [
               "Iris hosting ASN", lambda c: _frame(c.ds.hosting_asns)),
     ExportSet("vpndb_exit_neighbours", "Tables", "Other domains on dedicated exits", "Every name DNSDB saw on an exit "
               "VPNDB rates dedicated, and whether it is one of the run's domains", lambda c: _frame(c.ds.exit_neighbours)),
-    ExportSet("bgp_ips", "Tables", "BGP routing per IP (BGPDB)", "Each hosting IP's announced prefix, usual origin "
+    ExportSet("bgp_ips", "Tables", "BGP routing per IP (BGPDB / RIPEstat)", "Each hosting IP's announced prefix, usual origin "
               "network, RPKI / IRR status, RIR, upstream and routing findings", lambda c: _bgp(c.ds, "ips")),
-    ExportSet("bgp_findings", "Tables", "BGP routing findings (BGPDB)", "Origin conflicts, unauthorized origins, new "
+    ExportSet("bgp_findings", "Tables", "BGP routing findings (BGPDB / RIPEstat)", "Origin conflicts, unauthorized origins, new "
               "prefixes, young networks and thin routes, with their evidence", lambda c: _bgp(c.ds, "findings")),
-    ExportSet("bgp_origins", "Tables", "BGP origins (BGPDB)", "Every prefix and origin network BGPDB saw announcing "
+    ExportSet("bgp_origins", "Tables", "BGP origins (BGPDB / RIPEstat)", "Every prefix and origin network BGPDB or RIPE RIS saw announcing "
               "the hosting IPs, with dates, collectors, RPKI, IRR and RIR", lambda c: _frame(c.ds.bgp_origins)),
-    ExportSet("bgp_routes", "Tables", "AS paths (BGPDB)", "Every AS path seen towards the run's prefixes",
+    ExportSet("bgp_routes", "Tables", "AS paths (BGPDB / RIPEstat)", "Every AS path seen towards the run's prefixes",
               lambda c: _frame(c.ds.bgp_routes)),
-    ExportSet("bgp_networks", "Tables", "BGP networks (BGPDB)", "The origin and upstream networks: RIR registration, "
+    ExportSet("bgp_networks", "Tables", "BGP networks (BGPDB / RIPEstat)", "The origin and upstream networks: RIR registration, "
               "visibility, upstream and downstream counts", lambda c: _frame(c.ds.bgp_asns)),
-    ExportSet("bgp_neighbours", "Tables", "More-specific prefixes (BGPDB)", "Prefixes announced inside the run's "
+    ExportSet("bgp_neighbours", "Tables", "More-specific prefixes (BGPDB / RIPEstat)", "Prefixes announced inside the run's "
               "prefixes and CIDR targets, and whether one of the run's own networks announces them", lambda c: _frame(c.ds.bgp_neighbours)),
+    ExportSet("bgp_registration", "Tables", "IP registration (RIPEstat)", "Registry network object (net name, "
+              "organisation, type, country, registration date) and abuse contact of each hosting IP",
+              lambda c: _frame(c.ds.bgp_registration)),
     ExportSet("data_source_status", "Tables", "Data source status", "Outcome of every lookup (OK / Partial / Error)",
               lambda c: pd.DataFrame(getattr(c.collected, "statuses", []) or []).drop(columns="Request",
                                                                                    errors="ignore")),

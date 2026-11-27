@@ -32,6 +32,9 @@ from config import (
     MONITOR_HISTORY_DAYS,
     PIVOT_DEFAULT_MAX_IPS,
     PIVOT_IP_RECORD_LIMIT,
+    RIPESTAT_ASN_MAX,
+    RIPESTAT_MAX_IPS,
+    RIPESTAT_ROUTE_MAX,
     SEED_DEFAULT_TARGETS,
     TXT_SUPPLEMENT_DEFAULT_RECORDS,
     TXT_SUPPLEMENT_FETCH_LIMIT,
@@ -359,7 +362,22 @@ def query_plan(settings):
                               + (f", {VPNDB_NEIGHBOUR_MAX} ranges, {VPNDB_ASN_MAX} networks, {VPNDB_REVERSE_MAX} DNSDB "
                                  "lookups" if context else "")})
     if s["opt_bgpdb"]:
+        from integrations.ripestat_stage import registration_on, routing_plan
         context = bool(s["opt_bgpdb_context"])
+        use_bgpdb, when = routing_plan()
+        ripe, register = when != "never", registration_on()
+        if ripe or register:
+            rows.append({"Key": "ripestat", "Source": "RIPEstat",
+                         "Lookup": (("Only if BGPDB gives no routing: " if when == "fallback" else "")
+                                    + "BGP routing of the IPs the domains use from RIPE RIS (public; the addresses are "
+                                    "sent to RIPE NCC): announced prefixes and origins years back, RPKI / IRR, RIR, the "
+                                    "AS paths RIS sees and the origin and upstream networks"
+                                    + ("; prefixes announced inside the run's prefixes" if context else "")
+                                    + ("; " if register else "") if ripe else "")
+                                   + ("registry network object and abuse contact of each IP" if register else ""),
+                         "Limit": f"{min(int(s['opt_bgpdb_max_ips']), RIPESTAT_MAX_IPS)} IPs per run"
+                                  + (f", {RIPESTAT_ROUTE_MAX} prefixes, {RIPESTAT_ASN_MAX} networks" if ripe else "")})
+    if s["opt_bgpdb"] and (use_bgpdb or when == "never"):
         rows.append({"Key": "bgpdb", "Source": "BGPDB", "Lookup": "BGP routing of the IPs the domains use (only with a "
                      "BGPDB host): announced prefix, origin network, RPKI / IRR, RIR; the upstreams in front of each "
                      "origin (AS paths, last 2 hops) and the origin and upstream networks"

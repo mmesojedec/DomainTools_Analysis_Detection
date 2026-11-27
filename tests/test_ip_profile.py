@@ -79,3 +79,31 @@ def test_a_lone_target_opens_its_profile():
     assert landing(SimpleNamespace(targets=["a.com", "b.com"], domain_targets=["a.com", "b.com"])) == ("summary", {})
     cert = SimpleNamespace(items=["sha256:aa"], hits=[{"sha256": "aa"}])
     assert landing(one, cert) == ("cert_profile", {"cert_profile_hash": "aa"})
+
+
+def test_a_record_without_a_name_keeps_its_domain():
+    ds = dataset()
+    extra = pd.DataFrame({"Domain": ["evil.com"], "RRName": [None], "Field": ["A"], "Value": ["93.184.215.14"],
+                          "Date": [SEEN], "Last Seen": [SEEN]})
+    ds.events_all_utc = ds.pdns = pd.concat([ds.events_all_utc, extra], ignore_index=True)
+    domains = ipp.domains_using(ds, "93.184.215.14")   # was: TypeError comparing str and float (a NaN name)
+    assert list(domains["Domain"]) == ["evil.com", "third.org"] and domains.iloc[0]["Records"] == 3
+    assert ipp.why(ds, "93.184.215.14", None)
+
+
+def test_hosting_card_points_to_the_iris_lookup():
+    from streamlit.testing.v1 import AppTest
+
+    def page():
+        from types import SimpleNamespace
+
+        import pandas as pd
+
+        from views.ip_profile_view import _hosting
+        found = pd.DataFrame({"Target": ["154.83.31.138"] * 2, "Domain": ["a.example", "b.example"]})
+        _hosting(SimpleNamespace(ip_intel={}, target_domains=pd.DataFrame()), "154.83.31.138")
+        _hosting(SimpleNamespace(ip_intel={}, target_domains=found), "154.83.31.138")
+
+    at = AppTest.from_function(page).run()
+    assert "Find the domains on it in Iris" in at.caption[0].value
+    assert "2 other domain(s)" in at.caption[1].value

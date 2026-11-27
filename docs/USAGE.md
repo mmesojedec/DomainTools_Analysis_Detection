@@ -15,7 +15,7 @@ their text is shown.
 - [Running an analysis](#running-an-analysis)
 - [VPN, residential proxy and Tor (VPNDB)](#vpn-residential-proxy-and-tor-vpndb)
   - [CIDR ranges](#cidr-ranges)
-- [BGP routing (BGPDB)](#bgp-routing-bgpdb)
+- [BGP routing (BGPDB or RIPEstat)](#bgp-routing-bgpdb-or-ripestat)
 - [Certificate inputs](#certificate-inputs)
 - [IrisQL](#irisql)
 - [CertsQL](#certsql)
@@ -98,7 +98,7 @@ is in [Pages](USER_GUIDE.md#pages).
     code-generated layout, or one shared by your domains off public CAs; see
     [JA4X](USER_GUIDE.md#ja4x-how-certificates-were-generated)); with BGPDB routing a **BGP** block: IPs routed,
     prefixes, origin networks and routing findings, with a few sentences on who announces the hosting and the worst
-    findings (see [BGP routing](#bgp-routing-bgpdb));
+    findings (see [BGP routing](#bgp-routing-bgpdb-or-ripestat));
   - **Linked domains**: the infrastructure clusters in one sentence each;
   - **Hunt**: one box with the open alerts to decide, the indicators to confirm first and the leads worth
     following, the first step, and **Open the Hunt map**. The hunting work itself (alert decisions, *What to check
@@ -249,7 +249,7 @@ global defaults:
 | VPNDB | VPNDB full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
 | VPNDB | VPNDB neighbourhood and leads | On (the use case sets it) | The /24 around each non-exit hosting IP (up to 30) and the Iris hosting networks (up to 20) in VPNDB, and DNSDB reverse lookups on dedicated exits (up to 10). |
 | VPNDB | Only the VPNDB IP check | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
-| BGPDB | Look up BGP routing of the hosting IPs (BGPDB) | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. Only with a BGPDB host ([Credentials](INSTALLATION.md#credentials)); without one it is skipped. Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb). |
+| BGPDB | Look up BGP routing of the hosting IPs (BGPDB) | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. From BGPDB with a host ([Credentials](INSTALLATION.md#credentials)) and from RIPEstat (public, up to 50 IPs); without BGPDB, from RIPEstat alone (*Settings → Collection options → BGP routing source*). Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb-or-ripestat). |
 | BGPDB | BGPDB hosting IPs per run | 200 | Public hosting addresses looked up; each is one BGPDB query. |
 | BGPDB | BGPDB more-specific prefixes | On | Every prefix announced inside up to 10 of the run's prefixes (the busiest), and by whom; one query each. |
 | Certificate API | CT log & co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
@@ -604,7 +604,8 @@ this one) and *Copy* (the address, and the BGPDB and DNSDB lookups as curl comma
 | Card | From | What it shows |
 | --- | --- | --- |
 | Hosting | Iris Investigate | ASN, ISP, country, how many domains Iris has on the IP (a strong, useful or weak pivot), the run's domains on it now |
-| BGP routing | BGPDB | The announced prefix, the origin network and its status, RIR, announced since, route collectors, other origins seen, every upstream, the more-specific prefixes inside it; a link to the BGP page |
+| BGP routing | BGPDB or RIPEstat | The announced prefix, the origin network and its status, RIR, announced since, route collectors (RIPEstat: RIS peers seeing it), other origins seen, every upstream, the more-specific prefixes inside it; a link to the BGP page |
+| Registration | RIPEstat | The address's registry network object (range, net name, organisation, type, country, registration date) and abuse contact, when the run looked them up |
 | VPN, proxy and Tor | VPNDB | The IP card: verdict, the full answer, weekly history, where the run saw it, its place in the Tor network. An IP the run did not check fetches its full verdict from the *Full VPNDB answer* tab (2 VPNDB queries). IPv6: not collected by VPNDB |
 | Domains seen on it | Passive DNS, Domain History, Iris | Each domain whose names resolved to it (an IP target: every name DNSDB saw on it), with the names, records and first / last seen; *Analyzed* marks the run's own. Select one of the run's for its Domain profile |
 | Domains on it in Iris | Iris Investigate | The IP and CIDR targets' reverse lookup (up to 500, riskiest first). For a hosting IP: **Find the domains on it in Iris** (1 Iris Investigate query), kept with the run |
@@ -1197,7 +1198,24 @@ gets no domain alerts: the domain rules need domains, so analyze the domains fou
 *Not observed* is not an all-clear: VPNDB only knows the exits it measured or that public lists name, and it does not
 collect IPv6, so IPv6 addresses are not sent.
 
-## BGP routing (BGPDB)
+## BGP routing (BGPDB or RIPEstat)
+
+BGP routing comes from BGPDB, RIPEstat or both, picked under **Settings → Collection options → BGP routing source**:
+
+| Choice | Routing from |
+| --- | --- |
+| **Both** (default) | BGPDB and RIPEstat. With a BGPDB host that answers, the alerts use BGPDB; when BGPDB is not available (no host, or off the DomainTools network or VPN), RIPEstat |
+| **RIPEstat only when BGPDB is not available** | BGPDB; RIPEstat only when BGPDB gives no routing (no host, or no answer) |
+| **BGPDB only** | BGPDB; without a host, no routing |
+| **RIPEstat only** | RIPEstat, even with a BGPDB host |
+
+When a run has routing from both, the BGP page and the IP profile's *BGP routing* card show a **BGPDB | RIPEstat**
+switch. It changes what the tables and charts show; the choice is kept from one page to the other. The alerts and the
+*BGP Routing* risk vector always use the first source (BGPDB when it answered); the page says so when the switch
+shows the other one (*The alerts use BGPDB*). With one source, the page names it (*Routing from BGPDB* / *Routing
+from RIPEstat*). The tables and findings are built the same way for both.
+
+### BGPDB
 
 BGPDB is an internal DomainTools service holding the BGP routing table history of about the last 30 days. With its
 host entered under Settings → API credentials (or the `bgpdbq` tool's `~/.bgpdbq.conf` in place), every live run looks
@@ -1211,7 +1229,50 @@ the same as the `bgpdbq` tool's commands:
 | `asn/<asn>` | Up to 40 origin and upstream networks (origins first) | RIR registration date and country, name, visibility, upstream and downstream neighbour counts |
 | `prefix/<prefix>` | Up to 10 of the run's announced prefixes (the busiest; e.g. the /22 the `ip` answer named) and the CIDR targets | Every more-specific prefix announced inside it, and by whom |
 
-**The BGP page** (Infrastructure → BGP) has eight tabs, each with *How to read this*:
+### RIPEstat
+
+[RIPEstat](https://stat.ripe.net/) is RIPE NCC's public data service: the BGP routing seen by the RIPE RIS route
+collectors, years back, and registry data from all five RIRs. It needs no key or account. The addresses and networks
+looked up are sent to RIPE NCC, which asks for a reasonable request rate, so a run looks up at most 50 hosting IPs
+there, and the answers are cached for 6 hours (*Settings → Storage & cache → RIPEstat*).
+
+| Data call | For | What comes back |
+| --- | --- | --- |
+| `routing-history` | Each hosting IP | Every prefix covering it and each network that announced it in the last 90 days, with when RIS first saw that announcement (years back) and how many RIS full-feed peers see it |
+| `routing-status`, `rpki-validation` | Each prefix in use, and each of its origins | IRR route objects of each origin, RPKI validity (the ROAs deciding it), the more-specific prefixes announced inside it |
+| `whois`, `rir-stats-country` | Each prefix and network | The RIR, the registration date of the registry object, the country |
+| `looking-glass` | Up to 15 of the busiest prefixes | The AS paths the RIS peers see now, cut to upstream → origin |
+| `as-overview`, `asn-neighbours` | Up to 20 origin and upstream networks | The network's name; for origins, how many upstream (left) and downstream (right) neighbours it has |
+
+How it differs from BGPDB:
+- **First Seen is the real age.** BGPDB keeps about 30 days, so an older announcement starts on the window's first
+  day. RIPEstat goes back years: *Announced since 2009* is what it says, and *Newly Announced Prefix* is only
+  raised for a prefix that is really new.
+- **Updates** of an origin is the number of periods RIS saw the announcement. **Collectors** is the number of RIS
+  full-feed peers that see it (a well-routed prefix: about 300).
+- **AS paths** are RIS's view now. Their First Seen is the oldest path change among the peers.
+- **More-specific prefixes** have no dates and no RPKI / IRR check.
+- **Resolved addresses** (the DNS resolution page's *Look up the routing*) still need BGPDB.
+
+If RIPEstat does not answer 3 requests in a row (no internet connection), the run skips the rest, with one row on
+Data sources (*RIPEstat stopped*).
+
+### Registration and abuse contact
+
+With **Registration and abuse contact of each hosting IP (RIPEstat)** on (Settings → Collection options → BGP routing
+source; on by default), a run also looks up each hosting IP (up to 50) in RIPEstat, whichever source the routing came
+from:
+- `whois`: the network object in its RIR's database: range, net name, organisation, description, type (*ASSIGNED
+  PA*, *Direct Allocation*, …), country, registration date. People, phone numbers and postal addresses in the answer
+  are not taken.
+- `abuse-contact-finder`: where to report abuse of the address.
+
+They are shown on the BGP page's **Registration** tab and the IP profile's **Registration** card, and exported as
+*IP registration (RIPEstat)*.
+
+### The BGP page
+
+**The BGP page** (Infrastructure → BGP) has nine tabs, each with *How to read this*:
 
 1. **Overview**: the routing findings (also alerts) and one row per hosting IP with its prefix, usual origin, status
    (*Valid*, *Unauthorized*, *Not in RPKI / IRR*), how many networks announced it, RIR and Iris country, and its
@@ -1236,7 +1297,10 @@ the same as the `bgpdbq` tool's commands:
 7. **Resolved addresses**: the addresses the [DNS resolution](#dns-resolution) reached beyond the hosting IPs (CNAME,
    MX and NS targets, SPF hosts), with the records that reach them and their prefix, origin, RPKI, IRR, other origins
    and route collectors; unauthorized and barely visible first, as CSV. They are looked up on the DNS resolution page.
-8. **Responses**: every BGPDB answer as received (NDJSON) with its URL, the DNS resolution's included (their Detail
+8. **Registration**: each hosting IP's registry network object and abuse contact (RIPEstat), with how many
+   organisations, how many have an abuse contact and how many ranges were registered in the last year; select an IP
+   to open it in the IP profile, or download the table as CSV.
+9. **Responses**: every BGPDB or RIPEstat answer as received with its URL, the DNS resolution's included (their Detail
    starts with *DNS resolution*); select one for its curl command. *Evidence → BGPDB Responses* has the same answers.
 
 When the BGPDB host does not answer (off the DomainTools network or VPN), the stage stops after 3 lookups in a row
@@ -1259,7 +1323,8 @@ Elsewhere in the app:
   T1090; the technique table names each technique and the rule categories it was detected from (*BGP Routing*).
 - **Risk**: the *BGP Routing* risk vector (radar and Unified Risk) for domains BGPDB answered for.
 - **Evidence → Records → BGPDB Responses**: every answer as a table of records, as received, and as a download;
-  **Evidence → Lookup queries → BGPDB**: each lookup as a `bgpdbq` and a curl command.
+  **Evidence → Lookup queries → BGPDB**: each lookup as a `bgpdbq` and a curl command; **→ RIPEstat**: each data
+  call as its URL and a curl command.
 - **Results toolbar → Network**: keep only the domains on chosen origin networks.
 - **Exports**: the IOCs hold each domain's origin networks (`autonomous-system`) and announced prefixes
   (`ipv4-prefix` / `ipv6-prefix`, source *BGPDB*) as context, with the routing findings that name them. MISP gets them

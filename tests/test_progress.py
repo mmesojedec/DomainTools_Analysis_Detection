@@ -1,3 +1,5 @@
+import pytest
+
 import integrations.collector as collector
 import integrations.progress as progress_module
 from core.use_cases import query_plan
@@ -14,7 +16,10 @@ from views.collection_progress import (
     up_next,
 )
 
-PLAN = query_plan({"opt_txt": True, "opt_caa": True, "opt_cname": False, "opt_pivot": False})
+with pytest.MonkeyPatch.context() as _patch:   # built at import, before conftest's fixtures: BGPDB, no RIPEstat
+    from integrations import ripestat_stage
+    _patch.setattr(ripestat_stage, "_settings", lambda: {"bgp_source": "bgpdb", "ripestat_registration": False})
+    PLAN = query_plan({"opt_txt": True, "opt_caa": True, "opt_cname": False, "opt_pivot": False})
 
 
 def rows(progress):

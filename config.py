@@ -91,6 +91,17 @@ BGPDB_ROUTE_LIMIT = 100              # upstream → origin paths kept per prefix
 BGPDB_ASN_MAX = 40                   # origin and upstream networks looked up (one query each)
 BGPDB_NEIGHBOUR_MAX = 10             # run prefixes (and CIDR targets) whose more-specific prefixes are listed (one query each)
 BGPDB_NEIGHBOUR_LIMIT = 200          # more-specific prefixes kept per prefix asked
+# RIPEstat (RIPE NCC, public): BGP routing from RIPE RIS and registry data; RIPE NCC asks for a reasonable request rate
+RIPESTAT_MAX_IPS = 50                # hosting IPs looked up in RIPEstat per run (routing history, whois, abuse: 3 calls each)
+RIPESTAT_ROUTE_MAX = 15              # announced prefixes whose AS paths RIS sees are fetched (looking-glass, one call each)
+RIPESTAT_ASN_MAX = 20                # origin and upstream networks looked up (4 calls each)
+RIPESTAT_NEIGHBOUR_MAX = 10          # run prefixes (and CIDR targets) whose more-specific prefixes are listed
+BGP_SOURCE_SETTING = "bgp_source"    # dt_settings.json: where BGP routing comes from (BGP_SOURCES)
+BGP_SOURCES = {"both": "Both: BGPDB and RIPEstat, with a switch on the BGP page (BGPDB first when it answers)",
+               "auto": "RIPEstat only when BGPDB is not available (no host, or no answer)",
+               "bgpdb": "BGPDB only (DomainTools internal service)",
+               "ripestat": "RIPEstat only (RIPE RIS, public)"}
+RIPESTAT_REGISTRATION_SETTING = "ripestat_registration"   # dt_settings.json: registration and abuse contact (on)
 VPNDB_ASN_MAX = 20                   # hosting networks (Iris ASNs) looked up for the providers on them
 VPNDB_REVERSE_MAX = 10               # dedicated exits whose other domains are looked up in DNSDB (rdata/ip)
 VPNDB_REVERSE_LIMIT = 1000           # DNSDB records per dedicated exit
@@ -106,8 +117,8 @@ FETCH_CACHE_TTL_SECONDS = 86400   # default cache lifetime of successful lookups
 # Source groups that can keep cached results for their own lifetime (Settings → Storage & cache)
 CACHE_GROUPS = {"pdns": "Passive DNS (DNSDB)", "iris": "Iris Investigate (enrichment, risk, IrisQL)",
                 "history": "Domain History", "certs": "Certificates (search, events, CT log)", "vpndb": "VPNDB",
-                "bgpdb": "BGPDB (BGP routing)"}
-CACHE_GROUP_DEFAULTS = {"vpndb": 21600, "bgpdb": 21600}   # change often: 6 hours; the others follow the cache lifetime
+                "bgpdb": "BGPDB (BGP routing)", "ripestat": "RIPEstat (BGP routing and registration)"}
+CACHE_GROUP_DEFAULTS = {"vpndb": 21600, "bgpdb": 21600, "ripestat": 21600}   # change often: 6 hours; the others follow the cache lifetime
 # cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache)
 CACHE_LIFETIMES = {"Off": 0, "30 minutes": 1800, "6 hours": 21600, "1 day": 86400, "7 days": 604800,
                    "30 days": 2592000}

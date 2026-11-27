@@ -1,10 +1,10 @@
 """
-BGP routing of the run's hosting IPs (BGPDB): who announces each address, since when, whether the registries allow it,
+BGP routing of the run's hosting IPs (BGPDB, or RIPE RIS through RIPEstat: core.ripestat): who announces each address, since when, whether the registries allow it,
 through which networks, and what else is announced next to it. Turns BGPDB answers into tables and computes the routing
 findings once, for the BGP page, the Summary, the detection rules (core.threat_detection.bgp_rules), the VPNDB match
 and the Hunt map.
 
-BGPDB keeps about the last 30 days: a `First Seen` on the first day of that window means "at least that old", not
+BGPDB keeps about the last 30 days (RIPEstat: years): a `First Seen` on the first day of that window means "at least that old", not
 "new" (data_start / is_new).
 """
 import ipaddress
@@ -226,6 +226,14 @@ def neighbour_rows(covering, run_prefixes, run_origins, records):
     return rows
 
 
+def data_source(raw):
+    """Where a run's BGP routing came from, read from its answers: "RIPEstat" (RIPE RIS) or "BGPDB"."""
+    if raw is not None and not raw.empty and "Command" in raw.columns and \
+            raw["Command"].isin(("routing-history", "looking-glass")).any():
+        return "RIPEstat"
+    return "BGPDB"
+
+
 def lookup_block(ip):
     """The block one `ip` lookup asks for: the /24 around an IPv4 address, the /48 around an IPv6 one (every address of
     the run in it shares the answer)."""
@@ -431,8 +439,8 @@ def findings(origins, asns=None, routes=None, now=None):
                 main["First Seen"], main["Last Seen"])
         if is_new(main["First Seen"], start, end):
             add(NEW_PREFIX, "Medium", group, prefix, main["Origin"],
-                f"{main['Origin']} first announced {prefix} on {main['First Seen']:%Y-%m-%d} (BGPDB's data starts "
-                f"{start:%Y-%m-%d}); seen by {main['Collectors']} collector(s)", main["First Seen"], main["Last Seen"])
+                f"{main['Origin']} first announced {prefix} on {main['First Seen']:%Y-%m-%d} (the routing data "
+                f"starts {start:%Y-%m-%d}); seen by {main['Collectors']} collector(s)", main["First Seen"], main["Last Seen"])
         if 0 < main["Collectors"] < LOW_COLLECTORS:
             add(THIN_ROUTE, "Low", group, prefix, main["Origin"],
                 f"{prefix} is seen by only {main['Collectors']} route collector(s): barely visible on the internet",

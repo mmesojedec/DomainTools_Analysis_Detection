@@ -32,3 +32,17 @@ def no_real_bgpdb(monkeypatch, tmp_path):
     yield
     credentials._bgpdb_conf.cache_clear()
     credentials.bgpdb_credential.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def no_real_ripestat(monkeypatch):
+    """
+    RIPEstat never reaches the network from a test, and runs use BGPDB without RIPEstat registration (as before
+    RIPEstat), whatever the analyst's Settings say; RIPEstat tests set their own settings and mock the calls.
+    """
+    from integrations import ripestat, ripestat_stage
+    from integrations.http import FetchResult
+
+    monkeypatch.setattr(ripestat_stage, "_settings", lambda: {"bgp_source": "bgpdb", "ripestat_registration": False})
+    monkeypatch.setattr(ripestat, "_query", lambda call, resource, **extra: FetchResult(
+        ripestat.SOURCE, ripestat.target_of(call, resource, **extra), error="RIPEstat is not called in tests"))

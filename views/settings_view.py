@@ -5,6 +5,7 @@ lookup cache and API credentials.
 import pandas as pd
 import streamlit as st
 
+from config import BGP_SOURCE_SETTING, BGP_SOURCES, RIPESTAT_REGISTRATION_SETTING
 from core.allowlist import ALLOWLIST_SETTING, parse_allowlist
 from core.lookalike import lookalike_candidates, lookalike_query, parse_brand_list, parse_official_domains
 from core.persistence import load_settings, save_setting
@@ -168,6 +169,8 @@ def render_options_tab():
         render_use_case_settings(find_case(key, profiles), overrides)
     with st.expander("Create a custom profile", icon=":material/add:"):
         render_new_profile(cases)
+    st.divider()
+    render_bgp_source()
 
 
 def render_use_case_settings(case, overrides):
@@ -298,6 +301,45 @@ def render_allowlist():
     st.markdown("**Recognized:** " + (", ".join(f"{n} {label}" for n, label in parts if n) or "nothing yet"))
     st.button("Save allowlist", key="allowlist_save", type="primary", on_click=_save_allowlist,
               disabled=raw == load_settings().get(ALLOWLIST_SETTING, ""), icon=":material/save:")
+
+
+def _save_bgp_source():
+    save_setting(BGP_SOURCE_SETTING, st.session_state["settings_bgp_source"])
+
+
+def _save_ripestat_registration():
+    save_setting(RIPESTAT_REGISTRATION_SETTING, bool(st.session_state["settings_ripestat_registration"]))
+
+
+def render_bgp_source():
+    """Where BGP routing comes from (BGPDB or RIPEstat) and whether RIPEstat adds each IP's registration."""
+    from integrations.ripestat_stage import routing_plan
+    st.subheader("BGP routing source", help="For every run, whatever the use case or profile, when *BGP routing of "
+                                            "the hosting IPs* is on (above). RIPEstat is "
+                                            "RIPE NCC's public data service: BGP routing seen by the RIPE RIS route "
+                                            "collectors (years of history) and registry data from all five RIRs. No "
+                                            "key is needed; the addresses and networks looked up are sent to RIPE NCC.")
+    saved = load_settings()
+    st.session_state.setdefault("settings_bgp_source", saved.get(BGP_SOURCE_SETTING)
+                                if saved.get(BGP_SOURCE_SETTING) in BGP_SOURCES else "both")
+    st.session_state.setdefault("settings_ripestat_registration", bool(saved.get(RIPESTAT_REGISTRATION_SETTING, True)))
+    st.radio("BGP routing from", list(BGP_SOURCES), format_func=BGP_SOURCES.get, key="settings_bgp_source",
+             on_change=_save_bgp_source, label_visibility="collapsed")
+    use_bgpdb, ripe = routing_plan()
+    st.caption("Next run: " + {
+        (True, "always"): "BGP routing from **BGPDB and RIPEstat** (the BGP page switches between them; the alerts "
+                          "use BGPDB, or RIPEstat when BGPDB does not answer).",
+        (True, "fallback"): "BGP routing from **BGPDB**; from **RIPEstat** if BGPDB does not answer.",
+        (True, "never"): "BGP routing from **BGPDB**.",
+        (False, "always"): "BGP routing from **RIPEstat**" + (" (no BGPDB host set)." if st.session_state[
+            "settings_bgp_source"] != "ripestat" else "."),
+        (False, "never"): "no BGP routing (BGPDB only, and no BGPDB host is set).",
+    }.get((use_bgpdb, ripe), ""))
+    st.checkbox("Registration and abuse contact of each hosting IP (RIPEstat)", key="settings_ripestat_registration",
+                on_change=_save_ripestat_registration,
+                help="The registry's network object of each IP (net name, organisation, type, country, registration "
+                     "date) and where to report abuse, also when routing comes from BGPDB. Shown on the BGP page "
+                     "(Registration) and the IP profile.")
 
 
 def render_settings():

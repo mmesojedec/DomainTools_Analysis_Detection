@@ -196,6 +196,13 @@ Limits (generated from `config.py`):
 | `BGPDB_ASN_MAX` | 40 | origin and upstream networks looked up (one query each) |
 | `BGPDB_NEIGHBOUR_MAX` | 10 | run prefixes (and CIDR targets) whose more-specific prefixes are listed (one query each) |
 | `BGPDB_NEIGHBOUR_LIMIT` | 200 | more-specific prefixes kept per prefix asked |
+| `RIPESTAT_MAX_IPS` | 50 | hosting IPs looked up in RIPEstat per run (routing history, whois, abuse: 3 calls each) |
+| `RIPESTAT_ROUTE_MAX` | 15 | announced prefixes whose AS paths RIS sees are fetched (looking-glass, one call each) |
+| `RIPESTAT_ASN_MAX` | 20 | origin and upstream networks looked up (4 calls each) |
+| `RIPESTAT_NEIGHBOUR_MAX` | 10 | run prefixes (and CIDR targets) whose more-specific prefixes are listed |
+| `BGP_SOURCE_SETTING` | bgp_source | dt_settings.json: where BGP routing comes from (BGP_SOURCES) |
+| `BGP_SOURCES` | both: Both: BGPDB and RIPEstat, with a switch on the BGP page (BGPDB first when it answers), auto: RIPEstat only when BGPDB is not available (no host, or no answer), bgpdb: BGPDB only (DomainTools internal service), ripestat: RIPEstat only (RIPE RIS, public) |  |
+| `RIPESTAT_REGISTRATION_SETTING` | ripestat_registration | dt_settings.json: registration and abuse contact (on) |
 | `VPNDB_ASN_MAX` | 20 | hosting networks (Iris ASNs) looked up for the providers on them |
 | `VPNDB_REVERSE_MAX` | 10 | dedicated exits whose other domains are looked up in DNSDB (rdata/ip) |
 | `VPNDB_REVERSE_LIMIT` | 1,000 | DNSDB records per dedicated exit |
@@ -208,8 +215,8 @@ Limits (generated from `config.py`):
 | `CERT_API_MAX_WORKERS` | 4 | SHA256 / CT log lookups run per certificate; more parallel calls trigger HTTP 503s |
 | `CERT_RETRY_PAUSE_SECONDS` | 5 | pause before failed certificate lookups are retried once, one at a time |
 | `FETCH_CACHE_TTL_SECONDS` | 86,400 | default cache lifetime of successful lookups (Settings → Storage & cache) |
-| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB, bgpdb: BGPDB (BGP routing) | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
-| `CACHE_GROUP_DEFAULTS` | vpndb: 21,600, bgpdb: 21,600 | change often: 6 hours; the others follow the cache lifetime |
+| `CACHE_GROUPS` | pdns: Passive DNS (DNSDB), iris: Iris Investigate (enrichment, risk, IrisQL), history: Domain History, certs: Certificates (search, events, CT log), vpndb: VPNDB, bgpdb: BGPDB (BGP routing), ripestat: RIPEstat (BGP routing and registration) | Source groups that can keep cached results for their own lifetime (Settings → Storage & cache) |
+| `CACHE_GROUP_DEFAULTS` | vpndb: 21,600, bgpdb: 21,600, ripestat: 21,600 | change often: 6 hours; the others follow the cache lifetime |
 | `CACHE_LIFETIMES` | Off: 0, 30 minutes: 1,800, 6 hours: 21,600, 1 day: 86,400, 7 days: 604,800, 30 days: 2,592,000 | cache lifetime choices on Settings → Storage & cache: label -> seconds (0: no cache) |
 
 ## Other built-in values

@@ -31,6 +31,7 @@ from core.cert_inputs import hostname_search_query
 from core.certsql import commands as certsql_commands
 from core.helpers import is_ip_address
 from core.irisql import commands as irisql_commands
+from integrations import ripestat
 from integrations.bgpdb import COMMANDS as BGPDB_COMMANDS
 from integrations.bgpdb import SOURCE as BGPDB_SOURCE
 from integrations.bgpdb import curl_command as bgpdb_curl
@@ -54,7 +55,7 @@ LOOKUP_SUFFIXES = (" Lookup", " Supplement")   # record-type lookups (" Suppleme
 QUERY_COLUMNS = ["Source", "Target", "Tool", "Search", "Query", "Command", "Status", "Records", "Cached", "Cached At",
                  "Pages"]
 TOOLS = ["IrisQL", "CertsQL", "Iris Investigate", "DomainTools API", "DomainTools Certificates", "DNSDB Scout", "VPNDB",
-         "BGPDB"]
+         "BGPDB", "RIPEstat"]
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 COUNT = re.compile(r"^(\d+) certificates$")
 COUNT_IPS = re.compile(r"^\d+ IP\(s\)$")
@@ -278,6 +279,12 @@ def build_lookup_queries(collected, created=None):
             built = _bgpdb(target) if not str(status.get("Detail", "")).startswith("BGPDB host not found") else None
             if built:
                 rows.append(_row(status, "BGPDB", *built))
+        elif source == ripestat.SOURCE:
+            parsed = ripestat.parse_target(target)
+            if parsed:
+                call, resource, extra = parsed
+                rows.append(_row(status, "RIPEstat", f"{call} lookup", ripestat.request_url(call, resource, **extra),
+                                 ripestat.curl_command(call, resource, **extra)))
     return pd.DataFrame(rows, columns=QUERY_COLUMNS)
 
 

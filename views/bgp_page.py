@@ -4,12 +4,15 @@ networks, and what else is announced next to them. Tabs: Overview (findings and 
 prefix → origin → upstream, and the AS paths of a prefix), Origin timeline (who announced each prefix when), Networks
 (the origin and upstream ASes), More-specific prefixes (inside the run's prefixes), VPNDB match and Responses (as received, as curl).
 """
+import copy
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
 from core import bgp
+from integrations import ripestat
 from integrations.bgpdb import curl_command
 from views import navigation
 from views.alert_tools import THREAT_TYPE_KEY
@@ -18,7 +21,7 @@ from views.common import chart, selected_rows, selection_key
 PAGE_TAB_KEY = "bgp_tab"
 TAGLINE = "Who announces the hosting IPs on the internet, since when, and whether the registries allow it."
 TABS = ["Overview", "Routing map", "Origin timeline", "Networks", "More-specific prefixes", "VPNDB match",
-        "Resolved addresses", "Responses"]
+        "Resolved addresses", "Registration", "Responses"]
 RULES = [*bgp.FINDINGS, bgp.EXIT_ON_UNSTABLE, bgp.TOR_ORIGIN, bgp.MOVED]
 SEVERITY_BADGES = {"Critical": "red", "High": "red", "Medium-High": "orange", "Medium": "violet", "Low": "blue"}
 STATUS_BADGES = {bgp.VALID: "green", bgp.UNAUTHORIZED: "red", bgp.UNVERIFIED: "gray", bgp.LOCAL_LEAK: "orange"}
@@ -90,8 +93,18 @@ HOW_TO_READ = {
         "An unauthorized origin or several origins on a mail server or name server the domain depends on is worth a "
         "look: whoever announces the prefix receives that traffic.",
     ),
+    "Registration": (
+        "Each hosting IP's network object in its RIR's database (RIPEstat `whois`): the range it belongs to, its net "
+        "name, the organisation holding it, the type (e.g. *ASSIGNED PA*, *Direct Allocation*, *Reassigned*), the "
+        "country and when it was registered.",
+        "**Abuse contact**: where to report abuse of the address (RIPEstat `abuse-contact-finder`), for a takedown "
+        "or a report.",
+        "A range registered days ago, or reassigned to a customer of a hosting company, says more about who uses "
+        "the address than the origin network alone. Turn it on or off under Settings → Collection options → BGP "
+        "routing source.",
+    ),
     "Responses": (
-        "Every BGPDB lookup of the run as received (NDJSON), with the URL, those of the DNS resolution included "
+        "Every BGPDB or RIPEstat lookup of the run as received, with the URL, those of the DNS resolution included "
         "(Detail starts with *DNS resolution*). Select one to get it as a curl command.",
     ),
 }
@@ -101,19 +114,68 @@ def _empty(frame):
     return frame is None or frame.empty
 
 
+VIEW_KEY = "bgp_view_source"   # the source the switch shows, kept across pages (BGP page, IP profile)
+NOTES = {"RIPEstat": " (RIPE RIS: First Seen goes back years; Updates = periods the announcement was seen, Collectors "
+                     "= RIS full-feed peers seeing it)",
+         "BGPDB": " (about the last 30 days)"}
+
+
+def _keep_view(key):
+    st.session_state[VIEW_KEY] = st.session_state[key]
+
+
+def source_view(ds, key):
+    """
+    (the dataset to show, its BGP source): with routing from BGPDB and RIPEstat, a switch picks which one the tables
+    show (the alerts always use ds.bgp_source); the choice is kept for the BGP page and the IP profile alike.
+    """
+    primary = getattr(ds, "bgp_source", "") or bgp.data_source(getattr(ds, "bgp_raw", None))
+    other = getattr(ds, "alt_bgp_source", "")
+    if not other or _empty(getattr(ds, "alt_bgp_origins", None)):
+        return ds, primary
+    names = [primary, other]
+    if st.session_state.get(VIEW_KEY) not in names:
+        st.session_state[VIEW_KEY] = primary
+    st.session_state[key] = st.session_state[VIEW_KEY]
+    choice = st.segmented_control("BGP routing from", names, key=key, required=True, on_change=_keep_view,
+                                  args=(key,),
+                                  help=f"This run has routing from both. The alerts and the Risk vector use {primary}"
+                                       f"{' (BGPDB answered)' if primary == 'BGPDB' else ''}; the switch changes what "
+                                       "the tables and charts here show.")
+    if choice == primary:
+        return ds, primary
+    view = copy.copy(ds)
+    for name in ("bgp_origins", "bgp_asns", "bgp_routes", "bgp_neighbours"):
+        setattr(view, name, getattr(ds, f"alt_{name}"))
+    if hasattr(ds, "derived"):
+        view.derived = {}
+    return view, other
+
+
 def render_bgp_page(ds):
-    st.header("BGP", help="BGP routing of the run's hosting IPs from BGPDB (an internal DomainTools service): announced "
-                          "prefixes and their origin networks, RPKI / IRR validity, RIR allocations, AS paths, the "
-                          "networks involved and the prefixes around them. BGPDB keeps about the last 30 days.")
+    st.header("BGP", help="BGP routing of the run's hosting IPs: announced prefixes and their origin networks, RPKI / "
+                          "IRR validity, RIR allocations, AS paths, the networks involved and the prefixes around "
+                          "them. From BGPDB (an internal DomainTools service, about the last 30 days) or RIPEstat "
+                          "(RIPE NCC's public data from the RIPE RIS route collectors, years of history): Settings → "
+                          "Collection options → BGP routing source.")
     st.caption(TAGLINE)
+    primary = getattr(ds, "bgp_source", "") or bgp.data_source(ds.bgp_raw)
+    ds, source = source_view(ds, "bgp_page_source")
+    if not _empty(ds.bgp_origins):
+        st.caption(f":material/dns: Routing from **{source}**{NOTES.get(source, '')}"
+                   + (f". The alerts use {primary}." if source != primary else ""))
     if _empty(ds.bgp_origins):
-        st.info("No BGP routing in this run. Enter the BGPDB host under Settings → API credentials (or set up the "
-                "bgpdbq tool's ~/.bgpdbq.conf), keep *Look up BGP routing of the hosting IPs (BGPDB)* on (Settings → "
-                "Collection options), then analyze again. BGPDB is reachable on the DomainTools network or VPN.",
+        st.info("No BGP routing in this run. Keep *Look up BGP routing of the hosting IPs* on (Settings → Collection "
+                "options) and analyze again. Routing comes from BGPDB when its host is set (Settings → API "
+                "credentials, or the bgpdbq tool's ~/.bgpdbq.conf; reachable on the DomainTools network or VPN), "
+                "otherwise from RIPEstat (public): Settings → Collection options → BGP routing source.",
                 icon=":material/info:")
         if not _empty(getattr(ds, "resolution_routing", None)):
             st.subheader("Resolved addresses")
             _resolved(ds)
+        if not _empty(getattr(ds, "bgp_registration", None)):
+            st.subheader("Registration")
+            _registration(ds)
         if not _empty(ds.bgp_raw):
             _responses(ds)
         return
@@ -121,7 +183,8 @@ def render_bgp_page(ds):
     ips = bgp.ip_table(ds.bgp_origins, ds.bgp_routes, found, ds.enrichment)
     tabs = st.tabs(TABS, key=PAGE_TAB_KEY, on_change="rerun")
     navigation.scroll_to_tab()
-    renders = (_overview, _routing_map, _timeline, _networks, _neighbours, _vpndb, _resolved, _responses)
+    renders = (_overview, _routing_map, _timeline, _networks, _neighbours, _vpndb, _resolved, _registration,
+               _responses)
     for tab, name, render in zip(tabs, TABS, renders):
         if tab.open is not False:
             with tab:
@@ -564,10 +627,36 @@ def _vpndb_jump(networks, exits):
 
 # ---- Responses --------------------------------------------------------------------------------------------------------
 
+def _registration(ds):
+    """Each hosting IP's registry network object and abuse contact (RIPEstat)."""
+    frame = getattr(ds, "bgp_registration", None)
+    if _empty(frame):
+        st.caption("No registration in this run: turn on *Registration and abuse contact of each hosting IP* under "
+                   "Settings → Collection options → BGP routing source, then analyze again.")
+        return
+    cols = st.columns(4)
+    cols[0].metric("IPs", len(frame))
+    cols[1].metric("Organisations", frame["Organisation"].replace("", None).nunique())
+    cols[2].metric("With an abuse contact", int((frame["Abuse Contact"] != "").sum()))
+    recent = pd.to_datetime(frame["Registered"], errors="coerce") >= pd.Timestamp.now() - pd.Timedelta(days=365)
+    cols[3].metric("Registered in the last year", int(recent.sum()))
+    picked = st.dataframe(frame, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                          key="bgp_registration_table",
+                          column_config={"Registered": st.column_config.DateColumn("Registered", format="YYYY-MM-DD"),
+                                         "Abuse Contact": st.column_config.TextColumn(width="medium")})
+    chosen = picked.selection.rows if picked and picked.selection else []
+    if chosen:
+        from views.ip_profile_view import open_button
+        open_button(frame.iloc[chosen[0]]["IP"], label=f"Open {frame.iloc[chosen[0]]['IP']} in IP profile",
+                    key="bgp_registration_open")
+    st.download_button("Download (CSV)", lambda: frame.to_csv(index=False).encode(), "ip_registration.csv",
+                       "text/csv", on_click="ignore", icon=":material/download:", key="bgp_registration_csv")
+
+
 def _responses(ds):
     raw = ds.bgp_raw
     if _empty(raw):
-        st.caption("No BGPDB lookups recorded.")
+        st.caption("No BGPDB or RIPEstat lookups recorded.")
         return
     shown = raw.drop(columns=["Response"])
     event = st.dataframe(shown, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
@@ -578,5 +667,8 @@ def _responses(ds):
         limit = None
         if "limit=" in str(row["URL"]):
             limit = str(row["URL"]).split("limit=")[-1]
-        st.code(curl_command(row["Command"], row["Argument"], limit), language="bash")
+        if row["Command"] in ripestat.CALLS:
+            st.code(f"curl -s '{row['URL']}' | jq .data", language="bash")
+        else:
+            st.code(curl_command(row["Command"], row["Argument"], limit), language="bash")
         st.code(str(row["Response"])[:20000], language="json")

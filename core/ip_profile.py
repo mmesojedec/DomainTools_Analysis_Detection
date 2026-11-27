@@ -165,15 +165,15 @@ def domains_using(ds, address):
             uses = uses[uses["IP"].astype(str) == address]
     rows = []
     if not uses.empty:
-        names = uses["RRName"].astype(str).str.rstrip(".")
-        owner = uses["Domain"].astype(str)
-        domain = [o if o in analyzed and not (is_ip_address(o) or is_cidr(o)) else (registrable_domain(n) or n)
-                  for o, n in zip(owner, names)]
+        names = uses["RRName"].fillna("").astype(str).str.rstrip(".")   # pandas keeps NaN through astype(str)
+        owner = uses["Domain"].fillna("").astype(str)
+        domain = [o if o in analyzed and not (is_ip_address(o) or is_cidr(o)) else (registrable_domain(n) or n or o)
+                  for o, n in zip(owner, names)]   # a row without a record name keeps its domain
         seen = uses.assign(_domain=domain, _name=names,
                            _last=pd.to_datetime(uses["Last Seen"], errors="coerce").fillna(
                                pd.to_datetime(uses.get("Date"), errors="coerce")))
         for name, group in seen.groupby("_domain"):
-            rows.append({"Domain": name, "Analyzed": name in analyzed, "Names": ", ".join(sorted(set(group["_name"]))[:5]),
+            rows.append({"Domain": name, "Analyzed": name in analyzed, "Names": ", ".join(sorted({n for n in group["_name"] if n})[:5]),
                          "Records": len(group), "First Seen": pd.to_datetime(group.get("Date"), errors="coerce").min(),
                          "Last Seen": group["_last"].max()})
     iris = (getattr(ds, "ip_intel", None) or {}).get(address) or {}

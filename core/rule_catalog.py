@@ -210,35 +210,35 @@ RULE_CATALOG = {
         "High (unauthorized origin seen in the last 7 days) / Medium / Low (BYOIP or DDoS-protection network)",
         "T1557 (Adversary-in-the-Middle)",
         "A prefix covering one of the domain's hosting IPs has its authorized origin (RPKI or IRR valid) and also "
-        "another origin that RPKI or IRR names as invalid (BGPDB, last ~30 days).",
+        "another origin that RPKI or IRR names as invalid (BGPDB, last ~30 days; or RIPEstat).",
         "Two networks claiming the same addresses, one of them without authorization, is how BGP hijacks and route "
         "leaks look: traffic to the domain may have gone to the wrong network while it lasted."),
     "Unauthorized BGP Origin": (
         "Medium-High / Medium (BYOIP or DDoS-protection network) / Low (... with an authorized more-specific inside)",
         "T1583 (Acquire Infrastructure)",
         "The network that usually announces the prefix of a hosting IP is RPKI- or IRR-invalid for it, and no "
-        "authorized origin is seen (BGPDB). A cloud or DDoS-protection network that announces customers' space "
+        "authorized origin is seen (BGPDB or RIPEstat). A cloud or DDoS-protection network that announces customers' space "
         "(Cloudflare, AWS, Google, Akamai, Fastly, Imperva, ...) counts lower.",
         "Hosting on space the registries do not tie to its announcer: squatted, informally leased or hijacked "
         "prefixes are favoured by bulletproof hosters."),
     "Newly Announced Prefix": (
         "Medium", "T1583 (Acquire Infrastructure)",
         "The prefix of a hosting IP was first announced by its origin in the last 14 days, and after the first "
-        "days of BGPDB's ~30-day window (an older announcement can't be told apart there).",
+        "days of the routing data's window (BGPDB: ~30 days, where an older announcement can't be told apart; RIPEstat: years).",
         "Fresh address space comes and goes with short-lived campaign infrastructure."),
     "Recently Registered Origin Network": (
         "Medium-High (under 90 days) / Medium (under a year)", "T1583 (Acquire Infrastructure)",
-        "The origin AS of a hosting IP was registered at its RIR within the last year (BGPDB's RIR record).",
+        "The origin AS of a hosting IP was registered at its RIR within the last year (the RIR record from BGPDB or RIPEstat).",
         "Young networks host a large share of malicious infrastructure; established hosters rarely are."),
     "Low-Visibility or Single-Upstream Route": (
         "Low", "T1583 (Acquire Infrastructure)",
         "The prefix of a hosting IP is seen by fewer than 10 route collectors, or its origin network has a single "
-        "upstream and no downstream networks (BGPDB); not when that upstream is the same company's network.",
+        "upstream and no downstream networks (BGPDB or RIPEstat); not when that upstream is the same company's network.",
         "Context: small and bulletproof hosters often look like this, so do many legitimate small networks."),
     "Anonymizer Exit on Unstable Routing": (
         "High", "T1090 (Proxy)",
         "A hosting IP VPNDB names as a VPN, proxy or Tor exit sits on a prefix with an origin conflict, an "
-        "unauthorized origin or a new announcement (BGPDB).",
+        "unauthorized origin or a new announcement (BGPDB or RIPEstat).",
         "An anonymizer on unstable or unregistered space is rarely a mainstream service: likely the actor's own or "
         "a fly-by-night provider."),
     "Unauthorized Origin Is a Tor Exit Network": (
@@ -249,7 +249,7 @@ RULE_CATALOG = {
         "drawn by the announcement is hard to trace."),
     "Hosting Moved to a New Network": (
         "Medium (none of the earlier networks left) / Low (a network added)", "T1583 (Acquire Infrastructure)",
-        "The usual origin network of the domain's hosting IPs (BGPDB) is not one the domain's latest earlier saved run "
+        "The usual origin network of the domain's hosting IPs (BGPDB or RIPEstat) is not one the domain's latest earlier saved run "
         "recorded (any target list).",
         "Re-hosting after a takedown or a block, or a campaign moving to fresh infrastructure; routine CDN or provider "
         "changes look the same, so check the new network."),

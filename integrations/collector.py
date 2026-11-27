@@ -84,6 +84,7 @@ from integrations.enrichment import (
 )
 from integrations.fetch_runner import _concat, _parallel, _record_all, _safe_call  # noqa: F401
 from integrations.http import FetchResult, StatusLog
+from integrations.ripestat_stage import collect_registration_only, collect_ripestat, collect_routing  # noqa: F401
 from integrations.risk import risk_from_iris
 from integrations.vpndb import SOURCE as VPNDB_SOURCE
 from integrations.vpndb import (
@@ -139,7 +140,14 @@ class CollectedData:
     bgp_asns: pd.DataFrame = field(default_factory=pd.DataFrame)       # BGPDB: the origin and upstream networks
     bgp_routes: pd.DataFrame = field(default_factory=pd.DataFrame)     # BGPDB: AS paths towards the run's prefixes
     bgp_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)   # BGPDB: prefixes announced around them
-    bgp_raw: pd.DataFrame = field(default_factory=pd.DataFrame)        # every BGPDB answer as received
+    bgp_raw: pd.DataFrame = field(default_factory=pd.DataFrame)        # every BGPDB / RIPEstat answer as received
+    bgp_registration: pd.DataFrame = field(default_factory=pd.DataFrame)   # RIPEstat: registry object, abuse contact
+    bgp_source: str = ""                  # where bgp_* came from ("BGPDB" / "RIPEstat"); "" in runs saved before
+    alt_bgp_source: str = ""              # the other source collected next to it, shown with the BGP page's switch
+    alt_bgp_origins: pd.DataFrame = field(default_factory=pd.DataFrame)    # the other source's tables (bgp_* columns)
+    alt_bgp_asns: pd.DataFrame = field(default_factory=pd.DataFrame)
+    alt_bgp_routes: pd.DataFrame = field(default_factory=pd.DataFrame)
+    alt_bgp_neighbours: pd.DataFrame = field(default_factory=pd.DataFrame)
     target_domains: pd.DataFrame = field(default_factory=pd.DataFrame)   # Iris: domains on each IP / CIDR target
     statuses: list = field(default_factory=list)
     seed_inputs: list = field(default_factory=list)                  # certificate input labels, e.g. "cn:Acme VPN"
@@ -1249,10 +1257,9 @@ def collect_all(target_inputs, dnsdb_limit, include_ct=True, ct_max_hashes=CT_LO
             data.tor_overview = collect_tor_overview(log)
             data.prefixes, data.prefix_addresses, data.range_ips = collect_prefixes(cidrs, log)
         if bgp_check:
-            step("Looking up BGP routing of the hosting IPs (BGPDB)...")
-            (data.bgp_origins, data.bgp_asns, data.bgp_routes, data.bgp_neighbours,
-             data.bgp_raw) = collect_bgp(domains, ip_targets, data.pdns, data.enrichment, log, bgp_max_ips, bgp_context,
-                                         cidr_targets=cidrs)
+            for name, value in collect_routing(domains, ip_targets, data.pdns, data.enrichment, log, bgp_max_ips,
+                                               bgp_context, cidr_targets=cidrs, step=step).items():
+                setattr(data, name, value)
         if ct is not None:
             step("Fetching CT log and certificate co-occurrence telemetry...")
             [(data.ctl, data.cert_observations)] = _wait_drawing([ct])

@@ -70,7 +70,9 @@ Runs & Sightings, tick *Save offline copy*, or *Clear* the box. The sidebar hold
   checks VPNDB within its own query budget; IP and CIDR targets also go to passive DNS, Iris, certificates and BGPDB
   (Summary → *IP and range targets*); *Check IP addresses* looks up IPs and CIDR ranges in VPNDB only, with
   every address of a range checked.
-- **Reads the BGP routing** of the hosting IPs with BGPDB (an internal DomainTools service; optional): the announced
+- **Reads the BGP routing** of the hosting IPs with BGPDB (an internal DomainTools service), or without it from
+  RIPEstat (RIPE NCC's public data from the RIPE RIS route collectors, years of history; no key), plus each IP's
+  registration and abuse contact from RIPEstat: the announced
   prefix and the network that announces it, whether RPKI / IRR authorize it, the RIR allocation, every upstream in
   front of the origin, the networks' age and visibility, and the more-specific prefixes announced inside the run's
   prefixes. One `ip` lookup covers a /24 (IPv6 /48), and `route?hops=2` keeps the AS paths to upstream and origin. Alerts on origin conflicts
@@ -222,6 +224,7 @@ core/
   alert_grouping.py            Merging repeated alerts; grouping by finding, cluster, domain, ATT&CK technique; related events
   anonymizers.py               VPNDB verdicts of the run's hosting IPs: which IPs are checked, one row per IP, shared exits,
                                Iris cross-check, exit history overlap, neighbouring /24s, hosting ASNs, exit neighbours
+  ripestat.py                  RIPEstat answers in BGPDB's shape, and each IP's registration row
   bgp.py                       BGPDB answers as tables (origins, networks, upstreams, more-specific prefixes), the routing
                                findings, the per-IP table, the VPNDB match and the run's prefixes / ASNs for the Hunt map
   network_intel.py             CDN attribution, ASN-aware network keys, hosting watchlist, origin-IP discovery
@@ -271,6 +274,8 @@ integrations/
   fetch_runner.py              Shared stage helpers: fetcher calls that never raise, ordered parallel map counted on the progress
   vpndb_stage.py               VPNDB stage: bulk verdicts, full verdicts, history, ranges and networks, Tor overview, IP and CIDR targets
   bgp_stage.py                 BGPDB stage: ip, route, asn and prefix lookups of the hosting IPs; stops early when the host is down
+  ripestat.py                  RIPEstat Data API client (routing history, RPKI, looking glass, whois, abuse contact)
+  ripestat_stage.py            RIPEstat stage: the same BGP tables as BGPDB, and each IP's registration and abuse contact
   http.py                      Shared requests session with retry/backoff, DomainTools SDK retries, per-lookup query count, FetchResult, StatusLog
   cache.py                     Lookup cache (memory and dt_cache/ on disk) with the analyst's lifetime and each source's own
   credentials.py               Credential resolution (environment, credentials.toml, files), source overview, saving keys entered in the app
