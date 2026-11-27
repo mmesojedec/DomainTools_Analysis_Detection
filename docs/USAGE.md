@@ -249,9 +249,11 @@ global defaults:
 | VPNDB | VPNDB full verdicts per run | 50 (the use case sets it) | Exits given the full verdict (sharing, IOC value, Tor role, evidence) and the weekly history (exit while the domain used it?); two queries each. With *Only the VPNDB IP check*: the IPv4 targets given the full verdict. |
 | VPNDB | VPNDB neighbourhood and leads | On (the use case sets it) | The /24 around each non-exit hosting IP (up to 30) and the Iris hosting networks (up to 20) in VPNDB, and DNSDB reverse lookups on dedicated exits (up to 10). |
 | VPNDB | Only the VPNDB IP check | Off | A different kind of run, for IP addresses and CIDR ranges only: they are looked up in VPNDB and **nothing else** is queried (no Iris, passive DNS, Domain History or certificates). Domain targets are skipped, and Data sources says so. Only the *Check IP addresses* use case turns it on; in a custom profile, turn it on only if the profile is meant for IP lists. |
-| BGPDB | Look up BGP routing of the hosting IPs (BGPDB) | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. From BGPDB with a host ([Credentials](INSTALLATION.md#credentials)) and from RIPEstat (public, up to 50 IPs); without BGPDB, from RIPEstat alone (*Settings → Collection options → BGP routing source*). Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb-or-ripestat). |
-| BGPDB | BGPDB hosting IPs per run | 200 | Public hosting addresses looked up; each is one BGPDB query. |
-| BGPDB | BGPDB more-specific prefixes | On | Every prefix announced inside up to 10 of the run's prefixes (the busiest), and by whom; one query each. |
+| BGP routing | Look up BGP routing of the hosting IPs | On in every use case | Looks up each public hosting address (IP targets, current Iris IPs, passive DNS most recently seen first; IPv4 and IPv6, no CDN or private addresses) in BGPDB: the announced prefixes and origin networks with RPKI / IRR and RIR; then the AS paths of up to 30 prefixes and up to 40 origin and upstream networks. From BGPDB with a host ([Credentials](INSTALLATION.md#credentials)) and from RIPEstat (public, up to 50 IPs); without BGPDB, from RIPEstat alone (*Settings → Collection options → BGP routing*). Off in *Only the VPNDB IP check*. See [BGP routing](#bgp-routing-bgpdb-or-ripestat). |
+| BGP routing | BGP hosting IPs per run | 200 | Public hosting addresses looked up: in BGPDB one query per /24 (IPv6 /48) they fall in; in RIPEstat at most 50 of them, three calls each. |
+| BGP routing | BGP more-specific prefixes | On | Every prefix announced inside up to 10 of the run's prefixes (the busiest), and by whom; one query each. |
+| BGP routing | BGP routing source | Both | Where the routing comes from, for every run (saved; not per use case): **Both** (BGPDB and RIPEstat, with a switch on the BGP page; RIPEstat alone when BGPDB is not available), **RIPEstat only when BGPDB is not available**, **BGPDB only** or **RIPEstat only**. The line under it says what the next run will use. See [BGP routing](#bgp-routing-bgpdb-or-ripestat). |
+| BGP routing | Registration and abuse contact of each hosting IP (RIPEstat) | On | Each hosting IP's registry network object and abuse contact from RIPEstat (up to 50 IPs, two calls each), whichever source the routing comes from. Saved for every run. |
 | Certificate API | CT log & co-occurrence telemetry | On | Two extra API calls per Certificate API certificate. Turn off for faster runs on large targets. |
 | Certificate API | Max certificates for CT lookups | 10 | Caps the per-certificate lookups above. The newest certificates are looked up first, taking turns between domains so one busy domain does not use the whole budget. Each certificate costs two calls, so large values make runs on busy domains take minutes. |
 | Certificate API | Certificate inputs: pre-selected targets | 10 | How many domains / IPs found through certificate inputs are pre-selected (most certificates first). At most 100 can be analyzed per run. |
@@ -1200,7 +1202,7 @@ collect IPv6, so IPv6 addresses are not sent.
 
 ## BGP routing (BGPDB or RIPEstat)
 
-BGP routing comes from BGPDB, RIPEstat or both, picked under **Settings → Collection options → BGP routing source**:
+BGP routing comes from BGPDB, RIPEstat or both, picked under **Settings → Collection options → BGP routing**:
 
 | Choice | Routing from |
 | --- | --- |
@@ -1259,8 +1261,8 @@ Data sources (*RIPEstat stopped*).
 
 ### Registration and abuse contact
 
-With **Registration and abuse contact of each hosting IP (RIPEstat)** on (Settings → Collection options → BGP routing
-source; on by default), a run also looks up each hosting IP (up to 50) in RIPEstat, whichever source the routing came
+With **Registration and abuse contact of each hosting IP (RIPEstat)** on (Settings → Collection options → BGP
+routing; on by default), a run also looks up each hosting IP (up to 50) in RIPEstat, whichever source the routing came
 from:
 - `whois`: the network object in its RIR's database: range, net name, organisation, description, type (*ASSIGNED
   PA*, *Direct Allocation*, …), country, registration date. People, phone numbers and postal addresses in the answer

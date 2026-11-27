@@ -45,7 +45,7 @@ investigations the tool supports, see [Use Cases](USE_CASES.md).
    [VPNDB](USAGE.md#vpn-residential-proxy-and-tor-vpndb) for VPN, residential proxy and Tor exits (with the weekly
    history of each exit, the ranges and networks around the hosting, and DNSDB's other domains on dedicated exits),
    and CIDR targets are looked up there as ranges. The hosting IPs' BGP routing comes from BGPDB and RIPEstat (RIPE
-   NCC's public service; Settings → Collection options → BGP routing source; the BGP page switches between them), or from
+   NCC's public service; Settings → Collection options → BGP routing; the BGP page switches between them), or from
    RIPEstat alone when BGPDB is not available, and RIPEstat adds each IP's registry record and abuse contact: announced prefix and origin network, RPKI / IRR, RIR, the AS paths, the origin and upstream networks and the
    prefixes announced around them (see [BGP routing rules](#bgp-routing-rules)). Where a passive DNS lookup stopped at its limit, record-type
    lookups fill in TXT, CAA and (when none came back) CNAME records, and the CNAME targets that point outside

@@ -80,9 +80,9 @@ Options per use case (generated from `core/use_cases.py`):
 | VPNDB full verdicts per run | 50 | 20 | · | · | 10 | 20 | 20 | 100 | · |
 | VPNDB neighbourhood and leads | on | · | · | · | off | off | off | · | · |
 | Only the VPNDB IP check | off | · | · | · | · | · | · | on | · |
-| Look up BGP routing of the hosting IPs (BGPDB) | on | · | · | · | · | · | · | · | · |
-| BGPDB hosting IPs per run | 200 | · | · | · | · | · | · | · | · |
-| BGPDB more-specific prefixes | on | · | · | · | · | · | · | · | · |
+| Look up BGP routing of the hosting IPs | on | · | · | · | · | · | · | · | · |
+| BGP hosting IPs per run | 200 | · | · | · | · | · | · | · | · |
+| BGP more-specific prefixes | on | · | · | · | · | · | · | · | · |
 | CT log & co-occurrence telemetry | on | · | · | · | · | · | · | · | · |
 | Max certificates for CT lookups | 10 | · | · | · | · | 100 | · | · | · |
 | Certificate inputs: pre-selected targets | 10 | · | · | · | · | · | · | · | · |

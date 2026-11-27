@@ -101,7 +101,7 @@ HOW_TO_READ = {
         "or a report.",
         "A range registered days ago, or reassigned to a customer of a hosting company, says more about who uses "
         "the address than the origin network alone. Turn it on or off under Settings → Collection options → BGP "
-        "routing source.",
+        "routing.",
     ),
     "Responses": (
         "Every BGPDB or RIPEstat lookup of the run as received, with the URL, those of the DNS resolution included "
@@ -157,7 +157,7 @@ def render_bgp_page(ds):
                           "IRR validity, RIR allocations, AS paths, the networks involved and the prefixes around "
                           "them. From BGPDB (an internal DomainTools service, about the last 30 days) or RIPEstat "
                           "(RIPE NCC's public data from the RIPE RIS route collectors, years of history): Settings → "
-                          "Collection options → BGP routing source.")
+                          "Collection options → BGP routing.")
     st.caption(TAGLINE)
     primary = getattr(ds, "bgp_source", "") or bgp.data_source(ds.bgp_raw)
     ds, source = source_view(ds, "bgp_page_source")
@@ -168,7 +168,7 @@ def render_bgp_page(ds):
         st.info("No BGP routing in this run. Keep *Look up BGP routing of the hosting IPs* on (Settings → Collection "
                 "options) and analyze again. Routing comes from BGPDB when its host is set (Settings → API "
                 "credentials, or the bgpdbq tool's ~/.bgpdbq.conf; reachable on the DomainTools network or VPN), "
-                "otherwise from RIPEstat (public): Settings → Collection options → BGP routing source.",
+                "otherwise from RIPEstat (public): Settings → Collection options → BGP routing.",
                 icon=":material/info:")
         if not _empty(getattr(ds, "resolution_routing", None)):
             st.subheader("Resolved addresses")
@@ -551,7 +551,7 @@ def _neighbours(ds):
     near = ds.bgp_neighbours
     if _empty(near):
         st.caption("No more-specific prefixes in this run: nothing smaller is announced inside the run's prefixes, or "
-                   "*BGPDB more-specific prefixes* is off.")
+                   "*BGP more-specific prefixes* is off.")
         return
     same = near[near["Same Origin"].astype(bool)]
     row = st.columns(3)
@@ -632,7 +632,7 @@ def _registration(ds):
     frame = getattr(ds, "bgp_registration", None)
     if _empty(frame):
         st.caption("No registration in this run: turn on *Registration and abuse contact of each hosting IP* under "
-                   "Settings → Collection options → BGP routing source, then analyze again.")
+                   "Settings → Collection options → BGP routing, then analyze again.")
         return
     cols = st.columns(4)
     cols[0].metric("IPs", len(frame))

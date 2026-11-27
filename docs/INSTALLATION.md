@@ -60,7 +60,7 @@ key (or a credential warning) changes, and a grey line keeps the state in view. 
 - no DNSDB key: passive DNS and the IP pivots;
 - no VPNDB key: the VPN, proxy and Tor check;
 - no BGPDB host: BGP routing comes from RIPEstat alone (RIPE NCC's public service, no key; with a host, from both;
-  Settings → Collection options → BGP routing source). Only the DNS resolution page's routing lookups need BGPDB.
+  Settings → Collection options → BGP routing). Only the DNS resolution page's routing lookups need BGPDB.
 
 Credentials can come from three sources. Each credential is taken from the **first** source that has it:
 

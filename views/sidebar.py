@@ -24,6 +24,7 @@ from config import (
     DOMAIN_HISTORY_SAFETY_LIMIT,
     FETCH_CACHE_TTL_SECONDS,
     LOGO_CANDIDATES,
+    RIPESTAT_MAX_IPS,
     SEED_DEFAULT_TARGETS,
     SEED_MAX_TARGETS,
     THRESHOLD_SPECS,
@@ -434,30 +435,31 @@ def render_collection_options(prefix=""):
                 help=f"Neighbouring /24s, hosting networks and other domains on dedicated exits: up to {VPNDB_NEIGHBOUR_MAX} /24 ranges and {VPNDB_ASN_MAX} hosting networks in VPNDB (one "
                      f"query each) and up to {VPNDB_REVERSE_MAX} DNSDB reverse lookups on dedicated exits. Feeds "
                      "*Hosted Among Anonymizer Exits* and the VPNDB page's Neighbourhood and Leads tabs.")
-    st.markdown("**BGPDB**")
-    st.checkbox(OPTION_LABELS["opt_bgpdb"], key=prefix + "opt_bgpdb",
-                help="On in every use case; only queried with a BGPDB host (Settings → API credentials: an internal "
-                     "DomainTools service, reachable on its network or VPN). Looks up each public hosting IP (IP "
-                     "targets, current Iris IPs, passive DNS; IPv4 and IPv6, no CDN addresses): the announced prefix, "
-                     "the origin network, RPKI / IRR validity and the RIR allocation; then the AS paths of the "
-                     f"prefixes (up to {BGPDB_ROUTE_MAX}) and the origin and upstream networks (up to {BGPDB_ASN_MAX}). "
-                     "Feeds the BGP page and the BGP routing alerts.")
-    bgp_off = not st.session_state[prefix + "opt_bgpdb"] or st.session_state[prefix + "opt_vpndb_only"]
-    b1, b2 = st.columns(2)
-    b1.number_input(OPTION_LABELS["opt_bgpdb_max_ips"], min_value=1, max_value=BGPDB_MAX_IPS * 5, step=50,
-                    key=prefix + "opt_bgpdb_max_ips", disabled=bgp_off,
-                    help="Public hosting addresses looked up (IP targets first, then each domain's current Iris IPs "
-                         "and passive DNS A / AAAA addresses, most recent first). One BGPDB query per /24 (IPv6 /48) "
-                         "they fall in.")
-    b2.checkbox(OPTION_LABELS["opt_bgpdb_context"], key=prefix + "opt_bgpdb_context", disabled=bgp_off,
-                help="Every prefix announced inside the run's own prefixes (e.g. inside the /22 a hosting IP is "
-                     "announced in), and by whom: another, unauthorized origin there is a more-specific hijack; the "
-                     "same origin's are leads. One query per prefix, the 10 busiest.")
     st.checkbox(OPTION_LABELS["opt_vpndb_only"], key=prefix + "opt_vpndb_only",
                 help="No other source: for runs on IP addresses and CIDR ranges only. Looks up the IP targets (IPv4 and IPv6) and CIDR "
                      "ranges in VPNDB and nothing else: no Iris, passive DNS, Domain History or certificates. Domain "
                      "targets are skipped (Data sources says so). Off in every use case except *Check IP addresses*; "
                      "turn it on in a profile only if that profile is meant for IP lists.")
+    st.markdown("**BGP routing (BGPDB and RIPEstat)**")
+    st.checkbox(OPTION_LABELS["opt_bgpdb"], key=prefix + "opt_bgpdb",
+                help="On in every use case. Looks up each public hosting IP (IP targets, current Iris IPs, passive "
+                     "DNS; IPv4 and IPv6, no CDN addresses) in the BGP routing source below: the announced prefix, "
+                     "the origin network, RPKI / IRR validity and the RIR allocation; then the AS paths of the "
+                     f"prefixes (BGPDB: up to {BGPDB_ROUTE_MAX}) and the origin and upstream networks (BGPDB: up to "
+                     f"{BGPDB_ASN_MAX}). Feeds the BGP page and the BGP routing alerts.")
+    bgp_off = not st.session_state[prefix + "opt_bgpdb"] or st.session_state[prefix + "opt_vpndb_only"]
+    b1, b2 = st.columns(2)
+    b1.number_input(OPTION_LABELS["opt_bgpdb_max_ips"], min_value=1, max_value=BGPDB_MAX_IPS * 5, step=50,
+                    key=prefix + "opt_bgpdb_max_ips", disabled=bgp_off,
+                    help="Public hosting addresses looked up (IP targets first, then each domain's current Iris IPs "
+                         "and passive DNS A / AAAA addresses, most recent first). BGPDB: one query per /24 (IPv6 /48) "
+                         f"they fall in; RIPEstat: at most {RIPESTAT_MAX_IPS} of them, three calls each.")
+    b2.checkbox(OPTION_LABELS["opt_bgpdb_context"], key=prefix + "opt_bgpdb_context", disabled=bgp_off,
+                help="Every prefix announced inside the run's own prefixes (e.g. inside the /22 a hosting IP is "
+                     "announced in), and by whom: another, unauthorized origin there is a more-specific hijack; the "
+                     "same origin's are leads. One query per prefix, the 10 busiest.")
+    from views.bgp_source import render_bgp_source
+    render_bgp_source(disabled=bgp_off)
     st.markdown("**Certificate API**")
     c1, c2 = st.columns(2)
     c1.checkbox(OPTION_LABELS["opt_ct"], key=prefix + "opt_ct",
